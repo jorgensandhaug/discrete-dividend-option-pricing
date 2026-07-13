@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_REVISION: 49fad4de2aa42884d68c5da80d20b44a2fddab08
+  ENGINE_REVISION: 1e4f50b8e285fdec99322566dc73868af5d50708
 
 jobs:
   quality:
