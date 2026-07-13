@@ -16,6 +16,17 @@ from .dividend_features import (
     ForecastDividendFeatureSpec,
     add_forecast_dividend_features,
 )
+from .historical_dividends import (
+    HISTORICAL_DIVIDEND_DTYPES,
+    HISTORICAL_DIVIDEND_FEATURE_DTYPES,
+    PROJECT_AS_SUBMITTED_HISTORICAL_DIVIDEND_SPEC,
+    HistoricalDividendContentError,
+    HistoricalDividendError,
+    HistoricalDividendFeatureSpec,
+    HistoricalDividendSchemaError,
+    HistoricalDividendSpecError,
+    add_historical_dividend_features,
+)
 from .orats import (
     AdaptedOratsCurve,
     OratsCurveContentError,
@@ -94,6 +105,8 @@ def engine_build_info() -> BuildInfo:
 
 __all__ = [
     "DIVIDEND_FEATURE_DTYPES",
+    "HISTORICAL_DIVIDEND_DTYPES",
+    "HISTORICAL_DIVIDEND_FEATURE_DTYPES",
     "ORATS_DIVIDEND_DTYPES",
     "ORATS_DIVIDEND_FREQUENCIES",
     "ORATS_NORMALIZED_OPTION_DTYPES",
@@ -103,6 +116,7 @@ __all__ = [
     "ORATS_RAW_SCAN_DTYPES",
     "PROJECT_AS_SUBMITTED_FILTER",
     "PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC",
+    "PROJECT_AS_SUBMITTED_HISTORICAL_DIVIDEND_SPEC",
     "PROJECT_AS_SUBMITTED_UNDERLYING_JOIN_SPEC",
     "PROJECT_HISTORICAL_VOLATILITY_SPEC",
     "QUOTE_FEATURE_DTYPES",
@@ -115,6 +129,11 @@ __all__ = [
     "DividendFeatureSpecError",
     "DuplicateColumnsError",
     "ForecastDividendFeatureSpec",
+    "HistoricalDividendContentError",
+    "HistoricalDividendError",
+    "HistoricalDividendFeatureSpec",
+    "HistoricalDividendSchemaError",
+    "HistoricalDividendSpecError",
     "HistoricalVolatilitySpec",
     "HistoricalVolatilitySpecError",
     "MissingColumnsError",
@@ -145,6 +164,7 @@ __all__ = [
     "adapt_orats_curve",
     "adapt_raw_orats_curve",
     "add_forecast_dividend_features",
+    "add_historical_dividend_features",
     "add_quote_features",
     "apply_quote_filter",
     "canonicalize_orats_curve_frame",

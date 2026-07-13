@@ -70,3 +70,7 @@ not implicit carry-forwards.
 point-in-time snapshot coverage, and fans them back to quotes without reordering. The submitted
 zero-event, same-date-component, expiry-boundary, day-count, and scalar-feature policies are carried
 by one immutable specification.
+
+`add_historical_dividend_features` uses a cumulative two-as-of algorithm on unique ticker/date keys
+for the explicit 52-week observed-cash window. It validates history coverage and exact endpoint
+semantics before joining totals back to quote rows.
