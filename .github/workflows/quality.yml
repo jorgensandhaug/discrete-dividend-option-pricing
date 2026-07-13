@@ -12,9 +12,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  ENGINE_REVISION: a56048c7948c4f49e58160fbe1126df56d6c0b6a
-
 jobs:
   quality:
     name: Paper and pinned-engine integration gates
@@ -27,11 +24,20 @@ jobs:
           path: paper
           persist-credentials: false
 
+      - name: Resolve declared engine revision
+        id: engine
+        working-directory: paper
+        shell: bash
+        run: |
+          revision="$(tr -d '[:space:]' < config/engine-revision.txt)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
       - name: Check out exact private engine revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: jorgensandhaug/finoptions-engine
-          ref: ${{ env.ENGINE_REVISION }}
+          ref: ${{ steps.engine.outputs.revision }}
           ssh-key: ${{ secrets.FINOPTIONS_ENGINE_DEPLOY_KEY }}
           path: finoptions-engine
           persist-credentials: false
@@ -42,8 +48,7 @@ jobs:
         run: |
           declared="$(tr -d '[:space:]' < config/engine-revision.txt)"
           checked_out="$(git -C ../finoptions-engine rev-parse HEAD)"
-          test "$declared" = "$ENGINE_REVISION"
-          test "$checked_out" = "$ENGINE_REVISION"
+          test "$checked_out" = "$declared"
 
       - name: Install locked uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
