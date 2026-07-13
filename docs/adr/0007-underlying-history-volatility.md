@@ -13,3 +13,10 @@ windows, sample standard deviation with one degree of freedom, and annualization
 These values are immutable and explicit; the implementation does not interpret a window as calendar
 days or synthesize prices for non-trading days. Split-adjusted close is retained separately for the
 historical-dividend-yield stage.
+
+Prepared history joins backward by ticker and date only after both grouped timelines are validated
+as nondecreasing. Every distinct quote date must have support. The matched observation date and its
+civil-day lag remain explicit output columns, and an immutable join specification records whether
+same-date observations are eligible and whether lag is bounded. The as-submitted identity permits
+same-date observations and records its historical unlimited backward lag explicitly; alternative
+point-in-time policies require separate identities.

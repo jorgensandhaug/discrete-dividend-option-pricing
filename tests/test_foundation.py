@@ -6,9 +6,11 @@ import polars as pl
 import pytest
 
 from discrete_dividend_study import (
+    ConflictingColumnsError,
     DuplicateColumnsError,
     MissingColumnsError,
     engine_build_info,
+    forbid_columns,
     require_columns,
 )
 
@@ -41,3 +43,11 @@ def test_schema_declaration_rejects_duplicates() -> None:
     frame = pl.LazyFrame({"spot": [100.0]})
     with pytest.raises(DuplicateColumnsError, match="must be unique"):
         require_columns(frame, ("spot", "spot"))
+
+
+def test_downstream_owned_columns_cannot_be_suffixed_silently() -> None:
+    """A staged join must reject output-name collisions instead of creating suffixes."""
+    frame = pl.LazyFrame({"spot": [100.0], "risk_free_rate": [0.03]})
+    with pytest.raises(ConflictingColumnsError) as caught:
+        forbid_columns(frame, ("risk_free_rate", "historical_volatility"))
+    assert caught.value.conflicting == ("risk_free_rate",)

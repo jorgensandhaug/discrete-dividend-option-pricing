@@ -34,6 +34,17 @@ class DuplicateColumnsError(ValueError):
         return f"required column names must be unique; observed {self.required!r}"
 
 
+@dataclass(frozen=True, slots=True)
+class ConflictingColumnsError(ValueError):
+    """A lazy input already contains columns owned by a downstream stage."""
+
+    conflicting: tuple[str, ...]
+
+    def __str__(self) -> str:
+        """Describe the conflicting schema names without inspecting rows."""
+        return f"downstream-owned columns already exist: {self.conflicting!r}"
+
+
 def require_columns(frame: pl.LazyFrame, required: tuple[str, ...]) -> pl.LazyFrame:
     """Validate required names without materializing rows and return the same lazy plan.
 
@@ -49,4 +60,21 @@ def require_columns(frame: pl.LazyFrame, required: tuple[str, ...]) -> pl.LazyFr
     missing = tuple(name for name in required if name not in available_set)
     if missing:
         raise MissingColumnsError(missing=missing, available=available)
+    return frame
+
+
+def forbid_columns(frame: pl.LazyFrame, forbidden: tuple[str, ...]) -> pl.LazyFrame:
+    """Reject names owned by a downstream stage and return the same lazy plan.
+
+    Raises:
+        DuplicateColumnsError: If the forbidden-name declaration contains duplicates.
+        ConflictingColumnsError: If one or more forbidden names already exist.
+
+    """
+    if len(forbidden) != len(set(forbidden)):
+        raise DuplicateColumnsError(required=forbidden)
+    available = set(frame.collect_schema().names())
+    conflicting = tuple(name for name in forbidden if name in available)
+    if conflicting:
+        raise ConflictingColumnsError(conflicting=conflicting)
     return frame

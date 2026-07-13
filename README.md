@@ -58,3 +58,5 @@ than recovering hidden defaults at runtime.
 `prepare_underlying_history` validates the daily adjusted-price contract, canonicalizes observation
 order, and computes the immutable project rolling-volatility specification with complete windows and
 explicit sample degrees of freedom and annualization.
+`join_underlying_history` then validates grouped as-of ordering and support coverage while retaining
+the exact matched observation date and staleness beside every quote.
