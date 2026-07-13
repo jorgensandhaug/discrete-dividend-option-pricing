@@ -253,6 +253,7 @@ def _execution(
             precision=ModelPrecision.FLOAT32,
             compilation=CompilationMode.EAGER,
             cpu_threads=threads,
+            inference_batch_size=8192,
         )
     if choice is ExecutionChoice.MLX_GPU:
         return NeuralExecutionSpec(
@@ -261,6 +262,7 @@ def _execution(
             precision=ModelPrecision.FLOAT32,
             compilation=CompilationMode.COMPILED,
             cpu_threads=None,
+            inference_batch_size=8192,
         )
     reason = f"unsupported execution choice {choice!r}"
     raise ValueError(reason)

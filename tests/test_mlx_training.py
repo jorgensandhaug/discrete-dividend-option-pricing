@@ -12,7 +12,10 @@ from discrete_dividend_study.mlx_neural import (
     mlx_prediction_numpy,
     prepare_mlx_neural_batch,
 )
-from discrete_dividend_study.mlx_training import train_mlx_project_model
+from discrete_dividend_study.mlx_training import (
+    predict_mlx_project_model,
+    train_mlx_project_model,
+)
 from discrete_dividend_study.neural_execution import CompilationMode
 from discrete_dividend_study.neural_parameters import initialize_neural_parameters
 from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
@@ -29,6 +32,7 @@ TRAINING_SEED = 20261209
 SHUFFLE_SEED = 20261210
 TEST_BATCH_SIZE = 5
 TEST_EPOCHS = 2
+INFERENCE_GEOMETRY_ATOL = 2e-5
 TRAINING_DATA_SHA256 = "a" * 64
 VALIDATION_DATA_SHA256 = "b" * 64
 
@@ -65,6 +69,25 @@ def test_eager_training_is_deterministic_and_restores_best() -> None:
     first_prediction = mlx_prediction_numpy(first.network, first_values)
     second_prediction = mlx_prediction_numpy(second.network, second_values)
     np.testing.assert_array_equal(first_prediction, second_prediction)
+    fixed_prediction = predict_mlx_project_model(
+        first.network,
+        validation_batch,
+        batch_size=TEST_BATCH_SIZE,
+    )
+    np.testing.assert_array_equal(
+        fixed_prediction,
+        predict_mlx_project_model(
+            second.network,
+            validation_batch,
+            batch_size=TEST_BATCH_SIZE,
+        ),
+    )
+    np.testing.assert_allclose(
+        fixed_prediction,
+        first_prediction[:, 0],
+        rtol=0.0,
+        atol=INFERENCE_GEOMETRY_ATOL,
+    )
     assert np.isfinite(first_prediction).all()
     assert tuple(parameter.name for parameter in first.parameters) == tuple(
         sorted(parameter.name for parameter in parameters.parameters)

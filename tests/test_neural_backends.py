@@ -64,6 +64,7 @@ _MLX_CPU = NeuralExecutionSpec(
     precision=ModelPrecision.FLOAT32,
     compilation=CompilationMode.EAGER,
     cpu_threads=None,
+    inference_batch_size=8,
 )
 _PYTORCH_CPU_1 = NeuralExecutionSpec(
     backend=NeuralBackend.PYTORCH,
@@ -71,6 +72,7 @@ _PYTORCH_CPU_1 = NeuralExecutionSpec(
     precision=ModelPrecision.FLOAT32,
     compilation=CompilationMode.EAGER,
     cpu_threads=1,
+    inference_batch_size=8,
 )
 
 

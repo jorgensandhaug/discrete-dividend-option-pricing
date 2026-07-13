@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 import mlx.core as mx  # ty: ignore[unresolved-import] - MLX does not ship core stubs
 import numpy as np
+import numpy.typing as npt
 from mlx import nn, optimizers
 from mlx.utils import tree_flatten
 
@@ -21,6 +22,7 @@ from .mlx_neural import (
     prepare_mlx_neural_batch,
     snapshot_mlx_parameters,
 )
+from .model_inputs import PreparedNeuralBatch
 from .neural_batching import NeuralBatchPlan, build_neural_epoch_batch_indices
 from .neural_control import advance_neural_control, initial_neural_control_state
 from .neural_execution import CompilationMode
@@ -50,6 +52,8 @@ type MlxFixedBatchTree = tuple[
 ]
 type MlxTrainingStep = Callable[[MlxFixedBatchTree], tuple[mx.array, mx.array]]
 type MlxValidationStep = Callable[[MlxFixedBatchTree], mx.array]
+type MlxPredictionStep = Callable[[MlxFixedBatchTree], mx.array]
+Float32Vector = npt.NDArray[np.float32]
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +175,42 @@ def train_mlx_project_model(request: NeuralTrainingRequest) -> MlxTrainingResult
     )
 
 
+def predict_mlx_project_model(
+    network: MlxProjectModel,
+    batch: PreparedNeuralBatch,
+    *,
+    batch_size: int,
+) -> Float32Vector:
+    """Predict every source row once with bounded fixed-shape compiled device batches."""
+    if type(network) is not MlxProjectModel:
+        raise NeuralTrainingError(reason="network must be MlxProjectModel")
+    if type(batch) is not PreparedNeuralBatch:
+        raise NeuralTrainingError(reason="batch must be PreparedNeuralBatch")
+    source = prepare_mlx_neural_batch(batch, network)
+    plan = NeuralBatchPlan(rows=batch.rows, batch_size=batch_size, shuffle=False, seed=None)
+    layout = build_neural_epoch_batch_indices(plan, 0)
+    epoch = _transfer_epoch_indices(layout)
+    step = _prediction_step(network, network.runtime.compilation)
+    network.eval()
+    prediction = np.empty(batch.rows, dtype=np.float32)
+    for batch_index in range(plan.batches):
+        tree = _gather_fixed_batch_tree(
+            source,
+            epoch.indices[batch_index],
+            epoch.valid[batch_index],
+        )
+        device_prediction = step(tree)
+        mx.eval(device_prediction)
+        physical = np.array(device_prediction, dtype=np.float32, copy=True)
+        if physical.shape != (plan.batch_size, 1) or not np.isfinite(physical).all():
+            raise NeuralTrainingError(reason="MLX returned invalid predictions")
+        valid_rows = layout.valid_rows_at(batch_index)
+        start = batch_index * plan.batch_size
+        prediction[start : start + valid_rows] = physical[:valid_rows, 0]
+    prediction.flags.writeable = False
+    return prediction
+
+
 def _training_step(
     network: MlxProjectModel,
     optimizer: optimizers.AdamW,
@@ -211,6 +251,20 @@ def _validation_step(
         return step
     if compilation is CompilationMode.COMPILED:
         return cast("MlxValidationStep", partial(mx.compile, inputs=network.state)(step))
+    raise NeuralTrainingError(reason=f"unsupported MLX compilation mode {compilation!r}")
+
+
+def _prediction_step(
+    network: MlxProjectModel,
+    compilation: CompilationMode,
+) -> MlxPredictionStep:
+    def step(tree: MlxFixedBatchTree) -> mx.array:
+        return network(_fixed_batch_from_tree(network, tree).values)
+
+    if compilation is CompilationMode.EAGER:
+        return step
+    if compilation is CompilationMode.COMPILED:
+        return cast("MlxPredictionStep", partial(mx.compile, inputs=network.state)(step))
     raise NeuralTrainingError(reason=f"unsupported MLX compilation mode {compilation!r}")
 
 
@@ -344,5 +398,6 @@ def _require_finite_parameters(network: MlxProjectModel) -> None:
 
 __all__ = [
     "MlxTrainingResult",
+    "predict_mlx_project_model",
     "train_mlx_project_model",
 ]

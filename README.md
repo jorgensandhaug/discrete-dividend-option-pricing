@@ -20,6 +20,7 @@ Check out `finoptions-engine` beside this repository, then run:
 just test
 just check
 just bench-neural nn_bin 100000 10000 10
+just bench-inference nn_bin 100000 8192
 ```
 
 The state-aware launcher synchronizes the locked environment and rebuilds a changed Rust extension
@@ -104,3 +105,10 @@ Neural epochs use deterministic fixed-shape batches while preserving every logic
 MLX share explicit optimizer, scheduling, early-stopping, and best-weight semantics. Reusable model
 artifacts are atomic content-addressed safe-tensors files bound to study, phase hashes, seeds,
 runtime, parameters, and complete metric history; pickle and mutable “latest” aliases are excluded.
+
+`prepare_project_neural_window` collects all three projected phases together and hashes the exact
+read-only model tensors. `run_neural_window` then trains the explicitly profiled backend, performs
+bounded fixed-batch inference, computes the submitted pooled MAPE/RMSE and diagnostic metrics, and
+emits cross-referenced checkpoint, prediction, and canonical JSON run artifacts. Source identity is
+resolved only from caller-supplied feature and lock files plus full Git commits; no production path
+searches for “latest”, clips an invalid prediction, changes backend, or skips a failed window.

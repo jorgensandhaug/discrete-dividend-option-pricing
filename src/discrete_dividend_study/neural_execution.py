@@ -68,13 +68,14 @@ class NeuralRuntimeUnavailableError(NeuralExecutionError):
 
 @dataclass(frozen=True, slots=True)
 class NeuralExecutionSpec:
-    """One immutable backend, device, precision, compilation, and CPU-thread identity."""
+    """One immutable backend, device, precision, compilation, and batching identity."""
 
     backend: NeuralBackend
     device: NeuralDevice
     precision: ModelPrecision
     compilation: CompilationMode
     cpu_threads: int | None
+    inference_batch_size: int
 
     def __post_init__(self) -> None:
         """Reject unsupported combinations rather than rewriting them."""
@@ -86,6 +87,7 @@ class NeuralExecutionSpec:
             raise NeuralExecutionSpecError(reason="only explicit float32 is approved")
         if type(self.compilation) is not CompilationMode:
             raise NeuralExecutionSpecError(reason="compilation must be CompilationMode")
+        _validate_inference_batch_size(self.inference_batch_size)
         allowed_devices = {
             NeuralBackend.MLX: {NeuralDevice.CPU, NeuralDevice.MLX_GPU},
             NeuralBackend.PYTORCH: {NeuralDevice.CPU, NeuralDevice.MPS, NeuralDevice.CUDA},
@@ -122,6 +124,13 @@ class ModelExecutionSpec:
             raise NeuralExecutionSpecError(reason="variant must be NeuralVariant")
         if type(self.execution) is not NeuralExecutionSpec:
             raise NeuralExecutionSpecError(reason="execution must be NeuralExecutionSpec")
+
+
+def _validate_inference_batch_size(value: object) -> None:
+    if type(value) is not int or value <= 0:
+        raise NeuralExecutionSpecError(
+            reason="inference_batch_size must be a positive plain int",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +276,7 @@ def _execution(
     compilation: CompilationMode,
     *,
     cpu_threads: int | None = None,
+    inference_batch_size: int,
 ) -> NeuralExecutionSpec:
     return NeuralExecutionSpec(
         backend=backend,
@@ -274,6 +284,7 @@ def _execution(
         precision=ModelPrecision.FLOAT32,
         compilation=compilation,
         cpu_threads=cpu_threads,
+        inference_batch_size=inference_batch_size,
     )
 
 
@@ -281,16 +292,18 @@ _MLX_GPU_COMPILED: Final = _execution(
     NeuralBackend.MLX,
     NeuralDevice.MLX_GPU,
     CompilationMode.COMPILED,
+    inference_batch_size=8192,
 )
 _PYTORCH_CPU_1: Final = _execution(
     NeuralBackend.PYTORCH,
     NeuralDevice.CPU,
     CompilationMode.EAGER,
     cpu_threads=1,
+    inference_batch_size=8192,
 )
 
 PROJECT_APPLE_SILICON_EXECUTION_PROFILE: Final = NeuralExecutionProfile(
-    name="project_apple_silicon_m4_pro_v2",
+    name="project_apple_silicon_m4_pro_v3",
     models=tuple(
         ModelExecutionSpec(
             variant=variant,
@@ -304,7 +317,7 @@ PROJECT_APPLE_SILICON_EXECUTION_PROFILE: Final = NeuralExecutionProfile(
     ),
 )
 PROJECT_PORTABLE_CPU_EXECUTION_PROFILE: Final = NeuralExecutionProfile(
-    name="project_portable_pytorch_cpu_1_v1",
+    name="project_portable_pytorch_cpu_1_v2",
     models=tuple(
         ModelExecutionSpec(variant=variant, execution=_PYTORCH_CPU_1) for variant in NeuralVariant
     ),

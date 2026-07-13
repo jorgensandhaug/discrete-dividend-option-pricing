@@ -19,7 +19,10 @@ from discrete_dividend_study.torch_neural import (
     prepare_torch_neural_batch,
     torch_prediction_numpy,
 )
-from discrete_dividend_study.torch_training import train_torch_project_model
+from discrete_dividend_study.torch_training import (
+    predict_torch_project_model,
+    train_torch_project_model,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,6 +34,7 @@ TRAINING_SEED = 20261209
 SHUFFLE_SEED = 20261210
 TEST_BATCH_SIZE = 5
 TEST_EPOCHS = 3
+INFERENCE_GEOMETRY_ATOL = 2e-5
 TRAINING_DATA_SHA256 = "a" * 64
 VALIDATION_DATA_SHA256 = "b" * 64
 
@@ -74,6 +78,25 @@ def test_training_is_deterministic_restores_best_and_keeps_partial_rows() -> Non
     first_prediction = torch_prediction_numpy(first.network, first_values)
     second_prediction = torch_prediction_numpy(second.network, second_values)
     np.testing.assert_array_equal(first_prediction, second_prediction)
+    fixed_prediction = predict_torch_project_model(
+        first.network,
+        validation_batch,
+        batch_size=TEST_BATCH_SIZE,
+    )
+    np.testing.assert_array_equal(
+        fixed_prediction,
+        predict_torch_project_model(
+            second.network,
+            validation_batch,
+            batch_size=TEST_BATCH_SIZE,
+        ),
+    )
+    np.testing.assert_allclose(
+        fixed_prediction,
+        first_prediction[:, 0],
+        rtol=0.0,
+        atol=INFERENCE_GEOMETRY_ATOL,
+    )
     assert np.isfinite(first_prediction).all()
     assert first_prediction.shape == (validation_batch.rows, 1)
     assert tuple(parameter.name for parameter in first.parameters) == tuple(

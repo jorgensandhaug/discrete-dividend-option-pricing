@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Final
 
@@ -48,6 +49,7 @@ PROJECT_AS_SUBMITTED_FEATURE_DTYPES = {
 }
 PROJECT_AS_SUBMITTED_FEATURE_COLUMNS = tuple(PROJECT_AS_SUBMITTED_FEATURE_DTYPES)
 PROJECT_AS_SUBMITTED_TICKERS: Final = ("DUK", "EPD", "ETR", "MO", "SO", "VZ")
+_PROJECT_FEATURE_SCHEMA_HASH_FORMAT: Final = "project-as-submitted-feature-schema-v1"
 
 
 class ProjectFeatureError(ValueError):
@@ -74,6 +76,19 @@ class ProjectFeatureUniverseError(ProjectFeatureError):
     def __str__(self) -> str:
         """Identify absent public ticker symbols without exposing licensed rows."""
         return f"project feature source is missing study tickers: {self.missing_tickers!r}"
+
+
+def project_feature_schema_sha256() -> str:
+    """Hash the exact ordered project feature names and Polars dtypes."""
+    hasher = hashlib.sha256()
+    for value in (
+        _PROJECT_FEATURE_SCHEMA_HASH_FORMAT,
+        *(item for pair in PROJECT_AS_SUBMITTED_FEATURE_DTYPES.items() for item in map(str, pair)),
+    ):
+        encoded = value.encode("utf-8")
+        hasher.update(len(encoded).to_bytes(8, byteorder="little", signed=False))
+        hasher.update(encoded)
+    return hasher.hexdigest()
 
 
 def _select_project_as_submitted_universe(frame: pl.LazyFrame) -> pl.LazyFrame:
@@ -191,5 +206,6 @@ __all__ = [
     "ProjectFeatureSchemaError",
     "ProjectFeatureUniverseError",
     "build_project_as_submitted_features",
+    "project_feature_schema_sha256",
     "select_project_as_submitted_features",
 ]

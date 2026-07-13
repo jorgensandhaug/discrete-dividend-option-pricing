@@ -17,10 +17,20 @@ from discrete_dividend_study import (
     PROJECT_AS_SUBMITTED_TICKERS,
     ProjectFeatureUniverseError,
     build_project_as_submitted_features,
+    project_feature_schema_sha256,
 )
 
 HISTORY_ROWS = 430
 SHORTEST_RATE = 0.019
+SHA256_HEX_LENGTH = 64
+
+
+def test_project_feature_schema_has_one_stable_ordered_identity() -> None:
+    """The manifest schema hash is lowercase SHA-256 over the ordered feature contract."""
+    first = project_feature_schema_sha256()
+    assert first == project_feature_schema_sha256()
+    assert len(first) == SHA256_HEX_LENGTH
+    assert first == first.lower()
 
 
 def normalized_options() -> pl.LazyFrame:

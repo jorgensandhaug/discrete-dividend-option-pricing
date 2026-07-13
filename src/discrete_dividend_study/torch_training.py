@@ -6,8 +6,11 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+import numpy as np
+import numpy.typing as npt
 import torch
 
+from .model_inputs import PreparedNeuralBatch
 from .neural_batching import NeuralBatchPlan, build_neural_epoch_batch_indices
 from .neural_control import advance_neural_control, initial_neural_control_state
 from .neural_parameters import NeuralParameter
@@ -24,12 +27,15 @@ from .torch_neural import (
     prepare_torch_neural_batch,
     snapshot_torch_parameters,
     torch_fixed_smape_objective,
+    torch_prediction_numpy,
 )
 
 if TYPE_CHECKING:
     from .neural_batching import NeuralEpochBatchIndices
     from .neural_spec import NeuralStudySpec
     from .torch_neural import TorchNeuralBatch
+
+Float32Vector = npt.NDArray[np.float32]
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +156,40 @@ def train_torch_project_model(request: NeuralTrainingRequest) -> TorchTrainingRe
     )
 
 
+def predict_torch_project_model(
+    network: TorchProjectModel,
+    batch: PreparedNeuralBatch,
+    *,
+    batch_size: int,
+) -> Float32Vector:
+    """Predict every source row once with bounded fixed-shape device batches."""
+    if type(network) is not TorchProjectModel:
+        raise NeuralTrainingError(reason="network must be TorchProjectModel")
+    if type(batch) is not PreparedNeuralBatch:
+        raise NeuralTrainingError(reason="batch must be PreparedNeuralBatch")
+    source = prepare_torch_neural_batch(batch, network)
+    plan = NeuralBatchPlan(rows=batch.rows, batch_size=batch_size, shuffle=False, seed=None)
+    layout = build_neural_epoch_batch_indices(plan, 0)
+    epoch = _transfer_epoch_indices(layout, source)
+    prediction = np.empty(batch.rows, dtype=np.float32)
+    for batch_index in range(plan.batches):
+        fixed = gather_torch_device_batch(
+            source,
+            epoch.indices[batch_index],
+            epoch.valid[batch_index],
+        )
+        valid_rows = layout.valid_rows_at(batch_index)
+        start = batch_index * plan.batch_size
+        prediction[start : start + valid_rows] = torch_prediction_numpy(
+            network,
+            fixed.values,
+        )[:valid_rows, 0]
+    if not np.isfinite(prediction).all():
+        raise NeuralTrainingError(reason="PyTorch returned nonfinite predictions")
+    prediction.flags.writeable = False
+    return prediction
+
+
 def _train_epoch(
     network: TorchProjectModel,
     optimizer: torch.optim.AdamW,
@@ -242,5 +282,6 @@ def _require_finite_parameters(network: TorchProjectModel) -> None:
 
 __all__ = [
     "TorchTrainingResult",
+    "predict_torch_project_model",
     "train_torch_project_model",
 ]

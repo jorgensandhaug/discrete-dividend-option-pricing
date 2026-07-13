@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final, cast
+from typing import Final, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -36,6 +37,14 @@ type DividendTensor = PaddedCashDividends | BinnedCashDividends
 
 _FLOAT32_DTYPE: Final = np.dtype(np.float32)
 _FLOAT64_DTYPE: Final = np.dtype(np.float64)
+_PREPARED_BATCH_HASH_FORMAT: Final = "discrete-dividend-prepared-neural-batch-v1"
+
+
+class _HashWriter(Protocol):
+    """The buffer-writing subset shared by hashlib hash implementations."""
+
+    def update(self, data: bytes | bytearray | memoryview, /) -> None:
+        """Append bytes to the digest state."""
 
 
 class ModelInputError(ValueError):
@@ -163,11 +172,48 @@ class PreparedNeuralBatch:
         _validate_dividend_tensor(self)
         if self.dividends is not None and self.dividends.rows != self.scalar_features.shape[0]:
             raise ModelInputContentError(violations=(("dividend_tensor_row_mismatch", 1),))
+        _freeze_batch_arrays(self)
 
     @property
     def rows(self) -> int:
         """Return the exact number of model observations."""
         return int(self.scalar_features.shape[0])
+
+
+def prepared_neural_batch_sha256(batch: PreparedNeuralBatch) -> str:
+    """Hash the exact model identity, tensor layouts, dtypes, and materialized bytes.
+
+    The function streams C-contiguous buffers directly into SHA-256; it does not serialize or copy
+    a full phase. The result identifies the actual float32 model boundary rather than a mutable
+    source path or a provider-specific row representation.
+    """
+    if type(batch) is not PreparedNeuralBatch:
+        raise ModelInputTypeError(
+            field="batch",
+            observed=type(batch).__name__,
+            expected="PreparedNeuralBatch",
+        )
+    hasher = hashlib.sha256()
+    _hash_text(hasher, _PREPARED_BATCH_HASH_FORMAT)
+    _hash_text(hasher, batch.model.variant.value)
+    _hash_text(hasher, batch.model.submitted_result_name)
+    for column in batch.model.scalar_columns:
+        _hash_text(hasher, column)
+    _hash_text(hasher, batch.model.target_column)
+    _hash_array(hasher, "scalar_features", batch.scalar_features)
+    _hash_array(hasher, "target", batch.target)
+    if type(batch.dividends) is PaddedCashDividends:
+        _hash_text(hasher, "padded_cash_dividends")
+        _hash_array(hasher, "dividend_times", batch.dividends.times)
+        _hash_array(hasher, "dividend_amounts", batch.dividends.amounts)
+        _hash_array(hasher, "dividend_mask", batch.dividends.mask)
+        _hash_array(hasher, "dividend_lengths", batch.dividends.lengths)
+    elif type(batch.dividends) is BinnedCashDividends:
+        _hash_text(hasher, "binned_cash_dividends")
+        _hash_array(hasher, "binned_amounts", batch.dividends.amounts)
+    else:
+        _hash_text(hasher, "no_dividend_tensor")
+    return hasher.hexdigest()
 
 
 def prepare_project_neural_batch(
@@ -246,6 +292,22 @@ def prepare_project_neural_batch(
         scalar_features=scalar_features,
         target=target,
         dividends=dividends,
+    )
+
+
+def project_neural_input_columns(model: NeuralModelSpec) -> tuple[str, ...]:
+    """Return the minimal ordered materialized column set for one project model."""
+    if type(model) is not NeuralModelSpec or model not in PROJECT_NEURAL_STUDY_SPEC.models:
+        raise ModelInputTypeError(
+            field="model",
+            observed=type(model).__name__,
+            expected="a model owned by PROJECT_NEURAL_STUDY_SPEC",
+        )
+    needs_events = type(model.dividend_input) is not DividendYieldInput
+    return _required_columns(
+        model,
+        PROJECT_RAGGED_DIVIDEND_COLUMNS,
+        needs_events=needs_events,
     )
 
 
@@ -592,6 +654,42 @@ def _validate_binned_tensor(batch: PreparedNeuralBatch, bins: int) -> None:
         raise ModelInputContentError(violations=(("nonfinite_binned_dividends", 1),))
 
 
+def _freeze_batch_arrays(batch: PreparedNeuralBatch) -> None:
+    arrays = [batch.scalar_features, batch.target]
+    if type(batch.dividends) is PaddedCashDividends:
+        arrays.extend(
+            (
+                batch.dividends.times,
+                batch.dividends.amounts,
+                batch.dividends.mask,
+                batch.dividends.lengths,
+            ),
+        )
+    elif type(batch.dividends) is BinnedCashDividends:
+        arrays.append(batch.dividends.amounts)
+    for array in arrays:
+        array.flags.writeable = False
+
+
+def _hash_text(hasher: _HashWriter, value: str) -> None:
+    encoded = value.encode("utf-8")
+    hasher.update(len(encoded).to_bytes(8, byteorder="little", signed=False))
+    hasher.update(encoded)
+
+
+def _hash_array(
+    hasher: _HashWriter,
+    label: str,
+    array: npt.NDArray[np.generic],
+) -> None:
+    _hash_text(hasher, label)
+    _hash_text(hasher, array.dtype.str)
+    hasher.update(array.ndim.to_bytes(8, byteorder="little", signed=False))
+    for dimension in array.shape:
+        hasher.update(dimension.to_bytes(8, byteorder="little", signed=False))
+    hasher.update(memoryview(array).cast("B"))
+
+
 __all__ = [
     "PROJECT_RAGGED_DIVIDEND_COLUMNS",
     "EventBufferError",
@@ -603,4 +701,6 @@ __all__ = [
     "PreparedNeuralBatch",
     "RaggedDividendColumns",
     "prepare_project_neural_batch",
+    "prepared_neural_batch_sha256",
+    "project_neural_input_columns",
 ]

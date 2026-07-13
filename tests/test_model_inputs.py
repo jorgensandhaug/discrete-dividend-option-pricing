@@ -17,11 +17,13 @@ from discrete_dividend_study.model_inputs import (
     ModelInputTypeError,
     PreparedNeuralBatch,
     prepare_project_neural_batch,
+    prepared_neural_batch_sha256,
 )
 from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
 
 PROJECT_ROWS = 3
 FRAGMENT_COUNT = 2
+SHA256_HEX_LENGTH = 64
 
 
 def model_frame() -> pl.DataFrame:
@@ -154,6 +156,41 @@ def test_right_closed_chronological_bins(executor: CpuExecutor) -> None:
         rtol=0.0,
         atol=1e-8,
     )
+
+
+@pytest.mark.parametrize("variant", list(NeuralVariant))
+def test_prepared_batch_hash_binds_exact_read_only_model_tensors(
+    executor: CpuExecutor,
+    variant: NeuralVariant,
+) -> None:
+    """The phase identity is deterministic, model-specific, and cannot omit a tensor family."""
+    model = PROJECT_NEURAL_STUDY_SPEC.model(variant)
+    first = prepare_project_neural_batch(model_frame(), model, executor)
+    second = prepare_project_neural_batch(model_frame(), model, executor)
+    assert prepared_neural_batch_sha256(first) == prepared_neural_batch_sha256(second)
+    assert len(prepared_neural_batch_sha256(first)) == SHA256_HEX_LENGTH
+    arrays = [first.scalar_features, first.target]
+    if type(first.dividends) is PaddedCashDividends:
+        arrays.extend(
+            (
+                first.dividends.times,
+                first.dividends.amounts,
+                first.dividends.mask,
+                first.dividends.lengths,
+            ),
+        )
+    elif type(first.dividends) is BinnedCashDividends:
+        arrays.append(first.dividends.amounts)
+    assert all(not array.flags.writeable for array in arrays)
+
+    changed = prepare_project_neural_batch(
+        model_frame().with_columns(
+            (pl.col("call_mid_price") + pl.lit(0.25, dtype=pl.Float32)).alias("call_mid_price"),
+        ),
+        model,
+        executor,
+    )
+    assert prepared_neural_batch_sha256(changed) != prepared_neural_batch_sha256(first)
 
 
 def test_fragmented_event_children_require_explicit_rechunk(executor: CpuExecutor) -> None:

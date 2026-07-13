@@ -17,13 +17,16 @@ from discrete_dividend_study.neural_execution import (
 )
 from discrete_dividend_study.neural_spec import ModelPrecision, NeuralVariant
 
+PROFILE_INFERENCE_BATCH_SIZE = 8192
+
 
 def test_apple_profile_uses_measured_per_model_policies() -> None:
     """Sequence models use measured CPU paths while three models use compiled MLX GPU."""
     profile = PROJECT_APPLE_SILICON_EXECUTION_PROFILE
-    assert profile.name == "project_apple_silicon_m4_pro_v2"
+    assert profile.name == "project_apple_silicon_m4_pro_v3"
     for variant in NeuralVariant:
         execution = profile.for_variant(variant)
+        assert execution.inference_batch_size == PROFILE_INFERENCE_BATCH_SIZE
         if variant in {NeuralVariant.LSTM, NeuralVariant.EMBEDDING}:
             assert execution.backend is NeuralBackend.PYTORCH
             assert execution.device is NeuralDevice.CPU
@@ -43,6 +46,7 @@ def test_portable_profile_never_infers_an_accelerator() -> None:
         assert execution.backend is NeuralBackend.PYTORCH
         assert execution.device is NeuralDevice.CPU
         assert execution.cpu_threads == 1
+        assert execution.inference_batch_size == PROFILE_INFERENCE_BATCH_SIZE
 
 
 @pytest.mark.parametrize(
@@ -69,7 +73,22 @@ def test_invalid_backend_device_thread_and_compilation_combinations_fail(
             precision=ModelPrecision.FLOAT32,
             compilation=compilation,
             cpu_threads=threads,
+            inference_batch_size=8192,
         )
+
+
+def test_nonpositive_or_inferred_inference_batch_size_fails() -> None:
+    """Inference memory geometry is an explicit positive integer, never a hidden heuristic."""
+    for batch_size in (0, -1, True):
+        with pytest.raises(NeuralExecutionSpecError, match="inference_batch_size"):
+            NeuralExecutionSpec(
+                backend=NeuralBackend.PYTORCH,
+                device=NeuralDevice.CPU,
+                precision=ModelPrecision.FLOAT32,
+                compilation=CompilationMode.EAGER,
+                cpu_threads=1,
+                inference_batch_size=batch_size,
+            )
 
 
 def test_profile_lookup_rejects_variant_strings() -> None:
