@@ -25,3 +25,24 @@ The state-aware launcher synchronizes the locked environment and rebuilds a chan
 without publishing a package. The repository remains private and no publication or public release
 is authorized.
 
+The first production data boundary is intentionally small:
+
+```python
+import polars as pl
+from finoptions import EventSchedule
+
+from discrete_dividend_study import adapt_raw_orats_curve
+
+schedule = EventSchedule(
+    times=(0.0, 0.25, 0.5, 1.0),
+    dividends=(),
+    exercise_nodes=(),
+    expiry_node=3,
+)
+adapted = adapt_raw_orats_curve(pl.scan_parquet("local-orats-slice.parquet"), schedule)
+curve = adapted.curve
+```
+
+The adapter remains lazy until it reduces the selected rows to maturity nodes, validates source
+agreement and calendar ordering, and rejects extrapolation. Its financial contract is recorded in
+[ADR 0004](docs/adr/0004-orats-curve-adapter.md).
