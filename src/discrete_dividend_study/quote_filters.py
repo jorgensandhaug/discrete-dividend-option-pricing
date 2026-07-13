@@ -233,11 +233,11 @@ def add_quote_features(frame: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
-def apply_quote_filter(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
-    """Apply one explicit filter identity after all required support-data joins.
+def apply_quote_predicates(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
+    """Apply only the explicit quote-domain predicates and preserve extra columns.
 
-    Extra feature columns are preserved. When `drop_nulls` is true, null removal therefore applies
-    to the complete joined row exactly where this stage is placed in the pipeline.
+    This operation can run before expensive support joins because every predicate depends only on
+    normalized quote features. The separately named complete-row policy remains a post-join stage.
 
     Raises:
         MissingColumnsError: If a required derived quote feature is absent.
@@ -262,12 +262,32 @@ def apply_quote_filter(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
     if spec.max_quote_date is not None:
         predicate &= pl.col("quote_date") <= spec.max_quote_date
 
-    filtered = (
+    return (
         validated.filter(predicate)
         .filter(pl.col("call_intrinsic") < pl.col("call_ask") * spec.intrinsic_ask_multiplier)
         .filter(pl.col("project_call_spread") < spec.max_project_call_spread)
     )
-    return filtered.drop_nulls() if spec.drop_nulls else filtered
+
+
+def apply_complete_row_policy(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
+    """Apply the declared post-join null policy without changing quote predicates."""
+    return frame.drop_nulls() if spec.drop_nulls else frame
+
+
+def apply_quote_filter(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
+    """Apply one explicit quote identity in a single convenient operation.
+
+    Extra columns are preserved. When `drop_nulls` is true, null removal covers the complete row at
+    the point where this function is called. Performance-sensitive pipelines may call
+    `apply_quote_predicates` before joins and `apply_complete_row_policy` after them; the result is
+    equivalent when joins preserve quote identity.
+
+    Raises:
+        MissingColumnsError: If a required derived quote feature is absent.
+        QuoteSchemaError: If a required derived quote feature has the wrong dtype.
+
+    """
+    return apply_complete_row_policy(apply_quote_predicates(frame, spec), spec)
 
 
 __all__ = [
@@ -278,5 +298,7 @@ __all__ = [
     "QuoteFilterSpecError",
     "QuoteSchemaError",
     "add_quote_features",
+    "apply_complete_row_policy",
     "apply_quote_filter",
+    "apply_quote_predicates",
 ]

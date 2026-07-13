@@ -16,7 +16,9 @@ from discrete_dividend_study import (
     QuoteFilterSpecError,
     QuoteSchemaError,
     add_quote_features,
+    apply_complete_row_policy,
     apply_quote_filter,
+    apply_quote_predicates,
     canonicalize_raw_orats_options,
 )
 
@@ -74,6 +76,19 @@ def test_project_filter_preserves_strict_price_and_complete_row_semantics() -> N
     observed = apply_quote_filter(featured, PROJECT_AS_SUBMITTED_FILTER).collect()
     assert observed.get_column("ticker").to_list() == ["PASS"]
     assert "support" in observed.columns
+
+
+def test_split_predicate_and_complete_row_stages_equal_single_operation() -> None:
+    """Early predicate pushdown and late null removal preserve the declared cohort exactly."""
+    featured = add_quote_features(canonicalize_raw_orats_options(raw_rows())).with_columns(
+        pl.Series("support", [1.0, 1.0, None], dtype=pl.Float64),
+    )
+    staged = apply_complete_row_policy(
+        apply_quote_predicates(featured, PROJECT_AS_SUBMITTED_FILTER),
+        PROJECT_AS_SUBMITTED_FILTER,
+    ).collect()
+    combined = apply_quote_filter(featured, PROJECT_AS_SUBMITTED_FILTER).collect()
+    assert staged.equals(combined)
 
 
 def test_filter_configuration_rejects_inferred_types_and_reversed_domains() -> None:

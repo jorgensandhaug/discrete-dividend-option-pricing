@@ -78,3 +78,8 @@ semantics before joining totals back to quote rows.
 `add_nss_rate_feature` reproduces the exact-date submitted short-end and NSS scalar-rate rule with
 strict `Float64` parameters and a cancellation-safe evaluation. Pricing-engine discount curves keep
 their own explicit provider and quote-convention adapter.
+
+`build_project_as_submitted_features` is the single complete lazy composition. It first enforces the
+frozen six-ticker study universe, pushes quote-only predicates before expensive joins, applies the
+complete-row policy after all support data, and emits one fixed ordered 42-column model/research
+contract.
