@@ -83,3 +83,7 @@ their own explicit provider and quote-convention adapter.
 frozen six-ticker study universe, pushes quote-only predicates before expensive joins, applies the
 complete-row policy after all support data, and emits one fixed ordered 42-column model/research
 contract.
+
+`PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC` resolves the calendar-day train, validation, and test
+identity into a typed 117-window manifest. Phase bounds are half-open, and a one-scan coverage
+preflight fails before training if any required partition is empty.
