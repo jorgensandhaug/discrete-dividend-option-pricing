@@ -1,0 +1,80 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_REVISION: bfcbd782125545dee24f7797a3f012d15d34f15a
+
+jobs:
+  quality:
+    name: Paper and pinned-engine integration gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out paper
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: paper
+          persist-credentials: false
+
+      - name: Check out exact private engine revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: jorgensandhaug/finoptions-engine
+          ref: ${{ env.ENGINE_REVISION }}
+          ssh-key: ${{ secrets.FINOPTIONS_ENGINE_DEPLOY_KEY }}
+          path: finoptions-engine
+          persist-credentials: false
+
+      - name: Verify declared engine revision
+        working-directory: paper
+        shell: bash
+        run: |
+          declared="$(tr -d '[:space:]' < config/engine-revision.txt)"
+          checked_out="$(git -C ../finoptions-engine rev-parse HEAD)"
+          test "$declared" = "$ENGINE_REVISION"
+          test "$checked_out" = "$ENGINE_REVISION"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: 0.11.28
+          enable-cache: true
+          cache-dependency-glob: paper/uv.lock
+
+      - name: Install exact Python
+        working-directory: paper
+        run: uv python install 3.14.6
+
+      - name: Synchronize exact environment
+        working-directory: paper
+        run: uv sync --all-groups --locked
+
+      - name: Format and lint
+        working-directory: paper
+        run: |
+          .venv/bin/python tools/dev.py -- ruff format --check .
+          .venv/bin/python tools/dev.py -- ruff check .
+
+      - name: Strict types
+        working-directory: paper
+        run: .venv/bin/python tools/dev.py -- mypy
+
+      - name: Paper and native integration tests
+        working-directory: paper
+        run: .venv/bin/python tools/dev.py -- pytest -q
+
+      - name: Build paper artifacts locally
+        working-directory: paper
+        run: uv build
+
