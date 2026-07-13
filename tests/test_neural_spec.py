@@ -13,6 +13,8 @@ from discrete_dividend_study.neural_spec import (
     DirectDividendLstmInput,
     DividendRepresentation,
     EventAttentionInput,
+    EventFeature,
+    LstmGateOrder,
     NeuralSpecValueError,
     NeuralVariant,
     trainable_parameter_count,
@@ -121,6 +123,12 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
         assert event_input.layout.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
         assert event_input.layout.amount_scale is CashAmountScale.DIVIDE_BY_SPOT
         assert event_input.include_option_maturity
+        assert event_input.event_features == (
+            EventFeature.OPTION_MATURITY_YEARS,
+            EventFeature.DIVIDEND_TIME_YEARS,
+            EventFeature.DIVIDEND_AMOUNT_OVER_SPOT,
+        )
+    assert lstm.gate_order is LstmGateOrder.INPUT_FORGET_CELL_OUTPUT
 
     bin_input = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.BINS).dividend_input
     assert type(bin_input) is BinnedDividendInput

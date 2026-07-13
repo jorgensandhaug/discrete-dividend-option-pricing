@@ -1,7 +1,7 @@
 set shell := ["zsh", "-cu"]
 
 sync:
-    uv sync --all-groups --locked
+    uv sync --all-groups --extra torch --extra mlx --locked
 
 fmt:
     python3 tools/dev.py -- ruff format .

@@ -22,8 +22,9 @@ just check
 ```
 
 The state-aware launcher synchronizes the locked environment and rebuilds a changed Rust extension
-without publishing a package. The repository remains private and no publication or public release
-is authorized.
+without publishing a package. PyTorch and MLX are separate optional extras; the development lock
+installs both, while the Linux PyTorch source is explicitly CPU-only. The repository remains private
+and no publication or public release is authorized.
 
 The first production data boundary is intentionally small:
 

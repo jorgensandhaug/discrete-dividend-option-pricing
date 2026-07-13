@@ -20,6 +20,14 @@ dependencies = [
   "polars>=1.42.1,<2",
 ]
 
+[project.optional-dependencies]
+mlx = [
+  "mlx==0.32.0; (sys_platform == 'darwin' and platform_machine == 'arm64') or sys_platform == 'linux'",
+]
+torch = [
+  "torch==2.13.0",
+]
+
 [dependency-groups]
 dev = [
   "maturin==1.14.1",
@@ -30,6 +38,12 @@ dev = [
 
 [tool.uv.sources]
 finoptions-engine = { path = "../finoptions-engine", editable = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv.build-backend]
 module-name = "discrete_dividend_study"

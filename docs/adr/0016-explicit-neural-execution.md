@@ -1,0 +1,29 @@
+# ADR 0016: Explicit neural execution and canonical parameters
+
+Status: accepted
+
+The study has two independent neural realizations, PyTorch 2.13.0 and MLX 0.32.0, but no automatic
+backend selection. Every run resolves an immutable profile naming the model variant, framework,
+device, float32 precision, compilation mode, and CPU thread count where applicable. The declared
+request is validated before model construction and fails if its exact package version or device is
+unavailable. The repository's portable uv environment pins PyTorch to its explicit CPU-only index,
+so the locked Linux workflow never acquires an unused CUDA stack; MLX remains a separate opt-in
+extra. The measured Apple-silicon
+profile uses eager one-thread PyTorch CPU for the four-step
+LSTM and compiled MLX GPU for the other four variants. The portable profile explicitly requests
+eager one-thread PyTorch CPU for all variants. A CUDA profile is not admitted until it is measured
+on the target cluster.
+
+Framework initialization is not part of experiment identity. NumPy PCG64DXSM produces one
+read-only, content-hashed float32 parameter set from an unsigned 64-bit seed, with explicit draw
+order, shapes, and names. Both frameworks load that same set before use. The LSTM matrices use
+input-forget-cell-output gate order; event features are ordered as option maturity, chronological
+dividend time, and cash amount divided by spot. Sequence state is selected at the last real event,
+never after padding. Masked attention assigns an exactly zero event representation to an empty
+schedule, avoiding an undefined all-masked softmax.
+
+Correctness is defined by the declared model, objective, shapes, units, masks, and financial-data
+contracts—not by matching one framework's digits. Independent forward and parameter-gradient
+graphs are checked from identical weights across every model, including empty and full schedules.
+Float32 differences are admitted only within predeclared absolute numerical tolerances; nonfinite
+predictions or gradients always fail. No mixed-precision or fallback path is approved.

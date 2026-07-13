@@ -63,7 +63,7 @@ jobs:
 
       - name: Synchronize exact environment
         working-directory: paper
-        run: uv sync --all-groups --locked
+        run: uv sync --all-groups --extra torch --extra mlx --locked
 
       - name: Format and lint
         working-directory: paper

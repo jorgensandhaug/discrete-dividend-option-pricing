@@ -119,7 +119,18 @@ def ensure_environment(state: dict[str, str]) -> None:
     """Synchronize the exact uv lock only when environment inputs changed."""
     before = digest(sync_inputs())
     if not VENV_ROOT.exists() or state.get("sync") != before:
-        run(["uv", "sync", "--all-groups", "--locked"])
+        run(
+            [
+                "uv",
+                "sync",
+                "--all-groups",
+                "--extra",
+                "torch",
+                "--extra",
+                "mlx",
+                "--locked",
+            ],
+        )
         state["sync"] = digest(sync_inputs())
 
 

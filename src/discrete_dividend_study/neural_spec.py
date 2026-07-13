@@ -79,6 +79,27 @@ class ModelPrecision(StrEnum):
     FLOAT32 = "float32"
 
 
+class ParameterInitialization(StrEnum):
+    """Backend-independent parameter initialization algorithms."""
+
+    UNIFORM_PCG64DXSM = "uniform_pcg64dxsm"
+
+
+class LstmGateOrder(StrEnum):
+    """Canonical row order for recurrent gate parameter matrices."""
+
+    INPUT_FORGET_CELL_OUTPUT = "input_forget_cell_output"
+
+
+class EventFeature(StrEnum):
+    """Canonical feature order inside one discrete-dividend event."""
+
+    OPTION_MATURITY_YEARS = "option_maturity_years"
+    DIVIDEND_TIME_YEARS = "dividend_time_years"
+    DIVIDEND_CASH_AMOUNT = "dividend_cash_amount"
+    DIVIDEND_AMOUNT_OVER_SPOT = "dividend_amount_over_spot"
+
+
 @dataclass(frozen=True, slots=True)
 class MlpSpec:
     """Shared scalar trunk and positive price head."""
@@ -234,6 +255,7 @@ class DirectDividendLstmInput:
     hidden_size: int
     layers: int
     bias: bool
+    gate_order: LstmGateOrder
 
     def __post_init__(self) -> None:
         """Reject a malformed recurrent dividend encoder."""
@@ -247,6 +269,20 @@ class DirectDividendLstmInput:
         _require_positive_int(self.hidden_size, field="lstm.hidden_size")
         _require_positive_int(self.layers, field="lstm.layers")
         _require_plain_bool(self.bias, field="lstm.bias")
+        if self.gate_order is not LstmGateOrder.INPUT_FORGET_CELL_OUTPUT:
+            raise NeuralSpecValueError(
+                field="lstm.gate_order",
+                observed=self.gate_order,
+                requirement="LstmGateOrder.INPUT_FORGET_CELL_OUTPUT",
+            )
+
+    @property
+    def event_features(self) -> tuple[EventFeature, ...]:
+        """Return the exact recurrent event-feature order."""
+        return _event_features(
+            include_option_maturity=self.include_option_maturity,
+            amount_scale=self.layout.amount_scale,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +315,14 @@ class EventAttentionInput:
                 observed=self.embedding_activation,
                 requirement="Activation.RELU",
             )
+
+    @property
+    def event_features(self) -> tuple[EventFeature, ...]:
+        """Return the exact embedded event-feature order."""
+        return _event_features(
+            include_option_maturity=self.include_option_maturity,
+            amount_scale=self.layout.amount_scale,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,6 +457,7 @@ class NeuralStudySpec:
     """Shared architecture, training contract, precision, and five model identities."""
 
     precision: ModelPrecision
+    parameter_initialization: ParameterInitialization
     mlp: MlpSpec
     training: TrainingSpec
     models: tuple[NeuralModelSpec, ...]
@@ -424,6 +469,12 @@ class NeuralStudySpec:
                 field="study.precision",
                 observed=self.precision,
                 requirement="ModelPrecision.FLOAT32",
+            )
+        if self.parameter_initialization is not ParameterInitialization.UNIFORM_PCG64DXSM:
+            raise NeuralSpecValueError(
+                field="study.parameter_initialization",
+                observed=self.parameter_initialization,
+                requirement="ParameterInitialization.UNIFORM_PCG64DXSM",
             )
         if type(self.mlp) is not MlpSpec:
             raise NeuralSpecValueError(
@@ -533,6 +584,21 @@ def _representation_for_input(dividend_input: DividendInput) -> DividendRepresen
     )
 
 
+def _event_features(
+    *,
+    include_option_maturity: bool,
+    amount_scale: CashAmountScale,
+) -> tuple[EventFeature, ...]:
+    amount_feature = {
+        CashAmountScale.ABSOLUTE: EventFeature.DIVIDEND_CASH_AMOUNT,
+        CashAmountScale.DIVIDE_BY_SPOT: EventFeature.DIVIDEND_AMOUNT_OVER_SPOT,
+    }[amount_scale]
+    features = (EventFeature.DIVIDEND_TIME_YEARS, amount_feature)
+    if include_option_maturity:
+        return (EventFeature.OPTION_MATURITY_YEARS, *features)
+    return features
+
+
 def _require_plain_bool(value: object, *, field: str) -> None:
     if type(value) is not bool:
         raise NeuralSpecValueError(field=field, observed=value, requirement="a plain bool")
@@ -603,6 +669,7 @@ _PROJECT_BIN_LAYOUT: Final = DividendBinSpec(
 
 PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
     precision=ModelPrecision.FLOAT32,
+    parameter_initialization=ParameterInitialization.UNIFORM_PCG64DXSM,
     mlp=MlpSpec(
         hidden_width=282,
         hidden_layers=4,
@@ -649,6 +716,7 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
                 hidden_size=8,
                 layers=1,
                 bias=False,
+                gate_order=LstmGateOrder.INPUT_FORGET_CELL_OUTPUT,
             ),
         ),
         NeuralModelSpec(
@@ -703,6 +771,8 @@ __all__ = [
     "DividendRepresentation",
     "DividendYieldInput",
     "EventAttentionInput",
+    "EventFeature",
+    "LstmGateOrder",
     "MlpSpec",
     "ModelPrecision",
     "NeuralModelSpec",
@@ -713,6 +783,7 @@ __all__ = [
     "ObjectiveKind",
     "OptimizerKind",
     "OptimizerSpec",
+    "ParameterInitialization",
     "PlateauSchedulerSpec",
     "TrainingSpec",
     "trainable_parameter_count",

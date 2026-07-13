@@ -15,6 +15,7 @@ from discrete_dividend_study.model_inputs import (
     ModelInputContentError,
     ModelInputSchemaError,
     ModelInputTypeError,
+    PreparedNeuralBatch,
     prepare_project_neural_batch,
 )
 from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
@@ -251,4 +252,48 @@ def test_lazy_frames_and_untyped_policies_are_rejected(executor: CpuExecutor) ->
             model,
             executor,
             event_buffer_policy=policy,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "violation"),
+    [
+        ("mask", "event_mask_length_mismatch"),
+        ("padding", "nonzero_event_padding"),
+        ("maturity", "post_maturity_events"),
+        ("order", "nonchronological_events"),
+    ],
+)
+def test_manually_corrupted_prepared_sequences_fail_immediately(
+    executor: CpuExecutor,
+    mutation: str,
+    violation: str,
+) -> None:
+    """Backend callers cannot bypass mask, padding, maturity, or event-order contracts."""
+    model = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.LSTM)
+    valid = prepare_project_neural_batch(model_frame(), model, executor)
+    assert isinstance(valid.dividends, PaddedCashDividends)
+    times = valid.dividends.times.copy()
+    amounts = valid.dividends.amounts.copy()
+    mask = valid.dividends.mask.copy()
+    if mutation == "mask":
+        mask[0, 2] = True
+    elif mutation == "padding":
+        amounts[0, 2] = 0.01
+    elif mutation == "maturity":
+        times[0, 1] = 0.75
+    elif mutation == "order":
+        times[2, :3] = np.array([0.5, 0.25, 0.75], dtype=np.float32)
+    corrupted = PaddedCashDividends(
+        times=times,
+        amounts=amounts,
+        mask=mask,
+        lengths=valid.dividends.lengths.copy(),
+    )
+    with pytest.raises(ModelInputContentError, match=violation):
+        PreparedNeuralBatch(
+            model=model,
+            scalar_features=valid.scalar_features,
+            target=valid.target,
+            dividends=corrupted,
         )

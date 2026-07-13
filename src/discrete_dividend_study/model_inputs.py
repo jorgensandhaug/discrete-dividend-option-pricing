@@ -158,27 +158,9 @@ class PreparedNeuralBatch:
             )
         if self.target.shape != (self.scalar_features.shape[0],):
             raise ModelInputContentError(violations=(("target_row_mismatch", 1),))
-        dividend_input = self.model.dividend_input
-        if type(dividend_input) in {DirectDividendLstmInput, EventAttentionInput}:
-            if type(self.dividends) is not PaddedCashDividends:
-                raise ModelInputTypeError(
-                    field="dividends",
-                    observed=type(self.dividends).__name__,
-                    expected="PaddedCashDividends",
-                )
-        elif type(dividend_input) is BinnedDividendInput:
-            if type(self.dividends) is not BinnedCashDividends:
-                raise ModelInputTypeError(
-                    field="dividends",
-                    observed=type(self.dividends).__name__,
-                    expected="BinnedCashDividends",
-                )
-        elif type(dividend_input) is DividendYieldInput and self.dividends is not None:
-            raise ModelInputTypeError(
-                field="dividends",
-                observed=type(self.dividends).__name__,
-                expected="None for scalar-yield models",
-            )
+        if not np.isfinite(self.scalar_features).all() or not np.isfinite(self.target).all():
+            raise ModelInputContentError(violations=(("nonfinite_model_arrays", 1),))
+        _validate_dividend_tensor(self)
         if self.dividends is not None and self.dividends.rows != self.scalar_features.shape[0]:
             raise ModelInputContentError(violations=(("dividend_tensor_row_mismatch", 1),))
 
@@ -547,6 +529,67 @@ def _validate_array(
             observed="non-C-contiguous ndarray",
             expected="C-contiguous storage",
         )
+
+
+def _validate_padded_tensor(batch: PreparedNeuralBatch, capacity: int) -> None:
+    dividends = cast("PaddedCashDividends", batch.dividends)
+    if dividends.capacity != capacity:
+        raise ModelInputContentError(violations=(("incorrect_event_capacity", 1),))
+    if not np.isfinite(dividends.times).all() or not np.isfinite(dividends.amounts).all():
+        raise ModelInputContentError(violations=(("nonfinite_padded_dividends", 1),))
+    expected_mask = np.arange(capacity, dtype=np.uint32)[None, :] < dividends.lengths[:, None]
+    if not np.array_equal(dividends.mask, expected_mask):
+        raise ModelInputContentError(violations=(("event_mask_length_mismatch", 1),))
+    if np.any(dividends.times[~dividends.mask] != 0.0) or np.any(
+        dividends.amounts[~dividends.mask] != 0.0
+    ):
+        raise ModelInputContentError(violations=(("nonzero_event_padding", 1),))
+    if np.any(dividends.times[dividends.mask] < 0.0):
+        raise ModelInputContentError(violations=(("negative_event_times", 1),))
+    maturity_index = batch.model.scalar_columns.index("yte")
+    if np.any(dividends.times > batch.scalar_features[:, maturity_index, None]):
+        raise ModelInputContentError(violations=(("post_maturity_events", 1),))
+    adjacent_valid = dividends.mask[:, :-1] & dividends.mask[:, 1:]
+    adjacent_decrease = dividends.times[:, 1:] < dividends.times[:, :-1]
+    if np.any(adjacent_valid & adjacent_decrease):
+        raise ModelInputContentError(violations=(("nonchronological_events", 1),))
+
+
+def _validate_dividend_tensor(batch: PreparedNeuralBatch) -> None:
+    dividend_input = batch.model.dividend_input
+    if (
+        type(dividend_input) is DirectDividendLstmInput
+        or type(dividend_input) is EventAttentionInput
+    ):
+        if type(batch.dividends) is not PaddedCashDividends:
+            raise ModelInputTypeError(
+                field="dividends",
+                observed=type(batch.dividends).__name__,
+                expected="PaddedCashDividends",
+            )
+        _validate_padded_tensor(batch, dividend_input.layout.capacity)
+    elif type(dividend_input) is BinnedDividendInput:
+        if type(batch.dividends) is not BinnedCashDividends:
+            raise ModelInputTypeError(
+                field="dividends",
+                observed=type(batch.dividends).__name__,
+                expected="BinnedCashDividends",
+            )
+        _validate_binned_tensor(batch, dividend_input.layout.bins)
+    elif type(dividend_input) is DividendYieldInput and batch.dividends is not None:
+        raise ModelInputTypeError(
+            field="dividends",
+            observed=type(batch.dividends).__name__,
+            expected="None for scalar-yield models",
+        )
+
+
+def _validate_binned_tensor(batch: PreparedNeuralBatch, bins: int) -> None:
+    dividends = cast("BinnedCashDividends", batch.dividends)
+    if dividends.bins != bins:
+        raise ModelInputContentError(violations=(("incorrect_dividend_bin_count", 1),))
+    if not np.isfinite(dividends.amounts).all():
+        raise ModelInputContentError(violations=(("nonfinite_binned_dividends", 1),))
 
 
 __all__ = [
