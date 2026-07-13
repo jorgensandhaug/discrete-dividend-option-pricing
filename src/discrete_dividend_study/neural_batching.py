@@ -120,9 +120,19 @@ class NeuralEpochBatchIndices:
 
     def batch(self, index: int) -> FixedBatchIndices:
         """Return one immutable fixed-width row by exact integer position."""
+        self._require_batch_index(index)
+        return FixedBatchIndices(indices=self.indices[index], valid=self.valid[index])
+
+    def valid_rows_at(self, index: int) -> int:
+        """Return a prevalidated batch's logical row count without rescanning its mask."""
+        self._require_batch_index(index)
+        if index < self.plan.batches - 1:
+            return self.plan.batch_size
+        return self.plan.rows - index * self.plan.batch_size
+
+    def _require_batch_index(self, index: int) -> None:
         if type(index) is not int or not 0 <= index < self.plan.batches:
             raise IndexError(index)
-        return FixedBatchIndices(indices=self.indices[index], valid=self.valid[index])
 
 
 def build_neural_epoch_batch_indices(

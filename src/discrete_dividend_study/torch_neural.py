@@ -301,6 +301,25 @@ def gather_torch_fixed_batch(
         raise NeuralBackendContractError(reason="a fixed batch must contain a logical row")
     device = source.scalar_features.device
     indices = torch.tensor(batch.indices, dtype=torch.int64, device=device)
+    valid = torch.tensor(batch.valid, dtype=torch.bool, device=device)
+    return gather_torch_device_batch(source, indices, valid)
+
+
+def gather_torch_device_batch(
+    source: TorchNeuralBatch,
+    indices: torch.Tensor,
+    valid: torch.Tensor,
+) -> TorchFixedNeuralBatch:
+    """Gather one already-transferred fixed index row without per-batch host copies."""
+    if type(source) is not TorchNeuralBatch:
+        raise NeuralBackendContractError(reason="source must be TorchNeuralBatch")
+    device = source.scalar_features.device
+    indices = _validate_tensor(indices, field="indices", dtype=torch.int64, dimensions=1)
+    valid = _validate_tensor(valid, field="valid", dtype=torch.bool, dimensions=1)
+    if indices.shape != valid.shape or indices.numel() == 0:
+        raise NeuralBackendContractError(reason="indices and valid must share a nonempty shape")
+    if indices.device != device or valid.device != device:
+        raise NeuralBackendContractError(reason="batch indices must use the source device")
     values = TorchNeuralBatch(
         model=source.model,
         scalar_features=torch.index_select(source.scalar_features, 0, indices),
@@ -311,8 +330,7 @@ def gather_torch_fixed_batch(
         event_lengths=_index_select(source.event_lengths, indices),
         binned_amounts=_index_select(source.binned_amounts, indices),
     )
-    valid = torch.tensor(batch.valid[:, None], dtype=torch.bool, device=device)
-    return TorchFixedNeuralBatch(values=values, valid=valid)
+    return TorchFixedNeuralBatch(values=values, valid=valid[:, None])
 
 
 def _event_tensor(
@@ -540,6 +558,7 @@ __all__ = [
     "TorchNeuralBatch",
     "TorchProjectModel",
     "build_torch_project_model",
+    "gather_torch_device_batch",
     "gather_torch_fixed_batch",
     "prepare_torch_neural_batch",
     "snapshot_torch_parameters",

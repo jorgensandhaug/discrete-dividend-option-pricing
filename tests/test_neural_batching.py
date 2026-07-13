@@ -33,6 +33,8 @@ def test_partial_final_batch_is_masked_without_dropping_or_duplicating_rows() ->
     )
     final = epoch.batch(2)
     assert final.valid_rows == FINAL_VALID_ROWS
+    assert epoch.valid_rows_at(0) == BATCH_SIZE
+    assert epoch.valid_rows_at(2) == FINAL_VALID_ROWS
     np.testing.assert_array_equal(final.indices[:FINAL_VALID_ROWS], np.array([256, 257, 258]))
     np.testing.assert_array_equal(
         final.indices[FINAL_VALID_ROWS:],

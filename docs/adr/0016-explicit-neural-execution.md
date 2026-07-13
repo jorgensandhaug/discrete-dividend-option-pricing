@@ -9,9 +9,10 @@ request is validated before model construction and fails if its exact package ve
 unavailable. The repository's portable uv environment pins PyTorch to its explicit CPU-only index,
 so the locked Linux workflow never acquires an unused CUDA stack. MLX remains a separate opt-in
 extra and uses its explicit CPU distribution on Linux. The measured Apple-silicon profile uses
-eager one-thread PyTorch CPU for the four-step LSTM and compiled MLX GPU for the other four
-variants. The portable profile explicitly requests eager one-thread PyTorch CPU for all variants.
-A CUDA profile is not admitted until it is measured on the target cluster.
+eager one-thread PyTorch CPU for the four-step LSTM and event-attention models, and compiled MLX GPU
+for the binned and two scalar-yield variants. The portable profile explicitly requests eager
+one-thread PyTorch CPU for all variants. A CUDA profile is not admitted until it is measured on the
+target cluster.
 
 Framework initialization is not part of experiment identity. NumPy PCG64DXSM produces one
 read-only, content-hashed float32 parameter set from an unsigned 64-bit seed, with explicit draw

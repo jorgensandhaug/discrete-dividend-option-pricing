@@ -327,6 +327,22 @@ def gather_mlx_fixed_batch(
     if batch.valid_rows <= 0:
         raise NeuralBackendContractError(reason="a fixed batch must contain a logical row")
     indices = mx.array(batch.indices, dtype=mx.int64)
+    valid = mx.array(batch.valid, dtype=mx.bool_)
+    return gather_mlx_device_batch(source, indices, valid)
+
+
+def gather_mlx_device_batch(
+    source: MlxNeuralBatch,
+    indices: mx.array,
+    valid: mx.array,
+) -> MlxFixedNeuralBatch:
+    """Gather one already-transferred fixed index row without per-batch host copies."""
+    if type(source) is not MlxNeuralBatch:
+        raise NeuralBackendContractError(reason="source must be MlxNeuralBatch")
+    indices = _validate_array(indices, field="indices", dtype=mx.int64, dimensions=1)
+    valid = _validate_array(valid, field="valid", dtype=mx.bool_, dimensions=1)
+    if indices.shape != valid.shape or indices.size == 0:
+        raise NeuralBackendContractError(reason="indices and valid must share a nonempty shape")
     values = MlxNeuralBatch(
         model=source.model,
         scalar_features=source.scalar_features[indices],
@@ -337,8 +353,7 @@ def gather_mlx_fixed_batch(
         event_lengths=_index_select(source.event_lengths, indices),
         binned_amounts=_index_select(source.binned_amounts, indices),
     )
-    valid = mx.array(batch.valid[:, None], dtype=mx.bool_)
-    return MlxFixedNeuralBatch(values=values, valid=valid)
+    return MlxFixedNeuralBatch(values=values, valid=valid[:, None])
 
 
 def mlx_parameter_name_to_canonical(framework_name: str) -> str:
@@ -539,6 +554,7 @@ __all__ = [
     "MlxNeuralBatch",
     "MlxProjectModel",
     "build_mlx_project_model",
+    "gather_mlx_device_batch",
     "gather_mlx_fixed_batch",
     "mlx_fixed_smape_objective",
     "mlx_parameter_name_to_canonical",

@@ -290,11 +290,15 @@ _PYTORCH_CPU_1: Final = _execution(
 )
 
 PROJECT_APPLE_SILICON_EXECUTION_PROFILE: Final = NeuralExecutionProfile(
-    name="project_apple_silicon_m4_pro_v1",
+    name="project_apple_silicon_m4_pro_v2",
     models=tuple(
         ModelExecutionSpec(
             variant=variant,
-            execution=_PYTORCH_CPU_1 if variant is NeuralVariant.LSTM else _MLX_GPU_COMPILED,
+            execution=(
+                _PYTORCH_CPU_1
+                if variant in {NeuralVariant.LSTM, NeuralVariant.EMBEDDING}
+                else _MLX_GPU_COMPILED
+            ),
         )
         for variant in NeuralVariant
     ),

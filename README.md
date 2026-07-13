@@ -19,12 +19,17 @@ Check out `finoptions-engine` beside this repository, then run:
 ```shell
 just test
 just check
+just bench-neural nn_bin 100000 10000 10
 ```
 
 The state-aware launcher synchronizes the locked environment and rebuilds a changed Rust extension
 without publishing a package. PyTorch and MLX are separate optional extras; the development lock
 installs both, while the Linux PyTorch source is explicitly CPU-only. The repository remains private
 and no publication or public release is authorized.
+
+The neural benchmark uses deterministic project-shaped synthetic rows, emits canonical JSON, and
+records metric-history and trained-weight hashes beside throughput and peak process memory. It never
+requires or fabricates provider data.
 
 The first production data boundary is intentionally small:
 

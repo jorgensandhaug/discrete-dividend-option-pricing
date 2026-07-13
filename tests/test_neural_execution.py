@@ -19,11 +19,12 @@ from discrete_dividend_study.neural_spec import ModelPrecision, NeuralVariant
 
 
 def test_apple_profile_uses_measured_per_model_policies() -> None:
-    """The short LSTM remains CPU-only while four models use compiled MLX GPU."""
+    """Sequence models use measured CPU paths while three models use compiled MLX GPU."""
     profile = PROJECT_APPLE_SILICON_EXECUTION_PROFILE
+    assert profile.name == "project_apple_silicon_m4_pro_v2"
     for variant in NeuralVariant:
         execution = profile.for_variant(variant)
-        if variant is NeuralVariant.LSTM:
+        if variant in {NeuralVariant.LSTM, NeuralVariant.EMBEDDING}:
             assert execution.backend is NeuralBackend.PYTORCH
             assert execution.device is NeuralDevice.CPU
             assert execution.compilation is CompilationMode.EAGER

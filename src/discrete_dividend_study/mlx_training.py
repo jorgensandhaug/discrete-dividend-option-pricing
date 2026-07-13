@@ -17,7 +17,6 @@ from .mlx_neural import (
     MlxNeuralBatch,
     MlxProjectModel,
     build_mlx_project_model,
-    gather_mlx_fixed_batch,
     mlx_fixed_smape_objective,
     prepare_mlx_neural_batch,
     snapshot_mlx_parameters,
@@ -51,6 +50,13 @@ type MlxFixedBatchTree = tuple[
 ]
 type MlxTrainingStep = Callable[[MlxFixedBatchTree], tuple[mx.array, mx.array]]
 type MlxValidationStep = Callable[[MlxFixedBatchTree], mx.array]
+
+
+@dataclass(frozen=True, slots=True)
+class _MlxEpochIndices:
+    layout: NeuralEpochBatchIndices
+    indices: mx.array
+    valid: mx.array
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +109,7 @@ def train_mlx_project_model(request: NeuralTrainingRequest) -> MlxTrainingResult
         seed=None,
     )
     validation_epoch = build_neural_epoch_batch_indices(validation_plan, 0)
+    validation_indices = _transfer_epoch_indices(validation_epoch)
     optimizer_spec = study.training.optimizer
     optimizer = optimizers.AdamW(
         learning_rate=optimizer_spec.learning_rate,
@@ -121,16 +128,17 @@ def train_mlx_project_model(request: NeuralTrainingRequest) -> MlxTrainingResult
     while not control.should_stop:
         epoch = control.completed_epochs
         training_epoch = build_neural_epoch_batch_indices(training_plan, epoch)
+        training_indices = _transfer_epoch_indices(training_epoch)
         training_loss = _train_epoch(
             network,
             optimizer,
             training_values,
-            training_epoch,
+            training_indices,
             training_step,
         )
         validation_loss = _validate_epoch(
             validation_values,
-            validation_epoch,
+            validation_indices,
             validation_step,
         )
         control = advance_neural_control(control, validation_loss, study.training)
@@ -210,17 +218,20 @@ def _train_epoch(
     network: MlxProjectModel,
     optimizer: optimizers.AdamW,
     source: MlxNeuralBatch,
-    epoch: NeuralEpochBatchIndices,
+    epoch: _MlxEpochIndices,
     step: MlxTrainingStep,
 ) -> float:
     network.train()
     weighted_loss = 0.0
     logical_rows = 0
     state = [network.state, optimizer.state]
-    for batch_index in range(epoch.plan.batches):
-        fixed_indices = epoch.batch(batch_index)
-        fixed = gather_mlx_fixed_batch(source, fixed_indices)
-        loss, finite = step(_fixed_batch_tree(fixed))
+    for batch_index in range(epoch.layout.plan.batches):
+        tree = _gather_fixed_batch_tree(
+            source,
+            epoch.indices[batch_index],
+            epoch.valid[batch_index],
+        )
+        loss, finite = step(tree)
         mx.eval(state, loss, finite)
         if not bool(finite.item()):
             raise NeuralTrainingError(
@@ -229,43 +240,63 @@ def _train_epoch(
         loss_value = float(loss.item())
         if not math.isfinite(loss_value):
             raise NeuralTrainingError(reason=f"nonfinite training loss in batch {batch_index}")
-        weighted_loss += loss_value * fixed_indices.valid_rows
-        logical_rows += fixed_indices.valid_rows
+        valid_rows = epoch.layout.valid_rows_at(batch_index)
+        weighted_loss += loss_value * valid_rows
+        logical_rows += valid_rows
     return weighted_loss / logical_rows
 
 
 def _validate_epoch(
     source: MlxNeuralBatch,
-    epoch: NeuralEpochBatchIndices,
+    epoch: _MlxEpochIndices,
     step: MlxValidationStep,
 ) -> float:
     weighted_loss = 0.0
     logical_rows = 0
-    for batch_index in range(epoch.plan.batches):
-        fixed_indices = epoch.batch(batch_index)
-        fixed = gather_mlx_fixed_batch(source, fixed_indices)
-        loss = step(_fixed_batch_tree(fixed))
+    for batch_index in range(epoch.layout.plan.batches):
+        tree = _gather_fixed_batch_tree(
+            source,
+            epoch.indices[batch_index],
+            epoch.valid[batch_index],
+        )
+        loss = step(tree)
         mx.eval(loss)
         loss_value = float(loss.item())
         if not math.isfinite(loss_value):
             raise NeuralTrainingError(reason=f"nonfinite validation loss in batch {batch_index}")
-        weighted_loss += loss_value * fixed_indices.valid_rows
-        logical_rows += fixed_indices.valid_rows
+        valid_rows = epoch.layout.valid_rows_at(batch_index)
+        weighted_loss += loss_value * valid_rows
+        logical_rows += valid_rows
     return weighted_loss / logical_rows
 
 
-def _fixed_batch_tree(batch: MlxFixedNeuralBatch) -> MlxFixedBatchTree:
-    values = batch.values
+def _transfer_epoch_indices(epoch: NeuralEpochBatchIndices) -> _MlxEpochIndices:
+    indices = mx.array(epoch.indices, dtype=mx.int64)
+    valid = mx.array(epoch.valid, dtype=mx.bool_)
+    mx.eval(indices, valid)
+    return _MlxEpochIndices(layout=epoch, indices=indices, valid=valid)
+
+
+def _gather_fixed_batch_tree(
+    source: MlxNeuralBatch,
+    indices: mx.array,
+    valid: mx.array,
+) -> MlxFixedBatchTree:
+    """Slice one batch after source and complete epoch validation have already succeeded."""
     return (
-        values.scalar_features,
-        values.target,
-        values.event_times,
-        values.event_amounts,
-        values.event_mask,
-        values.event_lengths,
-        values.binned_amounts,
-        batch.valid,
+        source.scalar_features[indices],
+        source.target[indices],
+        _gather_optional(source.event_times, indices),
+        _gather_optional(source.event_amounts, indices),
+        _gather_optional(source.event_mask, indices),
+        _gather_optional(source.event_lengths, indices),
+        _gather_optional(source.binned_amounts, indices),
+        valid[:, None],
     )
+
+
+def _gather_optional(value: mx.array | None, indices: mx.array) -> mx.array | None:
+    return None if value is None else value[indices]
 
 
 def _fixed_batch_from_tree(

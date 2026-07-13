@@ -20,7 +20,7 @@ from .neural_training import (
 from .torch_neural import (
     TorchProjectModel,
     build_torch_project_model,
-    gather_torch_fixed_batch,
+    gather_torch_device_batch,
     prepare_torch_neural_batch,
     snapshot_torch_parameters,
     torch_fixed_smape_objective,
@@ -30,6 +30,13 @@ if TYPE_CHECKING:
     from .neural_batching import NeuralEpochBatchIndices
     from .neural_spec import NeuralStudySpec
     from .torch_neural import TorchNeuralBatch
+
+
+@dataclass(frozen=True, slots=True)
+class _TorchEpochIndices:
+    layout: NeuralEpochBatchIndices
+    indices: torch.Tensor
+    valid: torch.Tensor
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +90,7 @@ def train_torch_project_model(request: NeuralTrainingRequest) -> TorchTrainingRe
         seed=None,
     )
     validation_epoch = build_neural_epoch_batch_indices(validation_plan, 0)
+    validation_indices = _transfer_epoch_indices(validation_epoch, validation_values)
     optimizer_spec = study.training.optimizer
     optimizer = torch.optim.AdamW(
         network.parameters(),
@@ -98,17 +106,18 @@ def train_torch_project_model(request: NeuralTrainingRequest) -> TorchTrainingRe
     while not control.should_stop:
         epoch = control.completed_epochs
         training_epoch = build_neural_epoch_batch_indices(training_plan, epoch)
+        training_indices = _transfer_epoch_indices(training_epoch, training_values)
         training_loss = _train_epoch(
             network,
             optimizer,
             training_values,
-            training_epoch,
+            training_indices,
             study,
         )
         validation_loss = _validate_epoch(
             network,
             validation_values,
-            validation_epoch,
+            validation_indices,
             study,
         )
         control = advance_neural_control(control, validation_loss, study.training)
@@ -145,15 +154,18 @@ def _train_epoch(
     network: TorchProjectModel,
     optimizer: torch.optim.AdamW,
     source: TorchNeuralBatch,
-    epoch: NeuralEpochBatchIndices,
+    epoch: _TorchEpochIndices,
     study: NeuralStudySpec,
 ) -> float:
     network.train()
     weighted_loss = 0.0
     logical_rows = 0
-    for batch_index in range(epoch.plan.batches):
-        fixed_indices = epoch.batch(batch_index)
-        fixed = gather_torch_fixed_batch(source, fixed_indices)
+    for batch_index in range(epoch.layout.plan.batches):
+        fixed = gather_torch_device_batch(
+            source,
+            epoch.indices[batch_index],
+            epoch.valid[batch_index],
+        )
         optimizer.zero_grad(set_to_none=True)
         prediction = network(fixed.values)
         loss = torch_fixed_smape_objective(prediction, fixed, study.training)
@@ -168,8 +180,9 @@ def _train_epoch(
         )
         optimizer.step()
         loss_value = float(loss.detach().item())
-        weighted_loss += loss_value * fixed_indices.valid_rows
-        logical_rows += fixed_indices.valid_rows
+        valid_rows = epoch.layout.valid_rows_at(batch_index)
+        weighted_loss += loss_value * valid_rows
+        logical_rows += valid_rows
     _require_finite_parameters(network)
     return weighted_loss / logical_rows
 
@@ -177,16 +190,19 @@ def _train_epoch(
 def _validate_epoch(
     network: TorchProjectModel,
     source: TorchNeuralBatch,
-    epoch: NeuralEpochBatchIndices,
+    epoch: _TorchEpochIndices,
     study: NeuralStudySpec,
 ) -> float:
     network.eval()
     weighted_loss = 0.0
     logical_rows = 0
     with torch.no_grad():
-        for batch_index in range(epoch.plan.batches):
-            fixed_indices = epoch.batch(batch_index)
-            fixed = gather_torch_fixed_batch(source, fixed_indices)
+        for batch_index in range(epoch.layout.plan.batches):
+            fixed = gather_torch_device_batch(
+                source,
+                epoch.indices[batch_index],
+                epoch.valid[batch_index],
+            )
             prediction = network(fixed.values)
             loss = torch_fixed_smape_objective(prediction, fixed, study.training)
             loss_value = float(loss.item())
@@ -194,9 +210,20 @@ def _validate_epoch(
                 raise NeuralTrainingError(
                     reason=f"nonfinite validation loss in batch {batch_index}",
                 )
-            weighted_loss += loss_value * fixed_indices.valid_rows
-            logical_rows += fixed_indices.valid_rows
+            valid_rows = epoch.layout.valid_rows_at(batch_index)
+            weighted_loss += loss_value * valid_rows
+            logical_rows += valid_rows
     return weighted_loss / logical_rows
+
+
+def _transfer_epoch_indices(
+    epoch: NeuralEpochBatchIndices,
+    source: TorchNeuralBatch,
+) -> _TorchEpochIndices:
+    device = source.scalar_features.device
+    indices = torch.tensor(epoch.indices, dtype=torch.int64, device=device)
+    valid = torch.tensor(epoch.valid, dtype=torch.bool, device=device)
+    return _TorchEpochIndices(layout=epoch, indices=indices, valid=valid)
 
 
 def _set_learning_rate(optimizer: torch.optim.AdamW, learning_rate: float) -> None:
