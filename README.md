@@ -87,3 +87,9 @@ contract.
 `PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC` resolves the calendar-day train, validation, and test
 identity into a typed 117-window manifest. Phase bounds are half-open, and a one-scan coverage
 preflight fails before training if any required partition is empty.
+
+`PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
+`prepare_project_neural_batch` validates a materialized phase and creates only the model's declared
+float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars
+storage permits it; any rechunk is an explicit caller policy, and every invalid layout fails before
+training.

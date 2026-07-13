@@ -18,6 +18,10 @@ Python workflow obvious to a financial researcher.
   Stateful pricing/training is never disguised as a dataframe expression.
 - Notebooks inspect immutable artifacts; they do not implement production transformations.
 - Treat legacy results as qualitative reconstruction targets, not exact-digit truth.
+- Keep neural study identity framework-neutral. Backend, device, thread, compilation, and memory
+  choices belong to a separate execution specification.
+- Event sequence consumers use chronological values with explicit masks or lengths; padding is
+  never allowed to alter recurrent state or attention weights.
 - Do not make this repository public, publish packages, or redistribute data.
 
 ## Supported workflow
