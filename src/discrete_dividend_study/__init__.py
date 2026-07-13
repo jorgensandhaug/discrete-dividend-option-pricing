@@ -38,6 +38,27 @@ from .model_inputs import (
     prepare_project_neural_batch,
 )
 from .neural_backend import NeuralBackendContractError
+from .neural_batching import (
+    FixedBatchIndices,
+    NeuralBatchPlan,
+    NeuralBatchPlanError,
+    NeuralEpochBatchIndices,
+    build_neural_epoch_batch_indices,
+)
+from .neural_checkpoint import (
+    LoadedNeuralCheckpoint,
+    NeuralCheckpointArtifact,
+    NeuralCheckpointError,
+    NeuralCheckpointManifest,
+    load_neural_checkpoint,
+    write_neural_checkpoint,
+)
+from .neural_control import (
+    NeuralControlError,
+    NeuralControlState,
+    advance_neural_control,
+    initial_neural_control_state,
+)
 from .neural_execution import (
     MLX_VERSION,
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
@@ -71,7 +92,15 @@ from .neural_spec import (
     NeuralStudySpec,
     NeuralVariant,
     ParameterInitialization,
+    neural_study_sha256,
     trainable_parameter_count,
+)
+from .neural_training import (
+    NeuralEpochMetrics,
+    NeuralTrainingError,
+    NeuralTrainingRequest,
+    NeuralTrainingSummary,
+    validate_neural_training_summary,
 )
 from .nss_rates import (
     NSS_PARAMETER_DTYPES,
@@ -229,6 +258,7 @@ __all__ = [
     "EventBufferError",
     "EventBufferPolicy",
     "EventFeature",
+    "FixedBatchIndices",
     "ForecastDividendFeatureSpec",
     "HistoricalDividendContentError",
     "HistoricalDividendError",
@@ -237,6 +267,7 @@ __all__ = [
     "HistoricalDividendSpecError",
     "HistoricalVolatilitySpec",
     "HistoricalVolatilitySpecError",
+    "LoadedNeuralCheckpoint",
     "LstmGateOrder",
     "MissingColumnsError",
     "ModelExecutionSpec",
@@ -246,7 +277,16 @@ __all__ = [
     "ModelInputTypeError",
     "NeuralBackend",
     "NeuralBackendContractError",
+    "NeuralBatchPlan",
+    "NeuralBatchPlanError",
+    "NeuralCheckpointArtifact",
+    "NeuralCheckpointError",
+    "NeuralCheckpointManifest",
+    "NeuralControlError",
+    "NeuralControlState",
     "NeuralDevice",
+    "NeuralEpochBatchIndices",
+    "NeuralEpochMetrics",
     "NeuralExecutionError",
     "NeuralExecutionProfile",
     "NeuralExecutionSpec",
@@ -259,6 +299,9 @@ __all__ = [
     "NeuralSpecError",
     "NeuralSpecValueError",
     "NeuralStudySpec",
+    "NeuralTrainingError",
+    "NeuralTrainingRequest",
+    "NeuralTrainingSummary",
     "NeuralVariant",
     "NssRateContentError",
     "NssRateError",
@@ -309,9 +352,11 @@ __all__ = [
     "add_historical_dividend_features",
     "add_nss_rate_feature",
     "add_quote_features",
+    "advance_neural_control",
     "apply_complete_row_policy",
     "apply_quote_filter",
     "apply_quote_predicates",
+    "build_neural_epoch_batch_indices",
     "build_project_as_submitted_features",
     "canonicalize_orats_curve_frame",
     "canonicalize_raw_orats_dividend_forecast",
@@ -319,8 +364,11 @@ __all__ = [
     "engine_build_info",
     "forbid_columns",
     "generate_rolling_windows",
+    "initial_neural_control_state",
     "initialize_neural_parameters",
     "join_underlying_history",
+    "load_neural_checkpoint",
+    "neural_study_sha256",
     "nss_rate_expression",
     "prepare_project_neural_batch",
     "prepare_underlying_history",
@@ -333,5 +381,7 @@ __all__ = [
     "select_project_as_submitted_features",
     "select_rolling_phase",
     "trainable_parameter_count",
+    "validate_neural_training_summary",
     "validate_rolling_window_coverage",
+    "write_neural_checkpoint",
 ]

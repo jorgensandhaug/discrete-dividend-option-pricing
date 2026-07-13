@@ -94,3 +94,8 @@ preflight fails before training if any required partition is empty.
 float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars
 storage permits it; any rechunk is an explicit caller policy, and every invalid layout fails before
 training.
+
+Neural epochs use deterministic fixed-shape batches while preserving every logical row. PyTorch and
+MLX share explicit optimizer, scheduling, early-stopping, and best-weight semantics. Reusable model
+artifacts are atomic content-addressed safe-tensors files bound to study, phase hashes, seeds,
+runtime, parameters, and complete metric history; pickle and mutable “latest” aliases are excluded.

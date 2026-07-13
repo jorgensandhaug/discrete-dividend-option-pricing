@@ -15,6 +15,8 @@ from discrete_dividend_study.mlx_neural import (
     MlxNeuralBatch,
     MlxProjectModel,
     build_mlx_project_model,
+    gather_mlx_fixed_batch,
+    mlx_fixed_smape_objective,
     mlx_parameter_name_to_canonical,
     mlx_prediction_numpy,
     mlx_smape_objective,
@@ -22,6 +24,10 @@ from discrete_dividend_study.mlx_neural import (
 )
 from discrete_dividend_study.model_inputs import PreparedNeuralBatch
 from discrete_dividend_study.neural_backend import NeuralBackendContractError
+from discrete_dividend_study.neural_batching import (
+    NeuralBatchPlan,
+    build_neural_epoch_batch_indices,
+)
 from discrete_dividend_study.neural_execution import (
     CompilationMode,
     NeuralBackend,
@@ -38,7 +44,9 @@ from discrete_dividend_study.torch_neural import (
     TorchNeuralBatch,
     TorchProjectModel,
     build_torch_project_model,
+    gather_torch_fixed_batch,
     prepare_torch_neural_batch,
+    torch_fixed_smape_objective,
     torch_parameter_name_to_canonical,
     torch_prediction_numpy,
     torch_smape_objective,
@@ -138,6 +146,71 @@ def test_empty_event_schedules_have_finite_zero_weight_attention() -> None:
     mlx_batch = prepare_mlx_neural_batch(prepared, mlx_model)
     assert np.isfinite(torch_prediction_numpy(torch_model, torch_batch)[0]).all()
     assert np.isfinite(mlx_prediction_numpy(mlx_model, mlx_batch)[0]).all()
+
+
+@pytest.mark.parametrize("variant", list(NeuralVariant))
+def test_fixed_partial_batch_mask_matches_exact_logical_row_objective(
+    variant: NeuralVariant,
+) -> None:
+    """Padded physical slots contribute neither rows nor loss in either backend."""
+    prepared = _prepared_batch(variant)
+    parameters = initialize_neural_parameters(
+        PROJECT_NEURAL_STUDY_SPEC,
+        prepared.model,
+        SEED,
+    )
+    torch_model = build_torch_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=prepared.model,
+        parameters=parameters,
+        execution=_PYTORCH_CPU_1,
+    )
+    mlx_model = build_mlx_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=prepared.model,
+        parameters=parameters,
+        execution=_MLX_CPU,
+    )
+    torch_source = prepare_torch_neural_batch(prepared, torch_model)
+    mlx_source = prepare_mlx_neural_batch(prepared, mlx_model)
+    epoch = build_neural_epoch_batch_indices(
+        NeuralBatchPlan(rows=ROWS, batch_size=5, shuffle=False, seed=None),
+        0,
+    )
+    final_indices = epoch.batch(1)
+    torch_fixed = gather_torch_fixed_batch(torch_source, final_indices)
+    mlx_fixed = gather_mlx_fixed_batch(mlx_source, final_indices)
+    torch_prediction = torch_model(torch_fixed.values)
+    mlx_prediction = mlx_model(mlx_fixed.values)
+    torch_loss = float(
+        torch_fixed_smape_objective(
+            torch_prediction,
+            torch_fixed,
+            PROJECT_NEURAL_STUDY_SPEC.training,
+        ).item(),
+    )
+    mlx_loss_array = mlx_fixed_smape_objective(
+        mlx_prediction,
+        mlx_fixed,
+        PROJECT_NEURAL_STUDY_SPEC.training,
+    )
+    mx.eval(mlx_prediction, mlx_loss_array)
+    mlx_loss = float(mlx_loss_array.item())
+
+    valid_rows = final_indices.indices[final_indices.valid]
+    valid_prediction = torch_prediction_numpy(torch_model, torch_fixed.values)[
+        : final_indices.valid_rows
+    ]
+    valid_target = prepared.target[valid_rows, None]
+    expected = float(
+        np.mean(
+            np.abs(valid_target - valid_prediction)
+            / ((np.abs(valid_target) + np.abs(valid_prediction)) / 2.0),
+        )
+        * PROJECT_NEURAL_STUDY_SPEC.training.objective_percentage_scale,
+    )
+    assert torch_loss == pytest.approx(expected, abs=1e-5)
+    assert mlx_loss == pytest.approx(expected, abs=1e-5)
 
 
 def test_backend_build_request_never_substitutes_a_framework() -> None:

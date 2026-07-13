@@ -23,6 +23,7 @@ from .neural_execution import (
     NeuralExecutionSpec,
     NeuralRuntimeIdentity,
 )
+from .neural_parameters import NeuralParameter
 from .neural_spec import (
     BinnedDividendInput,
     DirectDividendLstmInput,
@@ -36,6 +37,7 @@ from .neural_spec import (
 
 if TYPE_CHECKING:
     from .model_inputs import PreparedNeuralBatch
+    from .neural_batching import FixedBatchIndices
     from .neural_parameters import NeuralParameterSet
 
 Float32Matrix = npt.NDArray[np.float32]
@@ -72,6 +74,24 @@ class TorchNeuralBatch:
             if self.binned_amounts is not None:
                 raise NeuralBackendContractError(reason="yield batch cannot contain bins")
             _require_no_events(self)
+
+
+@dataclass(frozen=True, slots=True)
+class TorchFixedNeuralBatch:
+    """One fixed-width gathered batch and its explicit logical-row mask."""
+
+    values: TorchNeuralBatch
+    valid: torch.Tensor
+
+    def __post_init__(self) -> None:
+        """Require a nonempty boolean column mask on the values' exact device."""
+        if type(self.values) is not TorchNeuralBatch:
+            raise NeuralBackendContractError(reason="values must be TorchNeuralBatch")
+        valid = _validate_tensor(self.valid, field="valid", dtype=torch.bool, dimensions=2)
+        if tuple(valid.shape) != (self.values.scalar_features.shape[0], 1):
+            raise NeuralBackendContractError(reason="valid must have shape (batch_size, 1)")
+        if valid.device != self.values.scalar_features.device:
+            raise NeuralBackendContractError(reason="valid must use the model-batch device")
 
 
 class TorchProjectModel(nn.Module):
@@ -256,6 +276,45 @@ def torch_smape_objective(
     )
 
 
+def torch_fixed_smape_objective(
+    prediction: torch.Tensor,
+    batch: TorchFixedNeuralBatch,
+    training: TrainingSpec,
+) -> torch.Tensor:
+    """Return sMAPE over logical rows only, excluding canonical physical padding."""
+    if prediction.shape != batch.values.target.shape:
+        raise NeuralBackendContractError(reason="prediction and target shapes must match")
+    denominator = (torch.abs(batch.values.target) + torch.abs(prediction)) / 2.0
+    per_row = torch.abs(batch.values.target - prediction) / denominator
+    masked_total = torch.where(batch.valid, per_row, torch.zeros_like(per_row)).sum()
+    return masked_total / batch.valid.sum() * training.objective_percentage_scale
+
+
+def gather_torch_fixed_batch(
+    source: TorchNeuralBatch,
+    batch: FixedBatchIndices,
+) -> TorchFixedNeuralBatch:
+    """Gather one fixed physical batch without dropping its partial logical tail."""
+    if type(source) is not TorchNeuralBatch:
+        raise NeuralBackendContractError(reason="source must be TorchNeuralBatch")
+    if batch.valid_rows <= 0:
+        raise NeuralBackendContractError(reason="a fixed batch must contain a logical row")
+    device = source.scalar_features.device
+    indices = torch.tensor(batch.indices, dtype=torch.int64, device=device)
+    values = TorchNeuralBatch(
+        model=source.model,
+        scalar_features=torch.index_select(source.scalar_features, 0, indices),
+        target=torch.index_select(source.target, 0, indices),
+        event_times=_index_select(source.event_times, indices),
+        event_amounts=_index_select(source.event_amounts, indices),
+        event_mask=_index_select(source.event_mask, indices),
+        event_lengths=_index_select(source.event_lengths, indices),
+        binned_amounts=_index_select(source.binned_amounts, indices),
+    )
+    valid = torch.tensor(batch.valid[:, None], dtype=torch.bool, device=device)
+    return TorchFixedNeuralBatch(values=values, valid=valid)
+
+
 def _event_tensor(
     batch: TorchNeuralBatch,
     feature_order: tuple[EventFeature, ...],
@@ -342,6 +401,23 @@ def torch_parameter_name_to_canonical(framework_name: str) -> str:
         "bias_hh": "bias_hidden",
     }[match.group("kind")]
     return f"lstm.{match.group('layer')}.{kind}"
+
+
+def snapshot_torch_parameters(network: TorchProjectModel) -> tuple[NeuralParameter, ...]:
+    """Copy trained parameters to canonical, immutable, backend-neutral arrays."""
+    if type(network) is not TorchProjectModel:
+        raise NeuralBackendContractError(reason="network must be TorchProjectModel")
+    snapshots: list[NeuralParameter] = []
+    for framework_name, parameter in network.named_parameters():
+        values = np.ascontiguousarray(parameter.detach().cpu().numpy(), dtype=np.float32).copy()
+        values.flags.writeable = False
+        snapshots.append(
+            NeuralParameter(
+                name=torch_parameter_name_to_canonical(framework_name),
+                values=values,
+            ),
+        )
+    return tuple(sorted(snapshots, key=lambda parameter: parameter.name))
 
 
 def _tensor(values: Float32Matrix, *, device: torch.device) -> torch.Tensor:
@@ -455,11 +531,19 @@ def _require_no_events(batch: TorchNeuralBatch) -> None:
         raise NeuralBackendContractError(reason="non-event batch cannot contain event tensors")
 
 
+def _index_select(value: torch.Tensor | None, indices: torch.Tensor) -> torch.Tensor | None:
+    return None if value is None else torch.index_select(value, 0, indices)
+
+
 __all__ = [
+    "TorchFixedNeuralBatch",
     "TorchNeuralBatch",
     "TorchProjectModel",
     "build_torch_project_model",
+    "gather_torch_fixed_batch",
     "prepare_torch_neural_batch",
+    "snapshot_torch_parameters",
+    "torch_fixed_smape_objective",
     "torch_parameter_name_to_canonical",
     "torch_prediction_numpy",
     "torch_smape_objective",

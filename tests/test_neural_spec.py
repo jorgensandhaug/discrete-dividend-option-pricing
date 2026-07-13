@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -17,6 +18,7 @@ from discrete_dividend_study.neural_spec import (
     LstmGateOrder,
     NeuralSpecValueError,
     NeuralVariant,
+    neural_study_sha256,
     trainable_parameter_count,
 )
 
@@ -34,6 +36,9 @@ EXPECTED_SHARED_CONFIGURATION = (
     3.158e-2,
     0.0,
     8.6e-4,
+    0.9,
+    0.999,
+    1e-8,
     0.01,
     0.5,
     10,
@@ -44,6 +49,7 @@ EXPECTED_SHARED_CONFIGURATION = (
 )
 EXPECTED_SEQUENCE_CAPACITY = 4
 EXPECTED_BIN_COUNT = 12
+SHA256_HEX_LENGTH = 64
 
 
 def test_project_study_freezes_shared_architecture_and_training() -> None:
@@ -55,6 +61,9 @@ def test_project_study_freezes_shared_architecture_and_training() -> None:
         study.mlp.leaky_relu_negative_slope,
         study.mlp.dropout_probability,
         study.training.optimizer.learning_rate,
+        study.training.optimizer.beta1,
+        study.training.optimizer.beta2,
+        study.training.optimizer.epsilon,
         study.training.optimizer.weight_decay,
         study.training.scheduler.factor,
         study.training.scheduler.patience_epochs,
@@ -152,6 +161,19 @@ def test_framework_independent_parameter_counts_are_frozen() -> None:
     for variant, count in expected.items():
         model = PROJECT_NEURAL_STUDY_SPEC.model(variant)
         assert trainable_parameter_count(PROJECT_NEURAL_STUDY_SPEC, model) == count
+
+
+def test_study_content_identity_is_canonical_and_sensitive() -> None:
+    """A study hash is stable yet changes with any result-capable declared value."""
+    first = neural_study_sha256(PROJECT_NEURAL_STUDY_SPEC)
+    second = neural_study_sha256(PROJECT_NEURAL_STUDY_SPEC)
+    changed = replace(
+        PROJECT_NEURAL_STUDY_SPEC,
+        training=replace(PROJECT_NEURAL_STUDY_SPEC.training, maximum_epochs=101),
+    )
+    assert first == second
+    assert len(first) == SHA256_HEX_LENGTH
+    assert neural_study_sha256(changed) != first
 
 
 def test_closed_variant_lookup_rejects_strings() -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Final
 
@@ -142,7 +144,11 @@ class OptimizerSpec:
 
     kind: OptimizerKind
     learning_rate: float
+    beta1: float
+    beta2: float
+    epsilon: float
     weight_decay: float
+    bias_correction: bool
 
     def __post_init__(self) -> None:
         """Reject unsupported algorithms or invalid magnitudes."""
@@ -153,7 +159,17 @@ class OptimizerSpec:
                 requirement="OptimizerKind.ADAMW",
             )
         _require_finite_positive_float(self.learning_rate, field="optimizer.learning_rate")
+        _require_probability(self.beta1, field="optimizer.beta1")
+        _require_probability(self.beta2, field="optimizer.beta2")
+        _require_finite_positive_float(self.epsilon, field="optimizer.epsilon")
         _require_finite_nonnegative_float(self.weight_decay, field="optimizer.weight_decay")
+        _require_plain_bool(self.bias_correction, field="optimizer.bias_correction")
+        if not self.bias_correction:
+            raise NeuralSpecValueError(
+                field="optimizer.bias_correction",
+                observed=self.bias_correction,
+                requirement="True for the recovered AdamW contract",
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,6 +584,24 @@ def trainable_parameter_count(study: NeuralStudySpec, model: NeuralModelSpec) ->
     return mlp_parameters
 
 
+def neural_study_sha256(study: NeuralStudySpec) -> str:
+    """Return the canonical content identity of a complete framework-neutral study."""
+    if type(study) is not NeuralStudySpec:
+        raise NeuralSpecValueError(
+            field="study",
+            observed=study,
+            requirement="a NeuralStudySpec",
+        )
+    payload = json.dumps(
+        asdict(study),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _representation_for_input(dividend_input: DividendInput) -> DividendRepresentation:
     if type(dividend_input) is DirectDividendLstmInput:
         return DividendRepresentation.PADDED_LSTM
@@ -685,7 +719,11 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
         optimizer=OptimizerSpec(
             kind=OptimizerKind.ADAMW,
             learning_rate=8.6e-4,
+            beta1=0.9,
+            beta2=0.999,
+            epsilon=1e-8,
             weight_decay=0.01,
+            bias_correction=True,
         ),
         scheduler=PlateauSchedulerSpec(
             factor=0.5,
@@ -786,5 +824,6 @@ __all__ = [
     "ParameterInitialization",
     "PlateauSchedulerSpec",
     "TrainingSpec",
+    "neural_study_sha256",
     "trainable_parameter_count",
 ]

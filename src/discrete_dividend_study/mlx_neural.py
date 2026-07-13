@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 from finoptions import BinnedCashDividends, PaddedCashDividends
 from mlx import nn
+from mlx.utils import tree_flatten
 
 from .neural_backend import (
     NeuralBackendContractError,
@@ -17,6 +18,7 @@ from .neural_backend import (
     validate_prepared_batch,
 )
 from .neural_execution import NeuralBackend, NeuralExecutionSpec, NeuralRuntimeIdentity
+from .neural_parameters import NeuralParameter
 from .neural_spec import (
     BinnedDividendInput,
     DirectDividendLstmInput,
@@ -30,6 +32,7 @@ from .neural_spec import (
 
 if TYPE_CHECKING:
     from .model_inputs import PreparedNeuralBatch
+    from .neural_batching import FixedBatchIndices
     from .neural_parameters import NeuralParameterSet
 
 Float32Matrix = npt.NDArray[np.float32]
@@ -63,6 +66,22 @@ class MlxNeuralBatch:
             if self.binned_amounts is not None:
                 raise NeuralBackendContractError(reason="yield batch cannot contain bins")
             _require_no_events(self)
+
+
+@dataclass(frozen=True, slots=True)
+class MlxFixedNeuralBatch:
+    """One fixed-width gathered batch and its explicit logical-row mask."""
+
+    values: MlxNeuralBatch
+    valid: mx.array
+
+    def __post_init__(self) -> None:
+        """Require a boolean column mask matching the physical batch shape."""
+        if type(self.values) is not MlxNeuralBatch:
+            raise NeuralBackendContractError(reason="values must be MlxNeuralBatch")
+        valid = _validate_array(self.valid, field="valid", dtype=mx.bool_, dimensions=2)
+        if valid.shape != (self.values.scalar_features.shape[0], 1):
+            raise NeuralBackendContractError(reason="valid must have shape (batch_size, 1)")
 
 
 class MlxProjectModel(nn.Module):
@@ -284,6 +303,44 @@ def mlx_smape_objective(
     return mx.mean(mx.abs(target - prediction) / denominator) * training.objective_percentage_scale
 
 
+def mlx_fixed_smape_objective(
+    prediction: mx.array,
+    batch: MlxFixedNeuralBatch,
+    training: TrainingSpec,
+) -> mx.array:
+    """Return sMAPE over logical rows only, excluding canonical physical padding."""
+    if prediction.shape != batch.values.target.shape:
+        raise NeuralBackendContractError(reason="prediction and target shapes must match")
+    denominator = (mx.abs(batch.values.target) + mx.abs(prediction)) / 2.0
+    per_row = mx.abs(batch.values.target - prediction) / denominator
+    masked_total = mx.sum(mx.where(batch.valid, per_row, mx.zeros_like(per_row)))
+    return masked_total / mx.sum(batch.valid) * training.objective_percentage_scale
+
+
+def gather_mlx_fixed_batch(
+    source: MlxNeuralBatch,
+    batch: FixedBatchIndices,
+) -> MlxFixedNeuralBatch:
+    """Gather one lazy fixed physical batch without dropping its partial logical tail."""
+    if type(source) is not MlxNeuralBatch:
+        raise NeuralBackendContractError(reason="source must be MlxNeuralBatch")
+    if batch.valid_rows <= 0:
+        raise NeuralBackendContractError(reason="a fixed batch must contain a logical row")
+    indices = mx.array(batch.indices, dtype=mx.int64)
+    values = MlxNeuralBatch(
+        model=source.model,
+        scalar_features=source.scalar_features[indices],
+        target=source.target[indices],
+        event_times=_index_select(source.event_times, indices),
+        event_amounts=_index_select(source.event_amounts, indices),
+        event_mask=_index_select(source.event_mask, indices),
+        event_lengths=_index_select(source.event_lengths, indices),
+        binned_amounts=_index_select(source.binned_amounts, indices),
+    )
+    valid = mx.array(batch.valid[:, None], dtype=mx.bool_)
+    return MlxFixedNeuralBatch(values=values, valid=valid)
+
+
 def mlx_parameter_name_to_canonical(framework_name: str) -> str:
     """Map an MLX parameter-tree path to its canonical parameter identity."""
     parts = framework_name.split(".")
@@ -293,6 +350,24 @@ def mlx_parameter_name_to_canonical(framework_name: str) -> str:
             if kind is not None:
                 return f"lstm.{layer}.{kind}"
     return framework_name
+
+
+def snapshot_mlx_parameters(network: MlxProjectModel) -> tuple[NeuralParameter, ...]:
+    """Copy trained parameters to canonical, immutable, backend-neutral arrays."""
+    if type(network) is not MlxProjectModel:
+        raise NeuralBackendContractError(reason="network must be MlxProjectModel")
+    mx.eval(network.parameters())
+    snapshots: list[NeuralParameter] = []
+    for framework_name, parameter in tree_flatten(network.parameters()):
+        values = np.ascontiguousarray(np.array(parameter, dtype=np.float32, copy=True))
+        values.flags.writeable = False
+        snapshots.append(
+            NeuralParameter(
+                name=mlx_parameter_name_to_canonical(framework_name),
+                values=values,
+            ),
+        )
+    return tuple(sorted(snapshots, key=lambda parameter: parameter.name))
 
 
 def _event_tensor(
@@ -455,12 +530,20 @@ def _require_no_events(batch: MlxNeuralBatch) -> None:
         raise NeuralBackendContractError(reason="non-event batch cannot contain event arrays")
 
 
+def _index_select(value: mx.array | None, indices: mx.array) -> mx.array | None:
+    return None if value is None else value[indices]
+
+
 __all__ = [
+    "MlxFixedNeuralBatch",
     "MlxNeuralBatch",
     "MlxProjectModel",
     "build_mlx_project_model",
+    "gather_mlx_fixed_batch",
+    "mlx_fixed_smape_objective",
     "mlx_parameter_name_to_canonical",
     "mlx_prediction_numpy",
     "mlx_smape_objective",
     "prepare_mlx_neural_batch",
+    "snapshot_mlx_parameters",
 ]
