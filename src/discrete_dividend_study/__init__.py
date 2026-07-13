@@ -28,6 +28,16 @@ from .orats_options import (
     canonicalize_raw_orats_options,
     scan_raw_orats_csv,
 )
+from .quote_filters import (
+    PROJECT_AS_SUBMITTED_FILTER,
+    QUOTE_FEATURE_DTYPES,
+    QuoteFilter,
+    QuoteFilterError,
+    QuoteFilterSpecError,
+    QuoteSchemaError,
+    add_quote_features,
+    apply_quote_filter,
+)
 from .schema import DuplicateColumnsError, MissingColumnsError, require_columns
 
 __version__: Final = "0.1.0"
@@ -43,6 +53,8 @@ __all__ = [
     "ORATS_RAW_OPTION_COLUMNS",
     "ORATS_RAW_OPTION_DTYPES",
     "ORATS_RAW_SCAN_DTYPES",
+    "PROJECT_AS_SUBMITTED_FILTER",
+    "QUOTE_FEATURE_DTYPES",
     "AdaptedOratsCurve",
     "DuplicateColumnsError",
     "MissingColumnsError",
@@ -54,9 +66,15 @@ __all__ = [
     "OratsOptionError",
     "OratsOptionSchemaError",
     "OratsOptionSourceError",
+    "QuoteFilter",
+    "QuoteFilterError",
+    "QuoteFilterSpecError",
+    "QuoteSchemaError",
     "__version__",
     "adapt_orats_curve",
     "adapt_raw_orats_curve",
+    "add_quote_features",
+    "apply_quote_filter",
     "canonicalize_orats_curve_frame",
     "canonicalize_raw_orats_options",
     "engine_build_info",

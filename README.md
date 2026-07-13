@@ -50,3 +50,7 @@ agreement and calendar ordering, and rejects extrapolation. Its financial contra
 Daily option deliveries use the same strict boundary: `scan_raw_orats_csv` owns the CSV parse types,
 and `canonicalize_raw_orats_options` returns the exact shared 17-column thesis representation
 without filtering, dropping, or imputing rows. Licensed inputs and generated artifacts stay local.
+
+`add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
+The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
+than recovering hidden defaults at runtime.
