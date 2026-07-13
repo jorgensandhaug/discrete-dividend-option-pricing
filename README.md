@@ -54,3 +54,7 @@ without filtering, dropping, or imputing rows. Licensed inputs and generated art
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.
+
+`prepare_underlying_history` validates the daily adjusted-price contract, canonicalizes observation
+order, and computes the immutable project rolling-volatility specification with complete windows and
+explicit sample degrees of freedom and annualization.

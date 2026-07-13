@@ -39,6 +39,16 @@ from .quote_filters import (
     apply_quote_filter,
 )
 from .schema import DuplicateColumnsError, MissingColumnsError, require_columns
+from .underlying_history import (
+    PROJECT_HISTORICAL_VOLATILITY_SPEC,
+    UNDERLYING_HISTORY_DTYPES,
+    HistoricalVolatilitySpec,
+    HistoricalVolatilitySpecError,
+    UnderlyingHistoryContentError,
+    UnderlyingHistoryError,
+    UnderlyingHistorySchemaError,
+    prepare_underlying_history,
+)
 
 __version__: Final = "0.1.0"
 
@@ -54,9 +64,13 @@ __all__ = [
     "ORATS_RAW_OPTION_DTYPES",
     "ORATS_RAW_SCAN_DTYPES",
     "PROJECT_AS_SUBMITTED_FILTER",
+    "PROJECT_HISTORICAL_VOLATILITY_SPEC",
     "QUOTE_FEATURE_DTYPES",
+    "UNDERLYING_HISTORY_DTYPES",
     "AdaptedOratsCurve",
     "DuplicateColumnsError",
+    "HistoricalVolatilitySpec",
+    "HistoricalVolatilitySpecError",
     "MissingColumnsError",
     "OratsCurveContentError",
     "OratsCurveDomainError",
@@ -70,6 +84,9 @@ __all__ = [
     "QuoteFilterError",
     "QuoteFilterSpecError",
     "QuoteSchemaError",
+    "UnderlyingHistoryContentError",
+    "UnderlyingHistoryError",
+    "UnderlyingHistorySchemaError",
     "__version__",
     "adapt_orats_curve",
     "adapt_raw_orats_curve",
@@ -78,6 +95,7 @@ __all__ = [
     "canonicalize_orats_curve_frame",
     "canonicalize_raw_orats_options",
     "engine_build_info",
+    "prepare_underlying_history",
     "require_columns",
     "scan_raw_orats_csv",
 ]
