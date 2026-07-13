@@ -74,3 +74,7 @@ by one immutable specification.
 `add_historical_dividend_features` uses a cumulative two-as-of algorithm on unique ticker/date keys
 for the explicit 52-week observed-cash window. It validates history coverage and exact endpoint
 semantics before joining totals back to quote rows.
+
+`add_nss_rate_feature` reproduces the exact-date submitted short-end and NSS scalar-rate rule with
+strict `Float64` parameters and a cancellation-safe evaluation. Pricing-engine discount curves keep
+their own explicit provider and quote-convention adapter.
