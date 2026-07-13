@@ -46,3 +46,7 @@ curve = adapted.curve
 The adapter remains lazy until it reduces the selected rows to maturity nodes, validates source
 agreement and calendar ordering, and rejects extrapolation. Its financial contract is recorded in
 [ADR 0004](docs/adr/0004-orats-curve-adapter.md).
+
+Daily option deliveries use the same strict boundary: `scan_raw_orats_csv` owns the CSV parse types,
+and `canonicalize_raw_orats_options` returns the exact shared 17-column thesis representation
+without filtering, dropping, or imputing rows. Licensed inputs and generated artifacts stay local.

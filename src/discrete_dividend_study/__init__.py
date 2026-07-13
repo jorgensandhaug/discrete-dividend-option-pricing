@@ -17,6 +17,17 @@ from .orats import (
     adapt_raw_orats_curve,
     canonicalize_orats_curve_frame,
 )
+from .orats_options import (
+    ORATS_NORMALIZED_OPTION_DTYPES,
+    ORATS_RAW_OPTION_COLUMNS,
+    ORATS_RAW_OPTION_DTYPES,
+    ORATS_RAW_SCAN_DTYPES,
+    OratsOptionError,
+    OratsOptionSchemaError,
+    OratsOptionSourceError,
+    canonicalize_raw_orats_options,
+    scan_raw_orats_csv,
+)
 from .schema import DuplicateColumnsError, MissingColumnsError, require_columns
 
 __version__: Final = "0.1.0"
@@ -28,6 +39,10 @@ def engine_build_info() -> BuildInfo:
 
 
 __all__ = [
+    "ORATS_NORMALIZED_OPTION_DTYPES",
+    "ORATS_RAW_OPTION_COLUMNS",
+    "ORATS_RAW_OPTION_DTYPES",
+    "ORATS_RAW_SCAN_DTYPES",
     "AdaptedOratsCurve",
     "DuplicateColumnsError",
     "MissingColumnsError",
@@ -36,10 +51,15 @@ __all__ = [
     "OratsCurveError",
     "OratsCurveProvenance",
     "OratsCurveSchemaError",
+    "OratsOptionError",
+    "OratsOptionSchemaError",
+    "OratsOptionSourceError",
     "__version__",
     "adapt_orats_curve",
     "adapt_raw_orats_curve",
     "canonicalize_orats_curve_frame",
+    "canonicalize_raw_orats_options",
     "engine_build_info",
     "require_columns",
+    "scan_raw_orats_csv",
 ]
