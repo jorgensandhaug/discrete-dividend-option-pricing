@@ -23,10 +23,9 @@ Python workflow obvious to a financial researcher.
 ## Supported workflow
 
 - `just fmt` formats Python.
-- `just check` runs formatting, Ruff, and strict mypy through the current native sibling build.
+- `just check` runs formatting, Ruff, and strict `ty` checks through the current native sibling build.
 - `just test` runs the integration suite through the same state-aware path.
 - `just full` is the current complete local gate.
 
 Use current stable mutually compatible dependencies and commit the exact uv lock. The engine
 revision used by any immutable result must be recorded even during sibling-path development.
-

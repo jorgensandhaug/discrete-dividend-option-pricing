@@ -68,7 +68,7 @@ jobs:
 
       - name: Strict types
         working-directory: paper
-        run: .venv/bin/python tools/dev.py -- mypy
+        run: .venv/bin/python tools/dev.py -- ty check --error-on-warning src tests tools
 
       - name: Paper and native integration tests
         working-directory: paper
@@ -77,4 +77,3 @@ jobs:
       - name: Build paper artifacts locally
         working-directory: paper
         run: uv build
-

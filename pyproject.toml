@@ -23,9 +23,9 @@ dependencies = [
 [dependency-groups]
 dev = [
   "maturin==1.14.1",
-  "mypy==2.2.0",
   "pytest==9.1.1",
   "ruff==0.15.21",
+  "ty==0.0.58",
 ]
 
 [tool.uv.sources]
@@ -37,11 +37,6 @@ module-name = "discrete_dividend_study"
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
 testpaths = ["tests"]
-
-[tool.mypy]
-python_version = "3.14"
-strict = true
-files = ["src", "tests", "tools"]
 
 [tool.ruff]
 target-version = "py314"
@@ -61,3 +56,10 @@ ignore = [
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.rules]
+missing-type-argument = "error"
+possibly-unresolved-reference = "error"
