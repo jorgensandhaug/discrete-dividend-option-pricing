@@ -17,7 +17,9 @@ from discrete_dividend_study.model_inputs import (
     ModelInputTypeError,
     PreparedNeuralBatch,
     prepare_project_neural_batch,
+    prepare_project_neural_batches,
     prepared_neural_batch_sha256,
+    slice_prepared_neural_batch,
 )
 from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
 
@@ -191,6 +193,51 @@ def test_prepared_batch_hash_binds_exact_read_only_model_tensors(
         executor,
     )
     assert prepared_neural_batch_sha256(changed) != prepared_neural_batch_sha256(first)
+
+
+def test_multi_model_preparation_shares_only_identical_project_allocations(
+    executor: CpuExecutor,
+) -> None:
+    """One source conversion shares targets, base scalars, and the common padded layout."""
+    models = PROJECT_NEURAL_STUDY_SPEC.models
+    batches = prepare_project_neural_batches(model_frame(), models, executor)
+    assert tuple(batch.model for batch in batches) == models
+    assert all(batch.target is batches[0].target for batch in batches)
+    assert batches[0].scalar_features is batches[1].scalar_features
+    assert batches[1].scalar_features is batches[2].scalar_features
+    assert batches[3].scalar_features is not batches[0].scalar_features
+    assert batches[4].scalar_features is not batches[0].scalar_features
+    assert type(batches[0].dividends) is PaddedCashDividends
+    assert batches[0].dividends is batches[1].dividends
+    assert type(batches[2].dividends) is BinnedCashDividends
+
+    independently_prepared = tuple(
+        prepare_project_neural_batch(model_frame(), model, executor) for model in models
+    )
+    assert tuple(map(prepared_neural_batch_sha256, batches)) == tuple(
+        map(prepared_neural_batch_sha256, independently_prepared),
+    )
+
+
+def test_prepared_batch_slices_are_exact_immutable_zero_copy_views(
+    executor: CpuExecutor,
+) -> None:
+    """A contiguous phase slice retains byte identity without allocating tensor payloads."""
+    model = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.LSTM)
+    complete = prepare_project_neural_batch(model_frame(), model, executor)
+    phase = slice_prepared_neural_batch(complete, 0, 2)
+    independent = prepare_project_neural_batch(model_frame().slice(0, 2), model, executor)
+    assert prepared_neural_batch_sha256(phase) == prepared_neural_batch_sha256(independent)
+    assert np.shares_memory(phase.scalar_features, complete.scalar_features)
+    assert np.shares_memory(phase.target, complete.target)
+    assert type(phase.dividends) is PaddedCashDividends
+    assert type(complete.dividends) is PaddedCashDividends
+    assert np.shares_memory(phase.dividends.times, complete.dividends.times)
+    assert np.shares_memory(phase.dividends.amounts, complete.dividends.amounts)
+    assert not phase.scalar_features.flags.writeable
+    assert not phase.target.flags.writeable
+    with pytest.raises(ModelInputTypeError, match="row bounds"):
+        slice_prepared_neural_batch(complete, 1, 1)
 
 
 def test_fragmented_event_children_require_explicit_rechunk(executor: CpuExecutor) -> None:

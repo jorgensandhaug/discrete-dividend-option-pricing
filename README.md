@@ -21,6 +21,7 @@ just test
 just check
 just bench-neural nn_bin 100000 10000 10
 just bench-inference nn_bin 100000 8192
+just bench-rolling-preparation full_horizon 500000 117 8
 ```
 
 The state-aware launcher synchronizes the locked environment and rebuilds a changed Rust extension
@@ -112,3 +113,28 @@ bounded fixed-batch inference, computes the submitted pooled MAPE/RMSE and diagn
 emits cross-referenced checkpoint, prediction, and canonical JSON run artifacts. Source identity is
 resolved only from caller-supplied feature and lock files plus full Git commits; no production path
 searches for “latest”, clips an invalid prediction, changes backend, or skips a failed window.
+
+`prepare_project_neural_rolling_source` is the production whole-study boundary. It collects the
+minimal full horizon once, prepares each distinct model representation once, and exposes every
+overlapping phase as an immutable zero-copy row view. `run_project_neural_rolling_study` preflights
+the complete schedule, derives role/model/window-separated seeds, and resumes only through an exact
+pre-training request receipt. Its final content-addressed manifest contains every model/window
+artifact reference and observation-pooled metrics for each model separately; it never averages
+window RMSE or combines metrics across different models. The full contract is recorded in
+[ADR 0019](docs/adr/0019-one-pass-neural-study-and-exact-resume.md).
+
+From clean paper and engine checkouts at the pinned engine revision, the complete private-data run
+has one explicit entry point:
+
+```shell
+uv run --locked discrete-dividend-study run-neural-study \
+  --features /absolute/path/project-features.parquet \
+  --artifacts /absolute/path/immutable-run-artifacts \
+  --profile apple-silicon \
+  --data-threads 8 \
+  --parameter-root-seed 2026071401 \
+  --shuffle-root-seed 2026071402
+```
+
+There is no automatic profile, seed, thread count, source discovery, dirty-checkout allowance, or
+resume wildcard. The portable profile must be requested explicitly as `portable-cpu`.

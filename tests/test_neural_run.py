@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from discrete_dividend_study.neural_execution import PROJECT_PORTABLE_CPU_EXECUTION_PROFILE
+from discrete_dividend_study.neural_prediction import NeuralPredictionError
 from discrete_dividend_study.neural_run import (
     NeuralRunError,
     NeuralWindowRunRequest,
@@ -48,15 +49,27 @@ SOURCE = StudySourceIdentity(
 )
 
 
-def test_complete_run_is_deterministic_relocatable_and_cross_referenced(tmp_path: Path) -> None:
-    """One request produces one safe checkpoint, prediction, and canonical run identity."""
+def test_complete_run_is_deterministic_relocatable_and_cross_referenced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One request produces one safe result and resumes without invoking training again."""
     request = _run_request()
     first = run_neural_window(request, tmp_path)
+
+    def unexpected_training(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError
+
+    monkeypatch.setattr(
+        "discrete_dividend_study.neural_run._train_and_predict",
+        unexpected_training,
+    )
     second = run_neural_window(request, tmp_path)
     assert first == second
     assert tuple((tmp_path / "checkpoints").iterdir()) == (first.checkpoint.path,)
     assert tuple((tmp_path / "predictions").iterdir()) == (first.prediction.path,)
     assert tuple((tmp_path / "runs").iterdir()) == (first.run.path,)
+    assert tuple((tmp_path / "receipts").iterdir()) == (first.receipt.path,)
 
     loaded = load_neural_window_run(first.run.path)
     assert loaded == first.run
@@ -71,6 +84,8 @@ def test_complete_run_is_deterministic_relocatable_and_cross_referenced(tmp_path
     assert manifest.metrics == first.prediction.metrics
     assert manifest.execution_profile == PROJECT_PORTABLE_CPU_EXECUTION_PROFILE.name
     assert manifest.inference_batch_size == request.execution.inference_batch_size
+    assert manifest.request_sha256 == first.receipt.receipt.request_sha256
+    assert first.receipt.receipt.run_sha256 == first.run.sha256
 
 
 def test_bad_source_revision_and_tampered_run_fail_before_reuse(tmp_path: Path) -> None:
@@ -82,6 +97,26 @@ def test_bad_source_revision_and_tampered_run_fail_before_reuse(tmp_path: Path) 
     result.run.path.write_bytes(result.run.path.read_bytes() + b"tampered")
     with pytest.raises(NeuralRunError, match="filename hash"):
         load_neural_window_run(result.run.path)
+
+
+def test_present_receipt_with_missing_result_fails_without_retraining(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken exact resume chain is an error rather than permission to create another result."""
+    request = _run_request()
+    result = run_neural_window(request, tmp_path)
+    result.prediction.path.unlink()
+
+    def unexpected_training(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError
+
+    monkeypatch.setattr(
+        "discrete_dividend_study.neural_run._train_and_predict",
+        unexpected_training,
+    )
+    with pytest.raises(NeuralPredictionError, match=r"regular \.safetensors"):
+        run_neural_window(request, tmp_path)
 
 
 def test_source_identity_hashes_only_explicit_regular_files(tmp_path: Path) -> None:

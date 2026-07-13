@@ -295,6 +295,265 @@ def prepare_project_neural_batch(
     )
 
 
+def prepare_project_neural_batches(
+    frame: pl.DataFrame,
+    models: tuple[NeuralModelSpec, ...],
+    executor: CpuExecutor,
+    *,
+    event_buffer_policy: EventBufferPolicy = EventBufferPolicy.REQUIRE_ZERO_COPY,
+    dividend_columns: RaggedDividendColumns = PROJECT_RAGGED_DIVIDEND_COLUMNS,
+) -> tuple[PreparedNeuralBatch, ...]:
+    """Prepare several project models while allocating each shared tensor exactly once.
+
+    Models with the same ordered scalar columns borrow one shared float32 matrix. Every model
+    borrows the same target vector, and the LSTM and event-attention variants borrow one shared
+    padded dividend tensor because their project layouts are identical. The ragged source is
+    validated and borrowed once even when both padded and binned representations are requested.
+    Returned batches are immutable, model-specific views over those shared allocations.
+    """
+    _validate_multi_batch_request(
+        frame,
+        models,
+        executor,
+        event_buffer_policy=event_buffer_policy,
+        dividend_columns=dividend_columns,
+    )
+    required = _multi_model_required_columns(models, dividend_columns)
+    _validate_schema(frame, _expected_dtypes(required, dividend_columns))
+    scalar_matrices = {
+        columns: _scalar_matrix(frame, columns)
+        for columns in dict.fromkeys(model.scalar_columns for model in models)
+    }
+    target = _shared_project_target(frame, models)
+    for model in models:
+        _validate_model_arrays(model, scalar_matrices[model.scalar_columns], target)
+    padded, binned = _shared_project_dividend_tensors(
+        frame,
+        models,
+        executor,
+        event_buffer_policy=event_buffer_policy,
+        dividend_columns=dividend_columns,
+    )
+    return tuple(
+        PreparedNeuralBatch(
+            model=model,
+            scalar_features=scalar_matrices[model.scalar_columns],
+            target=target,
+            dividends=_shared_dividends_for(model, padded=padded, binned=binned),
+        )
+        for model in models
+    )
+
+
+def _validate_multi_batch_request(
+    frame: pl.DataFrame,
+    models: tuple[NeuralModelSpec, ...],
+    executor: CpuExecutor,
+    *,
+    event_buffer_policy: EventBufferPolicy,
+    dividend_columns: RaggedDividendColumns,
+) -> None:
+    if type(models) is not tuple or not models:
+        raise ModelInputTypeError(
+            field="models",
+            observed=type(models).__name__,
+            expected="a nonempty tuple[NeuralModelSpec, ...]",
+        )
+    if len({model.variant for model in models if type(model) is NeuralModelSpec}) != len(models):
+        raise ModelInputTypeError(
+            field="models",
+            observed="duplicate or invalid model identities",
+            expected="distinct models owned by PROJECT_NEURAL_STUDY_SPEC",
+        )
+    for model in models:
+        _validate_request_types(
+            frame=frame,
+            model=model,
+            executor=executor,
+            event_buffer_policy=event_buffer_policy,
+            dividend_columns=dividend_columns,
+        )
+    if frame.height == 0:
+        raise ModelInputContentError(violations=(("empty_frame", 1),))
+
+
+def _multi_model_required_columns(
+    models: tuple[NeuralModelSpec, ...],
+    dividend_columns: RaggedDividendColumns,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            column
+            for model in models
+            for column in _required_columns(
+                model,
+                dividend_columns,
+                needs_events=type(model.dividend_input) is not DividendYieldInput,
+            )
+        ),
+    )
+
+
+def _shared_project_target(
+    frame: pl.DataFrame,
+    models: tuple[NeuralModelSpec, ...],
+) -> Float32Vector:
+    target_columns = tuple(dict.fromkeys(model.target_column for model in models))
+    if len(target_columns) != 1:
+        raise ModelInputTypeError(
+            field="models",
+            observed=repr(target_columns),
+            expected="one shared project target column",
+        )
+    return _float32_vector(frame.get_column(target_columns[0]), field=target_columns[0])
+
+
+def _shared_project_dividend_tensors(
+    frame: pl.DataFrame,
+    models: tuple[NeuralModelSpec, ...],
+    executor: CpuExecutor,
+    *,
+    event_buffer_policy: EventBufferPolicy,
+    dividend_columns: RaggedDividendColumns,
+) -> tuple[PaddedCashDividends | None, BinnedCashDividends | None]:
+    if all(type(model.dividend_input) is DividendYieldInput for model in models):
+        return None, None
+    ragged = _ragged_dividends(frame, dividend_columns, policy=event_buffer_policy)
+    maturities = _float64_vector(
+        frame.get_column(dividend_columns.maturity),
+        field=dividend_columns.maturity,
+    )
+    spots = _float64_vector(
+        frame.get_column(dividend_columns.spot).cast(pl.Float64),
+        field=dividend_columns.spot,
+    )
+    padded = _shared_padded_dividends(models, ragged, maturities, spots, executor)
+    binned = _shared_binned_dividends(models, ragged, maturities, spots, executor)
+    return padded, binned
+
+
+def _shared_padded_dividends(
+    models: tuple[NeuralModelSpec, ...],
+    ragged: RaggedCashDividends,
+    maturities: Float64Vector,
+    spots: Float64Vector,
+    executor: CpuExecutor,
+) -> PaddedCashDividends | None:
+    inputs = tuple(
+        cast("DirectDividendLstmInput | EventAttentionInput", model.dividend_input)
+        for model in models
+        if type(model.dividend_input) in {DirectDividendLstmInput, EventAttentionInput}
+    )
+    if not inputs:
+        return None
+    layouts = {dividend_input.layout for dividend_input in inputs}
+    if len(layouts) != 1:
+        raise ModelInputTypeError(
+            field="models",
+            observed="different padded project layouts",
+            expected="one shared padded project layout",
+        )
+    return pack_padded_cash_dividends(
+        dividends=ragged,
+        maturities=maturities,
+        spots=spots,
+        spec=inputs[0].layout,
+        executor=executor,
+    )
+
+
+def _shared_binned_dividends(
+    models: tuple[NeuralModelSpec, ...],
+    ragged: RaggedCashDividends,
+    maturities: Float64Vector,
+    spots: Float64Vector,
+    executor: CpuExecutor,
+) -> BinnedCashDividends | None:
+    inputs = tuple(
+        model.dividend_input
+        for model in models
+        if type(model.dividend_input) is BinnedDividendInput
+    )
+    if not inputs:
+        return None
+    layouts = {dividend_input.layout for dividend_input in inputs}
+    if len(layouts) != 1:
+        raise ModelInputTypeError(
+            field="models",
+            observed="different binned project layouts",
+            expected="one shared binned project layout",
+        )
+    return bin_cash_dividends(
+        dividends=ragged,
+        maturities=maturities,
+        spots=spots,
+        spec=inputs[0].layout,
+        executor=executor,
+    )
+
+
+def _shared_dividends_for(
+    model: NeuralModelSpec,
+    *,
+    padded: PaddedCashDividends | None,
+    binned: BinnedCashDividends | None,
+) -> DividendTensor | None:
+    dividend_input = model.dividend_input
+    if type(dividend_input) in {DirectDividendLstmInput, EventAttentionInput}:
+        if padded is None:
+            raise ModelInputContentError(violations=(("missing_padded_dividends", 1),))
+        return padded
+    if type(dividend_input) is BinnedDividendInput:
+        if binned is None:
+            raise ModelInputContentError(violations=(("missing_binned_dividends", 1),))
+        return binned
+    return None
+
+
+def slice_prepared_neural_batch(
+    batch: PreparedNeuralBatch,
+    start: int,
+    end: int,
+) -> PreparedNeuralBatch:
+    """Return one nonempty zero-copy contiguous row view of a prepared batch."""
+    if type(batch) is not PreparedNeuralBatch:
+        raise ModelInputTypeError(
+            field="batch",
+            observed=type(batch).__name__,
+            expected="PreparedNeuralBatch",
+        )
+    if (
+        type(start) is not int
+        or type(end) is not int
+        or start < 0
+        or end <= start
+        or end > batch.rows
+    ):
+        raise ModelInputTypeError(
+            field="row bounds",
+            observed=repr((start, end, batch.rows)),
+            expected="plain ints satisfying 0 <= start < end <= batch.rows",
+        )
+    dividends: DividendTensor | None
+    if type(batch.dividends) is PaddedCashDividends:
+        dividends = PaddedCashDividends(
+            times=batch.dividends.times[start:end],
+            amounts=batch.dividends.amounts[start:end],
+            mask=batch.dividends.mask[start:end],
+            lengths=batch.dividends.lengths[start:end],
+        )
+    elif type(batch.dividends) is BinnedCashDividends:
+        dividends = BinnedCashDividends(amounts=batch.dividends.amounts[start:end])
+    else:
+        dividends = None
+    return PreparedNeuralBatch(
+        model=batch.model,
+        scalar_features=batch.scalar_features[start:end],
+        target=batch.target[start:end],
+        dividends=dividends,
+    )
+
+
 def project_neural_input_columns(model: NeuralModelSpec) -> tuple[str, ...]:
     """Return the minimal ordered materialized column set for one project model."""
     if type(model) is not NeuralModelSpec or model not in PROJECT_NEURAL_STUDY_SPEC.models:
@@ -701,6 +960,8 @@ __all__ = [
     "PreparedNeuralBatch",
     "RaggedDividendColumns",
     "prepare_project_neural_batch",
+    "prepare_project_neural_batches",
     "prepared_neural_batch_sha256",
     "project_neural_input_columns",
+    "slice_prepared_neural_batch",
 ]

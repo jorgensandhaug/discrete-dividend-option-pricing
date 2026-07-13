@@ -25,3 +25,6 @@ bench-neural variant="nn_bin" rows="100000" validation_rows="10000" epochs="10":
 
 bench-inference variant="nn_bin" rows="100000" batch_size="8192":
     python3 tools/dev.py -- python -m benchmarks.neural_inference --variant {{variant}} --rows {{rows}} --batch-size {{batch_size}}
+
+bench-rolling-preparation strategy="full_horizon" rows="100000" windows="12" threads="1":
+    python3 tools/dev.py -- python -m benchmarks.neural_rolling_preparation --strategy {{strategy}} --rows {{rows}} --windows {{windows}} --threads {{threads}}

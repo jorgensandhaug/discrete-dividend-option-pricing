@@ -18,6 +18,7 @@ from finoptions import build_info
 
 from .neural_checkpoint import (
     NeuralCheckpointArtifact,
+    load_neural_checkpoint,
     write_neural_checkpoint,
 )
 from .neural_execution import (
@@ -33,7 +34,14 @@ from .neural_parameters import initialize_neural_parameters
 from .neural_prediction import (
     NeuralPredictionArtifact,
     NeuralPredictionRequest,
+    load_neural_prediction,
     write_neural_prediction,
+)
+from .neural_receipt import (
+    NeuralRunReceipt,
+    NeuralRunReceiptArtifact,
+    load_neural_run_receipt,
+    write_neural_run_receipt,
 )
 from .neural_spec import (
     ModelPrecision,
@@ -50,7 +58,9 @@ if TYPE_CHECKING:
     from .model_inputs import Float32Vector
     from .neural_parameters import NeuralParameter
 
-_FORMAT: Final = "discrete-dividend-neural-window-run-v1"
+_REQUEST_FORMAT: Final = "discrete-dividend-neural-window-request-v1"
+_REQUEST_FORMAT_VERSION: Final = 1
+_RUN_FORMAT_VERSION: Final = 2
 _PAPER_PACKAGE: Final = "discrete-dividend-option-pricing"
 _SHA256_HEX_LENGTH: Final = 64
 _GIT_HEX_LENGTH: Final = 40
@@ -142,6 +152,42 @@ class NeuralRunPhaseRows:
 
 
 @dataclass(frozen=True, slots=True)
+class NeuralWindowRequestIdentity:
+    """Every value known before training that can affect one exact window result."""
+
+    format_version: int
+    source: StudySourceIdentity
+    study_sha256: str
+    variant: str
+    submitted_result_name: str
+    execution_profile: str
+    inference_batch_size: int
+    window: NeuralRunWindow
+    phase_rows: NeuralRunPhaseRows
+    training_data_sha256: str
+    validation_data_sha256: str
+    test_data_sha256: str
+    parameter_seed: int
+    shuffle_seed: int
+    initial_parameters_sha256: str
+    runtime: NeuralRuntimeIdentity
+    paper_package_version: str
+    engine_package_version: str
+    rustc_version: str
+
+    def __post_init__(self) -> None:
+        """Reject any incomplete or internally inconsistent pre-training identity."""
+        _validate_request_identity(self)
+
+
+@dataclass(frozen=True, slots=True)
+class _SoftwareIdentity:
+    paper_package_version: str
+    engine_package_version: str
+    rustc_version: str
+
+
+@dataclass(frozen=True, slots=True)
 class NeuralWindowRunRequest:
     """Complete prepared data, study, execution profile, source, and seed identity."""
 
@@ -182,6 +228,7 @@ class NeuralWindowRunManifest:
     """Complete deterministic run identity without local artifact paths."""
 
     format_version: int
+    request_sha256: str
     source: StudySourceIdentity
     study_sha256: str
     variant: str
@@ -211,8 +258,8 @@ class NeuralWindowRunManifest:
 
     def __post_init__(self) -> None:
         """Reject incomplete or internally inconsistent serialized run state."""
-        if type(self.format_version) is not int or self.format_version != 1:
-            raise NeuralRunError(reason="format_version must be the plain int 1")
+        if type(self.format_version) is not int or self.format_version != _RUN_FORMAT_VERSION:
+            raise NeuralRunError(reason="format_version must be the plain int 2")
         if type(self.source) is not StudySourceIdentity:
             raise NeuralRunError(reason="source must be StudySourceIdentity")
         if type(self.window) is not NeuralRunWindow:
@@ -229,6 +276,9 @@ class NeuralWindowRunManifest:
         _validate_manifest_hashes(self)
         _validate_manifest_numbers(self)
         _validate_runtime(self.runtime, self.inference_batch_size)
+        expected_request = neural_window_request_sha256(_request_identity_from_manifest(self))
+        if self.request_sha256 != expected_request:
+            raise NeuralRunError(reason="request_sha256 does not match the serialized request")
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +305,7 @@ class NeuralWindowRunResult:
     run: NeuralWindowRunArtifact
     checkpoint: NeuralCheckpointArtifact
     prediction: NeuralPredictionArtifact
+    receipt: NeuralRunReceiptArtifact
 
     def __post_init__(self) -> None:
         """Require complete and cross-referenced artifact identities."""
@@ -264,14 +315,9 @@ class NeuralWindowRunResult:
             raise NeuralRunError(reason="checkpoint must be NeuralCheckpointArtifact")
         if type(self.prediction) is not NeuralPredictionArtifact:
             raise NeuralRunError(reason="prediction must be NeuralPredictionArtifact")
-        manifest = self.run.manifest
-        if (
-            manifest.checkpoint_sha256 != self.checkpoint.sha256
-            or manifest.prediction_artifact_sha256 != self.prediction.sha256
-            or self.prediction.manifest.checkpoint_sha256 != self.checkpoint.sha256
-            or manifest.metrics != self.prediction.metrics
-        ):
-            raise NeuralRunError(reason="run artifacts do not cross-reference one another")
+        if type(self.receipt) is not NeuralRunReceiptArtifact:
+            raise NeuralRunError(reason="receipt must be NeuralRunReceiptArtifact")
+        _validate_result_artifacts(self)
 
 
 def resolve_study_source_identity(
@@ -296,6 +342,58 @@ def resolve_study_source_identity(
     )
 
 
+def neural_window_request_sha256(identity: NeuralWindowRequestIdentity) -> str:
+    """Hash one complete pre-training identity as canonical ASCII JSON."""
+    if type(identity) is not NeuralWindowRequestIdentity:
+        raise NeuralRunError(reason="identity must be NeuralWindowRequestIdentity")
+    payload = {
+        "format": _REQUEST_FORMAT,
+        "identity": asdict(identity),
+    }
+    return hashlib.sha256(_canonical_json(payload).encode("ascii")).hexdigest()
+
+
+def _build_request_identity(
+    request: NeuralWindowRunRequest,
+    *,
+    runtime: NeuralRuntimeIdentity,
+    initial_parameters_sha256: str,
+    software: _SoftwareIdentity,
+) -> NeuralWindowRequestIdentity:
+    window = request.prepared.window
+    return NeuralWindowRequestIdentity(
+        format_version=_REQUEST_FORMAT_VERSION,
+        source=request.source,
+        study_sha256=neural_study_sha256(request.study),
+        variant=request.prepared.model.variant.value,
+        submitted_result_name=request.prepared.model.submitted_result_name,
+        execution_profile=request.execution_profile.name,
+        inference_batch_size=request.execution.inference_batch_size,
+        window=NeuralRunWindow(
+            window_id=window.window_id,
+            train_start=window.train_start.isoformat(),
+            validation_start=window.validation_start.isoformat(),
+            test_start=window.test_start.isoformat(),
+            test_end=window.test_end.isoformat(),
+        ),
+        phase_rows=NeuralRunPhaseRows(
+            training=request.prepared.training.rows,
+            validation=request.prepared.validation.rows,
+            test=request.prepared.test.rows,
+        ),
+        training_data_sha256=request.prepared.training_data_sha256,
+        validation_data_sha256=request.prepared.validation_data_sha256,
+        test_data_sha256=request.prepared.test_data_sha256,
+        parameter_seed=request.parameter_seed,
+        shuffle_seed=request.shuffle_seed,
+        initial_parameters_sha256=initial_parameters_sha256,
+        runtime=runtime,
+        paper_package_version=software.paper_package_version,
+        engine_package_version=software.engine_package_version,
+        rustc_version=software.rustc_version,
+    )
+
+
 def run_neural_window(
     request: NeuralWindowRunRequest,
     artifact_root: Path,
@@ -317,6 +415,22 @@ def run_neural_window(
         request.prepared.model,
         request.parameter_seed,
     )
+    engine = build_info()
+    software = _SoftwareIdentity(
+        paper_package_version=_package_version(),
+        engine_package_version=engine.package_version,
+        rustc_version=engine.rustc_version,
+    )
+    identity = _build_request_identity(
+        request,
+        runtime=resolved_runtime,
+        initial_parameters_sha256=parameters.sha256,
+        software=software,
+    )
+    request_sha256 = neural_window_request_sha256(identity)
+    receipt_path = directories.receipts / f"{request_sha256}.receipt.json"
+    if receipt_path.is_symlink() or receipt_path.exists():
+        return _load_neural_window_result(directories, receipt_path, request_sha256)
     training_request = NeuralTrainingRequest(
         study=request.study,
         parameters=parameters,
@@ -352,17 +466,28 @@ def run_neural_window(
         ),
     )
     manifest = _build_run_manifest(
-        request,
-        runtime=runtime,
+        identity,
+        request_sha256=request_sha256,
         summary=summary,
         checkpoint=checkpoint,
         prediction=prediction_artifact,
     )
     run = write_neural_window_run(directories.runs, manifest)
+    receipt = write_neural_run_receipt(
+        directories.receipts,
+        NeuralRunReceipt(
+            format_version=1,
+            request_sha256=request_sha256,
+            run_sha256=run.sha256,
+            checkpoint_sha256=checkpoint.sha256,
+            prediction_sha256=prediction_artifact.sha256,
+        ),
+    )
     return NeuralWindowRunResult(
         run=run,
         checkpoint=checkpoint,
         prediction=prediction_artifact,
+        receipt=receipt,
     )
 
 
@@ -418,11 +543,12 @@ class _ArtifactDirectories:
     checkpoints: Path
     predictions: Path
     runs: Path
+    receipts: Path
 
 
 def _artifact_directories(root: Path) -> _ArtifactDirectories:
     resolved: list[Path] = []
-    for name in ("checkpoints", "predictions", "runs"):
+    for name in ("checkpoints", "predictions", "runs", "receipts"):
         candidate = root / name
         try:
             candidate.mkdir(exist_ok=True)
@@ -434,6 +560,31 @@ def _artifact_directories(root: Path) -> _ArtifactDirectories:
             raise NeuralRunError(reason=f"artifact directory {name!r} must not be a symlink")
         resolved.append(candidate)
     return _ArtifactDirectories(*resolved)
+
+
+def _load_neural_window_result(
+    directories: _ArtifactDirectories,
+    receipt_path: Path,
+    expected_request_sha256: str,
+) -> NeuralWindowRunResult:
+    receipt = load_neural_run_receipt(receipt_path)
+    if receipt.receipt.request_sha256 != expected_request_sha256:
+        raise NeuralRunError(reason="receipt does not identify the exact current request")
+    run = load_neural_window_run(
+        directories.runs / f"{receipt.receipt.run_sha256}.run.json",
+    )
+    checkpoint = load_neural_checkpoint(
+        directories.checkpoints / f"{receipt.receipt.checkpoint_sha256}.safetensors",
+    ).artifact
+    prediction = load_neural_prediction(
+        directories.predictions / f"{receipt.receipt.prediction_sha256}.safetensors",
+    ).artifact
+    return NeuralWindowRunResult(
+        run=run,
+        checkpoint=checkpoint,
+        prediction=prediction,
+        receipt=receipt,
+    )
 
 
 def _train_and_predict(
@@ -476,50 +627,38 @@ def _train_and_predict(
 
 
 def _build_run_manifest(
-    request: NeuralWindowRunRequest,
+    identity: NeuralWindowRequestIdentity,
     *,
-    runtime: NeuralRuntimeIdentity,
+    request_sha256: str,
     summary: NeuralTrainingSummary,
     checkpoint: NeuralCheckpointArtifact,
     prediction: NeuralPredictionArtifact,
 ) -> NeuralWindowRunManifest:
-    package_version = _package_version()
-    engine = build_info()
     control = summary.control
     checkpoint_manifest = checkpoint.manifest
     if control.best_epoch is None or control.best_validation_loss is None:
         raise NeuralRunError(reason="training summary has no best completed epoch")
-    window = request.prepared.window
     return NeuralWindowRunManifest(
-        format_version=1,
-        source=request.source,
-        study_sha256=neural_study_sha256(request.study),
-        variant=request.prepared.model.variant.value,
-        submitted_result_name=request.prepared.model.submitted_result_name,
-        execution_profile=request.execution_profile.name,
-        inference_batch_size=request.execution.inference_batch_size,
-        window=NeuralRunWindow(
-            window_id=window.window_id,
-            train_start=window.train_start.isoformat(),
-            validation_start=window.validation_start.isoformat(),
-            test_start=window.test_start.isoformat(),
-            test_end=window.test_end.isoformat(),
-        ),
-        phase_rows=NeuralRunPhaseRows(
-            training=request.prepared.training.rows,
-            validation=request.prepared.validation.rows,
-            test=request.prepared.test.rows,
-        ),
-        training_data_sha256=request.prepared.training_data_sha256,
-        validation_data_sha256=request.prepared.validation_data_sha256,
-        test_data_sha256=request.prepared.test_data_sha256,
-        parameter_seed=request.parameter_seed,
-        shuffle_seed=request.shuffle_seed,
+        format_version=_RUN_FORMAT_VERSION,
+        request_sha256=request_sha256,
+        source=identity.source,
+        study_sha256=identity.study_sha256,
+        variant=identity.variant,
+        submitted_result_name=identity.submitted_result_name,
+        execution_profile=identity.execution_profile,
+        inference_batch_size=identity.inference_batch_size,
+        window=identity.window,
+        phase_rows=identity.phase_rows,
+        training_data_sha256=identity.training_data_sha256,
+        validation_data_sha256=identity.validation_data_sha256,
+        test_data_sha256=identity.test_data_sha256,
+        parameter_seed=identity.parameter_seed,
+        shuffle_seed=identity.shuffle_seed,
         initial_parameters_sha256=checkpoint_manifest.initial_parameters_sha256,
-        runtime=runtime,
-        paper_package_version=package_version,
-        engine_package_version=engine.package_version,
-        rustc_version=engine.rustc_version,
+        runtime=identity.runtime,
+        paper_package_version=identity.paper_package_version,
+        engine_package_version=identity.engine_package_version,
+        rustc_version=identity.rustc_version,
         completed_epochs=control.completed_epochs,
         best_epoch=control.best_epoch,
         best_validation_loss=control.best_validation_loss,
@@ -529,6 +668,157 @@ def _build_run_manifest(
         prediction_artifact_sha256=prediction.sha256,
         metrics=prediction.metrics,
     )
+
+
+def _validate_request_identity(identity: NeuralWindowRequestIdentity) -> None:
+    _validate_request_identity_types(identity)
+    _validate_request_identity_strings(identity)
+    _validate_request_identity_hashes(identity)
+    _validate_request_identity_numbers(identity)
+    _validate_runtime(identity.runtime, identity.inference_batch_size)
+
+
+def _validate_request_identity_types(identity: NeuralWindowRequestIdentity) -> None:
+    if (
+        type(identity.format_version) is not int
+        or identity.format_version != _REQUEST_FORMAT_VERSION
+    ):
+        raise NeuralRunError(reason="request format_version must be the plain int 1")
+    if type(identity.source) is not StudySourceIdentity:
+        raise NeuralRunError(reason="request source must be StudySourceIdentity")
+    if type(identity.window) is not NeuralRunWindow:
+        raise NeuralRunError(reason="request window must be NeuralRunWindow")
+    if type(identity.phase_rows) is not NeuralRunPhaseRows:
+        raise NeuralRunError(reason="request phase_rows must be NeuralRunPhaseRows")
+    if type(identity.runtime) is not NeuralRuntimeIdentity:
+        raise NeuralRunError(reason="request runtime must be NeuralRuntimeIdentity")
+
+
+def _validate_request_identity_strings(identity: NeuralWindowRequestIdentity) -> None:
+    if type(identity.variant) is not str or identity.variant not in _VARIANT_VALUES:
+        raise NeuralRunError(reason="request variant is not a supported serialized value")
+    for field, value in (
+        ("submitted_result_name", identity.submitted_result_name),
+        ("execution_profile", identity.execution_profile),
+        ("paper_package_version", identity.paper_package_version),
+        ("engine_package_version", identity.engine_package_version),
+        ("rustc_version", identity.rustc_version),
+    ):
+        if type(value) is not str or not value:
+            raise NeuralRunError(reason=f"request {field} must be a nonempty plain str")
+
+
+def _validate_request_identity_hashes(identity: NeuralWindowRequestIdentity) -> None:
+    for field, value in (
+        ("study_sha256", identity.study_sha256),
+        ("training_data_sha256", identity.training_data_sha256),
+        ("validation_data_sha256", identity.validation_data_sha256),
+        ("test_data_sha256", identity.test_data_sha256),
+        ("initial_parameters_sha256", identity.initial_parameters_sha256),
+    ):
+        _require_sha256(value, field=f"request {field}")
+    if (
+        len(
+            {
+                identity.training_data_sha256,
+                identity.validation_data_sha256,
+                identity.test_data_sha256,
+            },
+        )
+        != _PHASE_COUNT
+    ):
+        raise NeuralRunError(reason="request phase hashes must differ")
+
+
+def _validate_request_identity_numbers(identity: NeuralWindowRequestIdentity) -> None:
+    for field, value in (
+        ("parameter_seed", identity.parameter_seed),
+        ("shuffle_seed", identity.shuffle_seed),
+    ):
+        if type(value) is not int or not 0 <= value <= _MAX_SEED:
+            raise NeuralRunError(reason=f"request {field} must be an unsigned 64-bit plain int")
+    if type(identity.inference_batch_size) is not int or identity.inference_batch_size <= 0:
+        raise NeuralRunError(reason="request inference_batch_size must be a positive plain int")
+
+
+def _request_identity_from_manifest(
+    manifest: NeuralWindowRunManifest,
+) -> NeuralWindowRequestIdentity:
+    return NeuralWindowRequestIdentity(
+        format_version=_REQUEST_FORMAT_VERSION,
+        source=manifest.source,
+        study_sha256=manifest.study_sha256,
+        variant=manifest.variant,
+        submitted_result_name=manifest.submitted_result_name,
+        execution_profile=manifest.execution_profile,
+        inference_batch_size=manifest.inference_batch_size,
+        window=manifest.window,
+        phase_rows=manifest.phase_rows,
+        training_data_sha256=manifest.training_data_sha256,
+        validation_data_sha256=manifest.validation_data_sha256,
+        test_data_sha256=manifest.test_data_sha256,
+        parameter_seed=manifest.parameter_seed,
+        shuffle_seed=manifest.shuffle_seed,
+        initial_parameters_sha256=manifest.initial_parameters_sha256,
+        runtime=manifest.runtime,
+        paper_package_version=manifest.paper_package_version,
+        engine_package_version=manifest.engine_package_version,
+        rustc_version=manifest.rustc_version,
+    )
+
+
+def _validate_result_artifacts(result: NeuralWindowRunResult) -> None:
+    manifest = result.run.manifest
+    receipt = result.receipt.receipt
+    checkpoint = result.checkpoint.manifest
+    prediction = result.prediction.manifest
+    if (
+        receipt.request_sha256 != manifest.request_sha256
+        or receipt.run_sha256 != result.run.sha256
+        or receipt.checkpoint_sha256 != result.checkpoint.sha256
+        or receipt.prediction_sha256 != result.prediction.sha256
+    ):
+        raise NeuralRunError(reason="receipt does not cross-reference the exact run artifacts")
+    if (
+        manifest.checkpoint_sha256 != result.checkpoint.sha256
+        or manifest.prediction_artifact_sha256 != result.prediction.sha256
+        or manifest.metrics != result.prediction.metrics
+    ):
+        raise NeuralRunError(reason="run manifest does not cross-reference its result artifacts")
+    if (
+        checkpoint.study_sha256 != manifest.study_sha256
+        or checkpoint.variant != manifest.variant
+        or checkpoint.submitted_result_name != manifest.submitted_result_name
+        or checkpoint.training_data_sha256 != manifest.training_data_sha256
+        or checkpoint.validation_data_sha256 != manifest.validation_data_sha256
+        or checkpoint.initial_parameters_sha256 != manifest.initial_parameters_sha256
+        or checkpoint.parameter_seed != manifest.parameter_seed
+        or checkpoint.shuffle_seed != manifest.shuffle_seed
+        or checkpoint.backend != manifest.runtime.backend.value
+        or checkpoint.backend_version != manifest.runtime.backend_version
+        or checkpoint.device != manifest.runtime.device.value
+        or checkpoint.precision != manifest.runtime.precision.value
+        or checkpoint.compilation != manifest.runtime.compilation.value
+        or checkpoint.cpu_threads != manifest.runtime.cpu_threads
+        or checkpoint.operating_system != manifest.runtime.operating_system
+        or checkpoint.machine != manifest.runtime.machine
+        or checkpoint.completed_epochs != manifest.completed_epochs
+        or checkpoint.best_epoch != manifest.best_epoch
+        or checkpoint.best_validation_loss != manifest.best_validation_loss
+        or checkpoint.training_summary_sha256 != manifest.training_summary_sha256
+        or checkpoint.trained_parameters_sha256 != manifest.trained_parameters_sha256
+    ):
+        raise NeuralRunError(reason="checkpoint identity differs from the run manifest")
+    if (
+        prediction.study_sha256 != manifest.study_sha256
+        or prediction.variant != manifest.variant
+        or prediction.submitted_result_name != manifest.submitted_result_name
+        or prediction.window_id != manifest.window.window_id
+        or prediction.test_data_sha256 != manifest.test_data_sha256
+        or prediction.checkpoint_sha256 != result.checkpoint.sha256
+        or prediction.observations != manifest.phase_rows.test
+    ):
+        raise NeuralRunError(reason="prediction identity differs from the run manifest")
 
 
 def _validate_manifest_strings(manifest: NeuralWindowRunManifest) -> None:
@@ -547,6 +837,7 @@ def _validate_manifest_strings(manifest: NeuralWindowRunManifest) -> None:
 
 def _validate_manifest_hashes(manifest: NeuralWindowRunManifest) -> None:
     values = (
+        ("request_sha256", manifest.request_sha256),
         ("study_sha256", manifest.study_sha256),
         ("training_data_sha256", manifest.training_data_sha256),
         ("validation_data_sha256", manifest.validation_data_sha256),
@@ -626,6 +917,7 @@ def _decode_run_manifest(value: object) -> NeuralWindowRunManifest:
     try:
         return NeuralWindowRunManifest(
             format_version=cast("int", payload["format_version"]),
+            request_sha256=cast("str", payload["request_sha256"]),
             source=source,
             study_sha256=cast("str", payload["study_sha256"]),
             variant=cast("str", payload["variant"]),
@@ -816,12 +1108,14 @@ __all__ = [
     "NeuralRunError",
     "NeuralRunPhaseRows",
     "NeuralRunWindow",
+    "NeuralWindowRequestIdentity",
     "NeuralWindowRunArtifact",
     "NeuralWindowRunManifest",
     "NeuralWindowRunRequest",
     "NeuralWindowRunResult",
     "StudySourceIdentity",
     "load_neural_window_run",
+    "neural_window_request_sha256",
     "resolve_study_source_identity",
     "run_neural_window",
     "write_neural_window_run",
