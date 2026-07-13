@@ -65,3 +65,8 @@ the exact matched observation date and staleness beside every quote.
 `select_future_orats_dividend_forecasts` preserve the provider snapshot before applying the strict
 submitted future-event boundary. Cash amounts remain `Float64`; missing daily snapshots are errors,
 not implicit carry-forwards.
+
+`add_forecast_dividend_features` builds event schedules once per unique option horizon, verifies
+point-in-time snapshot coverage, and fans them back to quotes without reordering. The submitted
+zero-event, same-date-component, expiry-boundary, day-count, and scalar-feature policies are carried
+by one immutable specification.

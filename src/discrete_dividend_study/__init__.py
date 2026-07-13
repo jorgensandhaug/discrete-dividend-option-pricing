@@ -6,6 +6,16 @@ from typing import Final
 
 from finoptions import BuildInfo, build_info
 
+from .dividend_features import (
+    DIVIDEND_FEATURE_DTYPES,
+    PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
+    DividendFeatureContentError,
+    DividendFeatureError,
+    DividendFeatureSchemaError,
+    DividendFeatureSpecError,
+    ForecastDividendFeatureSpec,
+    add_forecast_dividend_features,
+)
 from .orats import (
     AdaptedOratsCurve,
     OratsCurveContentError,
@@ -83,6 +93,7 @@ def engine_build_info() -> BuildInfo:
 
 
 __all__ = [
+    "DIVIDEND_FEATURE_DTYPES",
     "ORATS_DIVIDEND_DTYPES",
     "ORATS_DIVIDEND_FREQUENCIES",
     "ORATS_NORMALIZED_OPTION_DTYPES",
@@ -91,13 +102,19 @@ __all__ = [
     "ORATS_RAW_OPTION_DTYPES",
     "ORATS_RAW_SCAN_DTYPES",
     "PROJECT_AS_SUBMITTED_FILTER",
+    "PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC",
     "PROJECT_AS_SUBMITTED_UNDERLYING_JOIN_SPEC",
     "PROJECT_HISTORICAL_VOLATILITY_SPEC",
     "QUOTE_FEATURE_DTYPES",
     "UNDERLYING_HISTORY_DTYPES",
     "AdaptedOratsCurve",
     "ConflictingColumnsError",
+    "DividendFeatureContentError",
+    "DividendFeatureError",
+    "DividendFeatureSchemaError",
+    "DividendFeatureSpecError",
     "DuplicateColumnsError",
+    "ForecastDividendFeatureSpec",
     "HistoricalVolatilitySpec",
     "HistoricalVolatilitySpecError",
     "MissingColumnsError",
@@ -127,6 +144,7 @@ __all__ = [
     "__version__",
     "adapt_orats_curve",
     "adapt_raw_orats_curve",
+    "add_forecast_dividend_features",
     "add_quote_features",
     "apply_quote_filter",
     "canonicalize_orats_curve_frame",
