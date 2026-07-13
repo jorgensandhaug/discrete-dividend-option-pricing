@@ -60,3 +60,8 @@ order, and computes the immutable project rolling-volatility specification with 
 explicit sample degrees of freedom and annualization.
 `join_underlying_history` then validates grouped as-of ordering and support coverage while retaining
 the exact matched observation date and staleness beside every quote.
+
+`scan_raw_orats_dividend_forecast`, `canonicalize_raw_orats_dividend_forecast`, and
+`select_future_orats_dividend_forecasts` preserve the provider snapshot before applying the strict
+submitted future-event boundary. Cash amounts remain `Float64`; missing daily snapshots are errors,
+not implicit carry-forwards.
