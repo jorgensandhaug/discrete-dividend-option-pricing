@@ -31,6 +31,7 @@ from .event_buffers import EventBufferPolicy
 from .historical_dividend_projection import (
     HistoricalDividendProjectionSpec,
     historical_dividend_projection_spec_sha256,
+    load_verified_historical_dividend_projection,
     materialize_historical_dividend_projection,
 )
 from .neural_execution import (
@@ -45,6 +46,7 @@ from .neural_study import (
     project_neural_seed_plan,
     run_project_neural_rolling_study,
 )
+from .nss_rates import NSS_PARAMETER_DTYPES
 from .orats_archive import (
     ORATS_DEFAULT_FTPS_HOST,
     OratsArchiveInventory,
@@ -71,14 +73,19 @@ from .orats_dividend_projection import (
     materialize_orats_dividend_projection,
     orats_dividend_projection_spec_sha256,
 )
-from .orats_dividend_set import write_orats_dividend_projection_set_manifest
+from .orats_dividend_set import (
+    load_verified_orats_dividend_projection_set,
+    write_orats_dividend_projection_set_manifest,
+)
 from .orats_option_compaction import (
     OratsOptionCompactionSpec,
+    load_verified_orats_option_compaction,
     materialize_orats_option_compaction,
 )
 from .orats_option_projection import (
     MaterializedOratsOptionProjection,
     OratsOptionProjectionSpec,
+    load_verified_orats_option_projection,
     materialize_orats_option_projection,
     orats_option_projection_spec_sha256,
 )
@@ -86,7 +93,13 @@ from .orats_option_set import (
     load_verified_orats_option_projection_set,
     write_orats_option_projection_set_manifest,
 )
+from .pinned_parquet import verify_pinned_parquet
+from .project_feature_artifact import (
+    ProjectFeatureSources,
+    materialize_project_feature_artifact,
+)
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
+from .underlying_history import UNDERLYING_HISTORY_DTYPES
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -164,6 +177,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "materialize-orats-options": _materialize_orats_options,
         "materialize-orats-dividends": _materialize_orats_dividends,
         "materialize-historical-dividends": _materialize_historical_dividends,
+        "materialize-project-features": _materialize_project_features,
         "render-classical-table": _render_classical_table,
     }
     handler = handlers.get(arguments.command)
@@ -238,25 +252,46 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
     output_bytes = 0
     output_rows = 0
     projections: list[MaterializedOratsOptionProjection] = []
+    projection_spec_sha256 = orats_option_projection_spec_sha256(spec)
     for entry in inventory.entries:
-        archive_path = raw_directory / orats_archive_name(entry.trade_date)
-        source = load_verified_orats_archive(archive_path)
-        if source.receipt.entry != entry:
+        output_path = (
+            output_root
+            / projection_spec_sha256
+            / str(entry.trade_date.year)
+            / f"{entry.trade_date.isoformat()}.parquet"
+        )
+        receipt_path = output_path.with_name(f"{output_path.name}.receipt.json")
+        reused = output_path.exists() or output_path.is_symlink() or receipt_path.exists()
+        if reused:
+            output = load_verified_orats_option_projection(output_path)
+        else:
+            archive_path = raw_directory / orats_archive_name(entry.trade_date)
+            source = load_verified_orats_archive(archive_path)
+            if source.receipt.entry != entry:
+                raise StudyCliError(
+                    reason="raw archive receipt disagrees with its immutable inventory entry",
+                )
+            output = materialize_orats_option_projection(source, spec, output_root, scratch)
+        if output.receipt.source_entry != entry:
             raise StudyCliError(
-                reason="raw archive receipt disagrees with its immutable inventory entry",
+                reason="daily projection source disagrees with its immutable inventory entry",
             )
-        output = materialize_orats_option_projection(source, spec, output_root, scratch)
+        if output.receipt.projection_spec != spec:
+            raise StudyCliError(
+                reason="daily projection receipt disagrees with the requested specification",
+            )
         projections.append(output)
         entries_completed += 1
         output_bytes += output.receipt.output_bytes
         output_rows += output.receipt.output_rows
-        progress = {
-            "output": str(output.path),
-            "output_sha256": output.receipt.output_sha256,
-            "rows": output.receipt.output_rows,
-            "trade_date": entry.trade_date.isoformat(),
-        }
-        sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+        if not reused:
+            progress = {
+                "output": str(output.path),
+                "output_sha256": output.receipt.output_sha256,
+                "rows": output.receipt.output_rows,
+                "trade_date": entry.trade_date.isoformat(),
+            }
+            sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
     verified_set = write_orats_option_projection_set_manifest(
         projection_manifest,
         manifest,
@@ -270,7 +305,7 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
         "output_bytes": output_bytes,
         "output_root": str(output_root),
         "projection_manifest": str(projection_manifest),
-        "projection_spec_sha256": orats_option_projection_spec_sha256(spec),
+        "projection_spec_sha256": projection_spec_sha256,
         "projection_set_entries_sha256": verified_set.manifest.entries_sha256,
         "rows": output_rows,
     }
@@ -329,6 +364,79 @@ def _compact_orats_options(arguments: argparse.Namespace) -> int:
         "rows": compacted.manifest.total_output_rows,
         "selected_source_entries": compacted.manifest.selected_source_entry_count,
         "selected_source_entries_sha256": (compacted.manifest.selected_source_entries_sha256),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _materialize_project_features(arguments: argparse.Namespace) -> int:
+    options = load_verified_orats_option_compaction(
+        _required_path(
+            arguments.option_compaction_manifest,
+            field="option-compaction-manifest",
+            kind="file",
+        ),
+        _required_path(
+            arguments.option_compaction_root,
+            field="option-compaction-root",
+            kind="directory",
+        ),
+    )
+    forecasts = load_verified_orats_dividend_projection_set(
+        _required_path(
+            arguments.forecast_manifest,
+            field="forecast-manifest",
+            kind="file",
+        ),
+        _required_path(
+            arguments.forecast_inventory,
+            field="forecast-inventory",
+            kind="file",
+        ),
+        _required_path(
+            arguments.forecast_root,
+            field="forecast-root",
+            kind="directory",
+        ),
+    )
+    historical = load_verified_historical_dividend_projection(
+        _required_path(
+            arguments.historical_dividends,
+            field="historical-dividends",
+            kind="file",
+        ),
+    )
+    underlying = verify_pinned_parquet(
+        _required_path(
+            arguments.underlying_history,
+            field="underlying-history",
+            kind="file",
+        ),
+        expected_sha256=arguments.underlying_sha256,
+        expected_rows=arguments.underlying_rows,
+        expected_schema=UNDERLYING_HISTORY_DTYPES,
+    )
+    nss = verify_pinned_parquet(
+        _required_path(arguments.nss_parameters, field="nss-parameters", kind="file"),
+        expected_sha256=arguments.nss_sha256,
+        expected_rows=arguments.nss_rows,
+        expected_schema=NSS_PARAMETER_DTYPES,
+    )
+    artifact = materialize_project_feature_artifact(
+        ProjectFeatureSources(options, forecasts, historical, underlying, nss),
+        _destination_directory(arguments.output_root),
+    )
+    summary = {
+        "feature_schema_sha256": artifact.manifest.feature_schema_sha256,
+        "output_bytes": artifact.manifest.output_bytes,
+        "output_path": str(artifact.path),
+        "pipeline_sha256": artifact.manifest.pipeline_sha256,
+        "quote_date_max": artifact.manifest.quote_date_max.isoformat(),
+        "quote_date_min": artifact.manifest.quote_date_min.isoformat(),
+        "request_sha256": artifact.manifest.request_sha256,
+        "rows": artifact.manifest.output_rows,
     }
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
@@ -635,6 +743,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     _add_option_data_commands(commands)
     _add_dividend_data_commands(commands)
+    _add_project_feature_command(commands)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",
@@ -773,6 +882,28 @@ def _add_dividend_data_commands(
     historical_materialize.add_argument("--maximum-ex-date", type=_iso_date, required=True)
     historical_materialize.add_argument("--output-root", type=Path, required=True)
     historical_materialize.add_argument("--ticker", action="append", required=True)
+
+
+def _add_project_feature_command(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    materialize = commands.add_parser(
+        "materialize-project-features",
+        help="materialize one closed content-addressed project feature Parquet",
+    )
+    materialize.add_argument("--option-compaction-manifest", type=Path, required=True)
+    materialize.add_argument("--option-compaction-root", type=Path, required=True)
+    materialize.add_argument("--forecast-manifest", type=Path, required=True)
+    materialize.add_argument("--forecast-inventory", type=Path, required=True)
+    materialize.add_argument("--forecast-root", type=Path, required=True)
+    materialize.add_argument("--historical-dividends", type=Path, required=True)
+    materialize.add_argument("--underlying-history", type=Path, required=True)
+    materialize.add_argument("--underlying-sha256", required=True)
+    materialize.add_argument("--underlying-rows", type=_positive_int, required=True)
+    materialize.add_argument("--nss-parameters", type=Path, required=True)
+    materialize.add_argument("--nss-sha256", required=True)
+    materialize.add_argument("--nss-rows", type=_positive_int, required=True)
+    materialize.add_argument("--output-root", type=Path, required=True)
 
 
 def _execution_profile(value: str) -> NeuralExecutionProfile:

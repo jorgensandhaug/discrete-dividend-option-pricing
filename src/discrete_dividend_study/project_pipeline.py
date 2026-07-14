@@ -110,6 +110,7 @@ def project_feature_pipeline_sha256() -> str:
             "year_basis_days": forecast.year_basis_days,
         },
         "format": _PROJECT_FEATURE_PIPELINE_HASH_FORMAT,
+        "forecast_source_selection": "exact-project-quote-ticker-dates-v1",
         "historical_dividends": {
             "include_lookback_boundary": historical.include_lookback_boundary,
             "include_quote_date": historical.include_quote_date,
@@ -243,6 +244,15 @@ def build_project_as_submitted_features(
         add_quote_features(selected_options),
         PROJECT_AS_SUBMITTED_FILTER,
     )
+    relevant_forecast_keys = quotes.select(
+        "ticker",
+        pl.col("quote_date").alias("forecast_date"),
+    ).unique()
+    relevant_forecasts = future_dividend_forecasts.join(
+        relevant_forecast_keys,
+        on=("ticker", "forecast_date"),
+        how="semi",
+    )
     prepared_underlying = prepare_underlying_history(
         underlying_history,
         PROJECT_HISTORICAL_VOLATILITY_SPEC,
@@ -255,7 +265,7 @@ def build_project_as_submitted_features(
     )
     enriched = add_forecast_dividend_features(
         enriched,
-        future_dividend_forecasts,
+        relevant_forecasts,
         PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
     )
     enriched = add_historical_dividend_features(

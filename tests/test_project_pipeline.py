@@ -106,6 +106,21 @@ def future_forecasts() -> pl.LazyFrame:
     )
 
 
+def future_forecasts_with_irrelevant_duplicate_snapshot() -> pl.LazyFrame:
+    """Append a duplicated old snapshot that cannot affect any selected quote."""
+    old = pl.LazyFrame(
+        {
+            "ticker": [PROJECT_AS_SUBMITTED_TICKERS[0]] * 2,
+            "forecast_date": [date(2009, 1, 2)] * 2,
+            "ex_date": [date(2009, 2, 1)] * 2,
+            "amount": [0.5] * 2,
+            "frequency_per_year": [4] * 2,
+        },
+        schema=ORATS_DIVIDEND_DTYPES,
+    )
+    return pl.concat((future_forecasts(), old))
+
+
 def historical_dividends() -> pl.LazyFrame:
     """Return one observed cash payment inside the trailing year."""
     return pl.LazyFrame(
@@ -158,6 +173,25 @@ def test_project_pipeline_has_one_ordered_typed_complete_feature_contract() -> N
     assert observed["risk_free_rate"].to_list() == [SHORTEST_RATE] * len(
         PROJECT_AS_SUBMITTED_TICKERS
     )
+
+
+def test_project_pipeline_validates_only_forecast_snapshots_consumed_by_quotes() -> None:
+    """Provider history outside exact quote keys cannot reject or alter the project cohort."""
+    baseline = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    with_irrelevant_history = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts_with_irrelevant_duplicate_snapshot(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    assert with_irrelevant_history.equals(baseline)
 
 
 def test_project_pipeline_rejects_an_incomplete_frozen_universe() -> None:

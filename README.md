@@ -215,6 +215,29 @@ feature schema and every frozen stage specification also contribute to one
 `project_feature_pipeline_sha256` identity. [ADR 0029](docs/adr/0029-pinned-support-parquet.md)
 records this small generic boundary.
 
+Materialize the single closed feature artifact only after all five identities are known:
+
+```shell
+uv run --locked discrete-dividend-study materialize-project-features \
+  --option-compaction-manifest /private/options/annual-set.json \
+  --option-compaction-root /private/options/annual \
+  --forecast-manifest /private/dividends/projection-set.json \
+  --forecast-inventory /private/dividends/inventory.json \
+  --forecast-root /private/dividends/projected \
+  --historical-dividends /private/history/historical_dividends.parquet \
+  --underlying-history /private/support/underlying.parquet \
+  --underlying-sha256 "$UNDERLYING_SHA256" --underlying-rows "$UNDERLYING_ROWS" \
+  --nss-parameters /private/support/nss.parquet \
+  --nss-sha256 "$NSS_SHA256" --nss-rows "$NSS_ROWS" \
+  --output-root /private/features
+```
+
+The request hash binds every source, every transformation choice, the exact 42-column schema, and
+the byte-producing Polars runtime before a streaming sink runs. Only forecast snapshots matching
+consumed project ticker/date keys are relevant; each consumed snapshot remains strict. Sources are
+reverified after the sink, and the result can then be loaded from its Parquet and receipt alone.
+[ADR 0031](docs/adr/0031-content-addressed-project-features.md) records this boundary.
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.

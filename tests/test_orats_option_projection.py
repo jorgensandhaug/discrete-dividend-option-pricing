@@ -365,7 +365,10 @@ def test_cli_requires_complete_inventory_confirmation_and_projects_every_entry(
     assert summary["entries"] == len(inventory.entries)
     assert summary["rows"] == len(_spec().tickers)
     assert TRADE_DATE.isoformat() in captured.err
+    source.path.unlink()
+    source.path.with_name(f"{source.path.name}.receipt.json").unlink()
     assert main(arguments) == 0
+    assert capsys.readouterr().err == ""
 
     with pytest.raises(StudyCliError, match="confirm-entry-count"):
         main((*arguments[:-1], "2"))
