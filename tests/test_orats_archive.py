@@ -86,10 +86,10 @@ class _FakeFtps:
     def sendcmd(self, command: str) -> str:
         assert command == "MLST /smvstrikes/2024/ORATS_SMV_Strikes_20240927.zip"
         return (
-            "250-Listing /smvstrikes/2024/ORATS_SMV_Strikes_20240927.zip\n"
-            f" type=file;size={len(self.payload)};modify={self.modified}; "
-            "/smvstrikes/2024/ORATS_SMV_Strikes_20240927.zip\n"
-            "250 End"
+            "250-\n"
+            f"Size={len(self.payload)};Modify={self.modified};Type=file; "
+            "ORATS_SMV_Strikes_20240927.zip\n\n"
+            "250 Requested file action okay, completed."
         )
 
 

@@ -500,26 +500,31 @@ def _entry_from_mlsd(
 def _entry_from_mlst_response(remote_path: str, response: str) -> OratsArchiveEntry:
     path = PurePosixPath(remote_path)
     fact_lines = tuple(
-        line.strip() for line in response.splitlines() if line.lstrip().lower().startswith("type=")
+        line.strip() for line in response.splitlines() if "=" in line and ";" in line
     )
     if len(fact_lines) != 1:
         msg = "MLST response must contain exactly one machine-readable fact line"
         raise OratsArchiveIntegrityError(msg, remote_path)
     try:
-        facts_text, _returned_path = fact_lines[0].split(maxsplit=1)
+        facts_text, returned_path = fact_lines[0].split(maxsplit=1)
         fact_items = tuple(item for item in facts_text.split(";") if item)
-        facts = dict(item.split("=", maxsplit=1) for item in fact_items)
+        fact_pairs = tuple(item.split("=", maxsplit=1) for item in fact_items)
     except (TypeError, ValueError) as error:
         msg = "MLST response facts are malformed"
         raise OratsArchiveIntegrityError(msg, remote_path) from error
-    if len(facts) != len(fact_items):
+    normalized_pairs = tuple((key.lower(), value) for key, value in fact_pairs)
+    facts = dict(normalized_pairs)
+    if len(facts) != len(normalized_pairs):
         msg = "MLST response contains duplicate fact names"
+        raise OratsArchiveIntegrityError(msg, remote_path)
+    if PurePosixPath(returned_path).name != path.name:
+        msg = "MLST response filename disagrees with the requested archive"
         raise OratsArchiveIntegrityError(msg, remote_path)
     entry = _entry_from_mlsd(
         directory=str(path.parent),
         year=int(path.parent.name),
         name=path.name,
-        facts={key.lower(): value for key, value in facts.items()},
+        facts=facts,
     )
     if entry is None:
         msg = "MLST response path is not a canonical ORATS archive"
