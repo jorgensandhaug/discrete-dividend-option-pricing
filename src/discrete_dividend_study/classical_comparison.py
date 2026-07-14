@@ -4,18 +4,30 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import polars as pl
 
 from .classical_artifact import LoadedClassicalStudyArtifact
 from .classical_spec import ClassicalVariant
-
-if TYPE_CHECKING:
-    from .project_metrics import ProjectPricingMetrics
+from .project_metrics import ProjectPricingMetrics
 
 _SHA256_HEX_LENGTH: Final = 64
 _LOWERCASE_HEXADECIMAL: Final = frozenset("0123456789abcdef")
+_LATEX_ESCAPE_TABLE: Final = str.maketrans(
+    {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +82,13 @@ class ClassicalComparisonRow:
     current_rmse_rank: int
     submitted_rmse_rank: int
 
+    def __post_init__(self) -> None:
+        """Reject incomplete aggregates or inconsistent derived comparison values."""
+        _validate_comparison_row_identity(self)
+        _validate_comparison_row_references(self)
+        _validate_comparison_row_differences(self)
+        _validate_comparison_row_ranks(self)
+
 
 @dataclass(frozen=True, slots=True)
 class ClassicalPublicationComparison:
@@ -88,9 +107,75 @@ class ClassicalPublicationComparison:
             raise ClassicalComparisonError(
                 reason="artifact_sha256 must be a lowercase SHA-256 digest"
             )
+        if type(self.rows) is not tuple or any(
+            type(row) is not ClassicalComparisonRow for row in self.rows
+        ):
+            raise ClassicalComparisonError(
+                reason="comparison rows must be an immutable tuple of ClassicalComparisonRow"
+            )
         if tuple(row.variant for row in self.rows) != tuple(ClassicalVariant):
             raise ClassicalComparisonError(
                 reason="comparison rows must follow the complete canonical variant order"
+            )
+
+
+def _validate_comparison_row_identity(row: ClassicalComparisonRow) -> None:
+    if type(row.variant) is not ClassicalVariant:
+        raise ClassicalComparisonError(reason="row variant must be ClassicalVariant")
+    if (
+        type(row.submitted_result_name) is not str
+        or not row.submitted_result_name
+        or not row.submitted_result_name.isprintable()
+    ):
+        raise ClassicalComparisonError(
+            reason="row submitted_result_name must be a nonempty printable plain string"
+        )
+    if type(row.observations) is not int or row.observations <= 0:
+        raise ClassicalComparisonError(reason="row observations must be a positive plain int")
+    if type(row.current) is not ProjectPricingMetrics:
+        raise ClassicalComparisonError(reason="row current must be ProjectPricingMetrics")
+    if row.current.observations != row.observations:
+        raise ClassicalComparisonError(reason="row observations disagree with current metrics")
+
+
+def _validate_comparison_row_references(row: ClassicalComparisonRow) -> None:
+    for field, value in (
+        ("submitted_mape_percent", row.submitted_mape_percent),
+        ("submitted_rmse", row.submitted_rmse),
+    ):
+        if type(value) is not float or not math.isfinite(value) or value < 0.0:
+            raise ClassicalComparisonError(
+                reason=f"row {field} must be a finite nonnegative plain float"
+            )
+
+
+def _validate_comparison_row_differences(row: ClassicalComparisonRow) -> None:
+    expected_mape = row.current.mape_percent - row.submitted_mape_percent
+    expected_rmse = row.current.rmse - row.submitted_rmse
+    if (
+        type(row.mape_difference_percentage_points) is not float
+        or not math.isfinite(row.mape_difference_percentage_points)
+        or row.mape_difference_percentage_points != expected_mape
+    ):
+        raise ClassicalComparisonError(reason="row MAPE difference is inconsistent")
+    if (
+        type(row.rmse_difference) is not float
+        or not math.isfinite(row.rmse_difference)
+        or row.rmse_difference != expected_rmse
+    ):
+        raise ClassicalComparisonError(reason="row RMSE difference is inconsistent")
+
+
+def _validate_comparison_row_ranks(row: ClassicalComparisonRow) -> None:
+    for field, rank in (
+        ("current_mape_rank", row.current_mape_rank),
+        ("submitted_mape_rank", row.submitted_mape_rank),
+        ("current_rmse_rank", row.current_rmse_rank),
+        ("submitted_rmse_rank", row.submitted_rmse_rank),
+    ):
+        if type(rank) is not int or not 1 <= rank <= len(ClassicalVariant):
+            raise ClassicalComparisonError(
+                reason=f"row {field} must be a plain rank in [1, {len(ClassicalVariant)}]"
             )
 
 
@@ -205,6 +290,85 @@ def classical_publication_frame(comparison: ClassicalPublicationComparison) -> p
     )
 
 
+def classical_publication_markdown(comparison: ClassicalPublicationComparison) -> str:
+    """Render one deterministic aggregate-only Markdown table with artifact provenance."""
+    _require_comparison(comparison)
+    lines = [
+        f"<!-- source_artifact_sha256={comparison.artifact_sha256} -->",
+        (
+            "| Variant | Submitted result | N | Current MAPE (%) | Submitted MAPE (%) | "
+            "Δ MAPE (pp) | Current RMSE | Submitted RMSE | Δ RMSE |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    lines.extend(
+        "| "
+        + " | ".join(
+            (
+                row.variant.value,
+                row.submitted_result_name,
+                str(row.observations),
+                _metric(row.current.mape_percent),
+                _metric(row.submitted_mape_percent),
+                _metric(row.mape_difference_percentage_points),
+                _metric(row.current.rmse),
+                _metric(row.submitted_rmse),
+                _metric(row.rmse_difference),
+            )
+        )
+        + " |"
+        for row in comparison.rows
+    )
+    return "\n".join(lines) + "\n"
+
+
+def classical_publication_latex(comparison: ClassicalPublicationComparison) -> str:
+    """Render one deterministic aggregate-only booktabs fragment with artifact provenance."""
+    _require_comparison(comparison)
+    lines = [
+        f"% source_artifact_sha256={comparison.artifact_sha256}",
+        r"\begin{tabular}{llrrrrrrr}",
+        r"\toprule",
+        (
+            r"Variant & Submitted result & N & Current MAPE (\%) & Submitted MAPE (\%) & "
+            r"$\Delta$ MAPE (pp) & Current RMSE & Submitted RMSE & $\Delta$ RMSE \\"
+        ),
+        r"\midrule",
+    ]
+    lines.extend(
+        " & ".join(
+            (
+                _latex_escape(row.variant.value),
+                _latex_escape(row.submitted_result_name),
+                str(row.observations),
+                _metric(row.current.mape_percent),
+                _metric(row.submitted_mape_percent),
+                _metric(row.mape_difference_percentage_points),
+                _metric(row.current.rmse),
+                _metric(row.submitted_rmse),
+                _metric(row.rmse_difference),
+            )
+        )
+        + r" \\"
+        for row in comparison.rows
+    )
+    lines.extend((r"\bottomrule", r"\end{tabular}"))
+    return "\n".join(lines) + "\n"
+
+
+def _require_comparison(comparison: ClassicalPublicationComparison) -> None:
+    if type(comparison) is not ClassicalPublicationComparison:
+        raise ClassicalComparisonError(reason="comparison must be ClassicalPublicationComparison")
+
+
+def _metric(value: float) -> str:
+    return f"{value:.6f}"
+
+
+def _latex_escape(value: str) -> str:
+    return value.translate(_LATEX_ESCAPE_TABLE)
+
+
 def _comparison_row(
     variant: ClassicalVariant,
     *,
@@ -244,4 +408,6 @@ __all__ = [
     "SubmittedClassicalReference",
     "build_classical_publication_comparison",
     "classical_publication_frame",
+    "classical_publication_latex",
+    "classical_publication_markdown",
 ]

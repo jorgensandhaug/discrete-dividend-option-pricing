@@ -23,6 +23,8 @@ from .classical_comparison import (
     SubmittedClassicalReference,
     build_classical_publication_comparison,
     classical_publication_frame,
+    classical_publication_latex,
+    classical_publication_markdown,
 )
 from .classical_inputs import (
     ClassicalInputContentError,
@@ -550,6 +552,8 @@ __all__ = [
     "canonicalize_raw_orats_options",
     "classical_execution_sha256",
     "classical_publication_frame",
+    "classical_publication_latex",
+    "classical_publication_markdown",
     "classical_study_sha256",
     "derive_neural_window_seed",
     "engine_build_info",

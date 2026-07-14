@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import polars as pl
+import pytest
 from finoptions import CpuMathBackend
 
 from discrete_dividend_study.classical_artifact import (
@@ -13,9 +15,12 @@ from discrete_dividend_study.classical_artifact import (
 )
 from discrete_dividend_study.classical_comparison import (
     PROJECT_SUBMITTED_CLASSICAL_REFERENCES,
+    ClassicalComparisonError,
     ClassicalPublicationComparison,
     build_classical_publication_comparison,
     classical_publication_frame,
+    classical_publication_latex,
+    classical_publication_markdown,
 )
 from discrete_dividend_study.classical_inputs import prepare_project_classical_inputs
 from discrete_dividend_study.classical_spec import ClassicalExecutionSpec, ClassicalVariant
@@ -98,3 +103,23 @@ def test_publication_frame_reports_differences_and_independent_ranks(tmp_path: P
         ).all(),
         (pl.col("current_rmse") - pl.col("submitted_rmse") == pl.col("rmse_difference")).all(),
     ).row(0) == (True, True)
+
+
+def test_publication_renderers_are_deterministic_aggregate_only_fragments(tmp_path: Path) -> None:
+    """Markdown and LaTeX bind provenance without paths or row-level licensed observations."""
+    comparison = _comparison(tmp_path)
+    first = comparison.rows[0]
+    markdown = classical_publication_markdown(comparison)
+    latex = classical_publication_latex(comparison)
+    provenance = f"source_artifact_sha256={comparison.artifact_sha256}"
+    assert markdown.startswith(f"<!-- {provenance} -->\n")
+    assert latex.startswith(f"% {provenance}\n")
+    assert (
+        f"| exact_cash | IT_GBM_SPOT | {first.observations} | {first.current.mape_percent:.6f} |"
+    ) in markdown
+    assert r"exact\_cash & IT\_GBM\_SPOT" in latex
+    assert latex.endswith("\\bottomrule\n\\end{tabular}\n")
+    assert str(tmp_path) not in markdown
+    assert str(tmp_path) not in latex
+    with pytest.raises(ClassicalComparisonError, match="RMSE difference is inconsistent"):
+        replace(first, rmse_difference=first.rmse_difference + 1.0)

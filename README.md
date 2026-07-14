@@ -155,6 +155,17 @@ when the Parquet list buffers are already contiguous; rechunking is never implic
 Use `rust_std_f64` instead on non-macOS systems; backend identity is mandatory and embedded in the
 artifact rather than selected from the host automatically.
 
+Render a verified aggregate-only table directly from an immutable artifact; the output includes the
+source artifact hash and no licensed row-level values or machine-local paths:
+
+```shell
+uv run --locked discrete-dividend-study render-classical-table \
+  --artifact /absolute/path/result.safetensors \
+  --format latex
+```
+
+`markdown` is the other supported explicit format.
+
 The complete private-data neural run remains a separate explicit command:
 
 ```shell

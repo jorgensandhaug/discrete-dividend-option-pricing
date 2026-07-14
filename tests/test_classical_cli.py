@@ -72,3 +72,19 @@ def test_classical_command_emits_one_verified_complete_artifact(
     assert set(cast("dict[str, object]", summary["metrics"])) == set(
         loaded.artifact.manifest.variants
     )
+
+    assert (
+        main(
+            (
+                "render-classical-table",
+                "--artifact",
+                artifact_path,
+                "--format",
+                "markdown",
+            )
+        )
+        == 0
+    )
+    rendered = capsys.readouterr().out
+    assert rendered.startswith(f"<!-- source_artifact_sha256={loaded.artifact.sha256} -->\n")
+    assert "| exact_cash | IT_GBM_SPOT |" in rendered

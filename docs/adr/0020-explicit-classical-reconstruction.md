@@ -25,8 +25,8 @@ All use `underlying_price`, `strike`, `yte`, `risk_free_rate`, and
 `historical_volatility_90`; the cash variants share the exact forecast event lists. The immutable
 reconstruction estimator uses 150 base intervals, origin exercise excluded, degree-four ITM LSM,
 500 training paths, and 500 independent evaluation paths. Regression tolerance, condition limit,
-tie rule, random seeds, domain roots, and worker count are all explicit. Financial/estimator
-identity is separate from execution identity.
+tie rule, random seeds, domain roots, worker count, and numerical math backend are all explicit.
+Financial/estimator identity is separate from execution identity.
 
 One materialized Polars boundary converts the shared scalar columns and target to a single
 Fortran-ordered Float64 allocation whose columns are directly borrowable by the native engine.
@@ -47,3 +47,6 @@ is a native batch call outside Polars expressions.
   It stores the target once, every native result/diagnostic column, exact Float64 metrics, and a
   canonical manifest binding source hashes, full code revisions, dependency lock, engine/compiler,
   prepared input bytes, and execution identity. Local filesystem paths are excluded.
+- A deterministic Markdown or booktabs LaTeX fragment is rendered only from a fully verified
+  artifact. It contains aggregate comparisons and the source artifact hash, never row-level
+  licensed values or machine-local paths.

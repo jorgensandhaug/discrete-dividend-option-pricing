@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING, Final
 import polars as pl
 from finoptions import CpuExecutor, CpuMathBackend
 
-from .classical_artifact import write_classical_study_artifact
+from .classical_artifact import load_classical_study_artifact, write_classical_study_artifact
+from .classical_comparison import (
+    build_classical_publication_comparison,
+    classical_publication_latex,
+    classical_publication_markdown,
+)
 from .classical_inputs import prepare_project_classical_inputs
 from .classical_pricing import run_project_classical_study
 from .classical_spec import (
@@ -71,6 +76,8 @@ class _StudyCliContext:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one explicit command and return zero only after verified artifact completion."""
     arguments = _parser().parse_args(argv)
+    if arguments.command == "render-classical-table":
+        return _render_classical_table(arguments)
     feature_artifact = _required_path(arguments.features, field="features", kind="file")
     artifact_root = _required_path(arguments.artifacts, field="artifacts", kind="directory")
     paper_root = Path(__file__).resolve().parents[2]
@@ -127,6 +134,19 @@ def _run_neural_study(
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
     )
+    return 0
+
+
+def _render_classical_table(arguments: argparse.Namespace) -> int:
+    artifact = _required_path(arguments.artifact, field="artifact", kind="file")
+    comparison = build_classical_publication_comparison(load_classical_study_artifact(artifact))
+    if arguments.format == "latex":
+        output = classical_publication_latex(comparison)
+    elif arguments.format == "markdown":
+        output = classical_publication_markdown(comparison)
+    else:
+        raise StudyCliError(reason="classical table format is unsupported")
+    sys.stdout.write(output)
     return 0
 
 
@@ -236,6 +256,12 @@ def _parser() -> argparse.ArgumentParser:
         choices=tuple(policy.value for policy in EventBufferPolicy),
         required=True,
     )
+    table = commands.add_parser(
+        "render-classical-table",
+        help="render a verified aggregate-only classical artifact as a publication table",
+    )
+    table.add_argument("--artifact", type=Path, required=True)
+    table.add_argument("--format", choices=("latex", "markdown"), required=True)
     return parser
 
 
