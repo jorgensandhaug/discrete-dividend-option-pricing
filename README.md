@@ -82,7 +82,7 @@ ones:
 uv run --locked discrete-dividend-study download-orats-archives \
   --manifest /absolute/private/path/orats-options-inventory.json \
   --destination /absolute/private/path/orats-options-raw \
-  --confirm-entry-count 4913
+  --confirm-entry-count "$SOURCE_ENTRY_COUNT"
 ```
 
 The example count is illustrative of one observed inventory, not a hard-coded expectation. A fresh
@@ -113,6 +113,28 @@ sidecar SHA-256. Loading that set rehashes every referenced file before exposing
 scan. The bounded, restart-safe contracts are recorded in
 [ADR 0023](docs/adr/0023-verified-orats-option-projection.md) and
 [ADR 0027](docs/adr/0027-aggregate-option-projection-identity.md).
+
+Compact the exact project horizon once before repeated feature scans. The upper date bound is
+exclusive, and the source count must match the verified daily projection set:
+
+```shell
+uv run --locked discrete-dividend-study compact-orats-options \
+  --projection-manifest /absolute/private/path/orats-options-projection-set.json \
+  --inventory /absolute/private/path/orats-options-inventory.json \
+  --projection-root /absolute/private/path/orats-options-projected \
+  --output-root /absolute/private/path/orats-options-annual \
+  --compaction-manifest /absolute/private/path/orats-options-annual.json \
+  --start-date 2011-01-01 \
+  --end-date-exclusive 2024-09-28 \
+  --confirm-source-entry-count "$SOURCE_ENTRY_COUNT"
+```
+
+The streaming operation performs no filtering or financial transformation: it preserves ordered
+rows while replacing thousands of daily files with roughly fourteen annual files. Annual receipts
+and one aggregate manifest bind the date selection, source-entry hashes, schema, physical writer,
+row totals, and exact output bytes. The detached verified loader therefore keeps downstream scans
+fast without weakening provenance. See
+[ADR 0030](docs/adr/0030-verified-annual-option-compaction.md).
 
 The separate annual dividend-forecast archive uses its exact production HTTPS origin and needs no
 credential. Freeze the complete year range before transfer:

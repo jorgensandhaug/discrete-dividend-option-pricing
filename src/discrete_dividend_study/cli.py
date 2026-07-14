@@ -72,13 +72,20 @@ from .orats_dividend_projection import (
     orats_dividend_projection_spec_sha256,
 )
 from .orats_dividend_set import write_orats_dividend_projection_set_manifest
+from .orats_option_compaction import (
+    OratsOptionCompactionSpec,
+    materialize_orats_option_compaction,
+)
 from .orats_option_projection import (
     MaterializedOratsOptionProjection,
     OratsOptionProjectionSpec,
     materialize_orats_option_projection,
     orats_option_projection_spec_sha256,
 )
-from .orats_option_set import write_orats_option_projection_set_manifest
+from .orats_option_set import (
+    load_verified_orats_option_projection_set,
+    write_orats_option_projection_set_manifest,
+)
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
 
 if TYPE_CHECKING:
@@ -149,6 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run_data_command(arguments: argparse.Namespace) -> int | None:
     handlers: dict[str, Callable[[argparse.Namespace], int]] = {
+        "compact-orats-options": _compact_orats_options,
         "download-orats-archives": _download_orats_archives,
         "download-orats-dividend-archives": _download_orats_dividend_archives,
         "inventory-orats-archives": _inventory_orats_archives,
@@ -265,6 +273,62 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
         "projection_spec_sha256": orats_option_projection_spec_sha256(spec),
         "projection_set_entries_sha256": verified_set.manifest.entries_sha256,
         "rows": output_rows,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _compact_orats_options(arguments: argparse.Namespace) -> int:
+    projection_manifest = _required_path(
+        arguments.projection_manifest,
+        field="projection-manifest",
+        kind="file",
+    )
+    inventory = _required_path(arguments.inventory, field="inventory", kind="file")
+    projection_root = _required_path(
+        arguments.projection_root,
+        field="projection-root",
+        kind="directory",
+    )
+    source = load_verified_orats_option_projection_set(
+        projection_manifest,
+        inventory,
+        projection_root,
+    )
+    if arguments.confirm_source_entry_count != len(source.manifest.entries):
+        raise StudyCliError(
+            reason=(
+                "confirm-source-entry-count must exactly equal the verified projection-set "
+                "entry count"
+            ),
+        )
+    output_root = _destination_directory(arguments.output_root)
+    compaction_manifest = _reusable_output_path(
+        arguments.compaction_manifest,
+        field="compaction-manifest",
+    )
+    spec = OratsOptionCompactionSpec(
+        start_date=arguments.start_date,
+        end_date_exclusive=arguments.end_date_exclusive,
+    )
+    compacted = materialize_orats_option_compaction(
+        source,
+        spec,
+        output_root,
+        compaction_manifest,
+    )
+    summary = {
+        "annual_outputs": len(compacted.manifest.entries),
+        "compaction_manifest": str(compaction_manifest),
+        "compaction_spec_sha256": compacted.manifest.compaction_spec_sha256,
+        "entries_sha256": compacted.manifest.entries_sha256,
+        "output_bytes": compacted.manifest.total_output_bytes,
+        "output_root": str(output_root),
+        "rows": compacted.manifest.total_output_rows,
+        "selected_source_entries": compacted.manifest.selected_source_entry_count,
+        "selected_source_entries_sha256": (compacted.manifest.selected_source_entries_sha256),
     }
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
@@ -644,6 +708,22 @@ def _add_option_data_commands(
     materialize.add_argument("--scratch", type=Path, required=True)
     materialize.add_argument("--ticker", action="append", required=True)
     materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    compact = commands.add_parser(
+        "compact-orats-options",
+        help="stream a verified daily projection set into immutable annual Parquet files",
+    )
+    compact.add_argument("--projection-manifest", type=Path, required=True)
+    compact.add_argument("--inventory", type=Path, required=True)
+    compact.add_argument("--projection-root", type=Path, required=True)
+    compact.add_argument("--output-root", type=Path, required=True)
+    compact.add_argument("--compaction-manifest", type=Path, required=True)
+    compact.add_argument("--start-date", type=_iso_date, required=True)
+    compact.add_argument("--end-date-exclusive", type=_iso_date, required=True)
+    compact.add_argument(
+        "--confirm-source-entry-count",
+        type=_positive_int,
+        required=True,
+    )
 
 
 def _add_dividend_data_commands(

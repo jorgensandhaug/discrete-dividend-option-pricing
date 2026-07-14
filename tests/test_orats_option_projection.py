@@ -16,20 +16,28 @@ from discrete_dividend_study import (
     OratsArchiveEntry,
     OratsArchiveInventory,
     OratsArchiveReceipt,
+    OratsOptionCompactionContentError,
+    OratsOptionCompactionSpec,
+    OratsOptionCompactionSpecError,
     OratsOptionProjectionContentError,
     OratsOptionProjectionReceipt,
     OratsOptionProjectionSetContentError,
     OratsOptionProjectionSetManifest,
     OratsOptionProjectionSpec,
     OratsOptionProjectionSpecError,
+    ParquetCompactionWriteSpec,
     VerifiedOratsArchive,
+    VerifiedOratsOptionProjectionSet,
     archive_entries_sha256,
+    load_verified_orats_option_compaction,
     load_verified_orats_option_projection,
     load_verified_orats_option_projection_set,
+    materialize_orats_option_compaction,
     materialize_orats_option_projection,
     orats_archive_name,
     orats_option_projection_spec_sha256,
     orats_remote_directory,
+    verify_orats_option_compaction_unchanged,
     write_orats_archive_inventory,
     write_orats_option_projection_set_manifest,
 )
@@ -86,6 +94,34 @@ def _verified_archive(
 
 def _spec() -> OratsOptionProjectionSpec:
     return OratsOptionProjectionSpec(tickers=("DUK", "VZ"))
+
+
+def _verified_projection_set(root: Path) -> VerifiedOratsOptionProjectionSet:
+    raw = root / "raw"
+    raw.mkdir()
+    source = _verified_archive(raw)
+    source.path.with_name(f"{source.path.name}.receipt.json").write_text(
+        json.dumps(source.receipt.as_dict()),
+    )
+    inventory = OratsArchiveInventory(
+        host="de1.hostedftp.com",
+        start_date=TRADE_DATE,
+        end_date=TRADE_DATE,
+        observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
+        entries=(source.receipt.entry,),
+        entries_sha256=archive_entries_sha256((source.receipt.entry,)),
+    )
+    inventory_path = root / "inventory.json"
+    write_orats_archive_inventory(inventory_path, inventory)
+    output_root = root / "projected"
+    projection = materialize_orats_option_projection(source, _spec(), output_root, root)
+    return write_orats_option_projection_set_manifest(
+        root / "projection-set.json",
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
 
 
 def test_projection_is_filtered_typed_receipted_and_exactly_reusable(tmp_path: Path) -> None:
@@ -202,6 +238,100 @@ def test_complete_projection_set_is_bound_to_inventory_receipts_and_outputs(
     projection.path.write_bytes(b"x" * size)
     with pytest.raises(OratsOptionProjectionSetContentError, match="receipt SHA-256"):
         load_verified_orats_option_projection_set(manifest_path, inventory_path, output_root)
+
+
+def test_annual_compaction_is_streamed_receipted_and_exactly_reusable(tmp_path: Path) -> None:
+    """Thousands of daily scans can become a small verified annual scan without row changes."""
+    source = _verified_projection_set(tmp_path)
+    spec = OratsOptionCompactionSpec(
+        start_date=TRADE_DATE,
+        end_date_exclusive=date(2024, 9, 28),
+    )
+    output_root = tmp_path / "annual"
+    manifest_path = tmp_path / "annual-manifest.json"
+
+    first = materialize_orats_option_compaction(source, spec, output_root, manifest_path)
+    second = materialize_orats_option_compaction(source, spec, output_root, manifest_path)
+
+    assert first == second
+    assert first.manifest.selected_source_entry_count == 1
+    assert first.manifest.total_output_rows == len(_spec().tickers)
+    assert len(first.paths) == 1
+    assert first.paths[0].name == "2024.parquet"
+    assert first.scan().collect().height == len(_spec().tickers)
+    assert json.loads(manifest_path.read_bytes()) == first.manifest.as_dict()
+    assert load_verified_orats_option_compaction(manifest_path, output_root) == first
+    verify_orats_option_compaction_unchanged(first)
+
+
+def test_annual_compaction_rejects_source_gaps_runtime_drift_and_output_tampering(
+    tmp_path: Path,
+) -> None:
+    """Coverage, execution identity, and immutable output bytes all fail closed."""
+    source = _verified_projection_set(tmp_path)
+    output_root = tmp_path / "annual"
+    manifest_path = tmp_path / "annual-manifest.json"
+    spec = OratsOptionCompactionSpec(TRADE_DATE, date(2024, 9, 28))
+    compacted = materialize_orats_option_compaction(source, spec, output_root, manifest_path)
+
+    with pytest.raises(OratsOptionCompactionContentError, match="fully covered"):
+        materialize_orats_option_compaction(
+            source,
+            OratsOptionCompactionSpec(date(2024, 9, 26), date(2024, 9, 28)),
+            tmp_path / "gap",
+            tmp_path / "gap.json",
+        )
+    with pytest.raises(OratsOptionCompactionSpecError, match="active runtime"):
+        materialize_orats_option_compaction(
+            source,
+            OratsOptionCompactionSpec(
+                TRADE_DATE,
+                date(2024, 9, 28),
+                writer=ParquetCompactionWriteSpec(polars_version="0.0.0"),
+            ),
+            tmp_path / "runtime",
+            tmp_path / "runtime.json",
+        )
+
+    size = compacted.paths[0].stat().st_size
+    compacted.paths[0].write_bytes(b"x" * size)
+    with pytest.raises(OratsOptionCompactionContentError, match="receipt SHA-256"):
+        load_verified_orats_option_compaction(manifest_path, output_root)
+
+
+def test_compaction_cli_requires_exact_source_count_and_explicit_half_open_scope(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The public compaction command never infers its source set or date boundary."""
+    source = _verified_projection_set(tmp_path)
+    arguments = (
+        "compact-orats-options",
+        "--projection-manifest",
+        str(source.manifest_path),
+        "--inventory",
+        str(source.inventory_path),
+        "--projection-root",
+        str(source.output_root),
+        "--output-root",
+        str(tmp_path / "annual"),
+        "--compaction-manifest",
+        str(tmp_path / "annual-manifest.json"),
+        "--start-date",
+        TRADE_DATE.isoformat(),
+        "--end-date-exclusive",
+        "2024-09-28",
+        "--confirm-source-entry-count",
+        "1",
+    )
+    assert main(arguments) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["selected_source_entries"] == 1
+    assert summary["annual_outputs"] == 1
+    assert main(arguments) == 0
+
+    with pytest.raises(StudyCliError, match="confirm-source-entry-count"):
+        main((*arguments[:-1], "2"))
 
 
 @pytest.mark.parametrize(
