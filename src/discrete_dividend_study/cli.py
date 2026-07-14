@@ -51,6 +51,13 @@ from .orats_archive import (
     read_orats_archive_inventory,
     write_orats_archive_inventory,
 )
+from .orats_dividend_archive import (
+    OratsDividendArchiveInventory,
+    OratsDividendHttpsClient,
+    OratsDividendHttpsSpec,
+    read_orats_dividend_archive_inventory,
+    write_orats_dividend_archive_inventory,
+)
 from .orats_option_projection import (
     OratsOptionProjectionSpec,
     materialize_orats_option_projection,
@@ -59,7 +66,7 @@ from .orats_option_projection import (
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 _ENGINE_REPOSITORY_NAME: Final = "finoptions-engine"
 _PROFILE_APPLE: Final = "apple-silicon"
@@ -69,6 +76,8 @@ _POSITIVE_INTEGER_MESSAGE: Final = "value must be a positive integer"
 _SEED_MESSAGE: Final = "seed must be an unsigned 64-bit integer"
 _DOMAIN_MESSAGE: Final = "domain must be an unsigned 32-bit integer"
 _ISO_DATE_MESSAGE: Final = "date must use exact ISO YYYY-MM-DD syntax"
+_MINIMUM_ARCHIVE_YEAR: Final = 2007
+_MAXIMUM_ARCHIVE_YEAR: Final = 9999
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,14 +103,9 @@ class _StudyCliContext:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one explicit command and return zero only after verified artifact completion."""
     arguments = _parser().parse_args(argv)
-    if arguments.command == "inventory-orats-archives":
-        return _inventory_orats_archives(arguments)
-    if arguments.command == "download-orats-archives":
-        return _download_orats_archives(arguments)
-    if arguments.command == "materialize-orats-options":
-        return _materialize_orats_options(arguments)
-    if arguments.command == "render-classical-table":
-        return _render_classical_table(arguments)
+    data_result = _run_data_command(arguments)
+    if data_result is not None:
+        return data_result
     feature_artifact = _required_path(arguments.features, field="features", kind="file")
     artifact_root = _required_path(arguments.artifacts, field="artifacts", kind="directory")
     paper_root = Path(__file__).resolve().parents[2]
@@ -125,6 +129,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "run-classical-study":
         return _run_classical_study(arguments, context)
     raise StudyCliError(reason="an explicit supported command is required")
+
+
+def _run_data_command(arguments: argparse.Namespace) -> int | None:
+    handlers: dict[str, Callable[[argparse.Namespace], int]] = {
+        "download-orats-archives": _download_orats_archives,
+        "download-orats-dividend-archives": _download_orats_dividend_archives,
+        "inventory-orats-archives": _inventory_orats_archives,
+        "inventory-orats-dividend-archives": _inventory_orats_dividend_archives,
+        "materialize-orats-options": _materialize_orats_options,
+        "render-classical-table": _render_classical_table,
+    }
+    handler = handlers.get(arguments.command)
+    return None if handler is None else handler(arguments)
 
 
 def _inventory_orats_archives(arguments: argparse.Namespace) -> int:
@@ -231,6 +248,64 @@ def _write_inventory_summary(inventory: OratsArchiveInventory, manifest: Path) -
         "host": inventory.host,
         "manifest": str(manifest),
         "start_date": inventory.start_date.isoformat(),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+
+
+def _inventory_orats_dividend_archives(arguments: argparse.Namespace) -> int:
+    manifest = _new_output_path(arguments.manifest, field="manifest")
+    client = OratsDividendHttpsClient(OratsDividendHttpsSpec())
+    inventory = client.inventory(start_year=arguments.start_year, end_year=arguments.end_year)
+    write_orats_dividend_archive_inventory(manifest, inventory)
+    _write_dividend_inventory_summary(inventory, manifest)
+    return 0
+
+
+def _download_orats_dividend_archives(arguments: argparse.Namespace) -> int:
+    manifest = _required_path(arguments.manifest, field="manifest", kind="file")
+    inventory = read_orats_dividend_archive_inventory(manifest)
+    if arguments.confirm_entry_count != len(inventory.entries):
+        raise StudyCliError(
+            reason="confirm-entry-count must exactly equal the immutable manifest entry count",
+        )
+    destination = _destination_directory(arguments.destination)
+    client = OratsDividendHttpsClient(OratsDividendHttpsSpec(base_url=inventory.base_url))
+    completed = 0
+    for entry in inventory.entries:
+        receipt = client.download(entry, destination)
+        completed += 1
+        progress = {
+            "archive": receipt.local_name,
+            "sha256": receipt.sha256,
+            "year": receipt.entry.year,
+        }
+        sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+    summary = {
+        "destination": str(destination),
+        "entries": completed,
+        "entries_sha256": inventory.entries_sha256,
+        "manifest": str(manifest),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _write_dividend_inventory_summary(
+    inventory: OratsDividendArchiveInventory,
+    manifest: Path,
+) -> None:
+    summary = {
+        "base_url": inventory.base_url,
+        "compressed_bytes": sum(entry.size_bytes for entry in inventory.entries),
+        "end_year": inventory.end_year,
+        "entries": len(inventory.entries),
+        "entries_sha256": inventory.entries_sha256,
+        "manifest": str(manifest),
+        "start_year": inventory.start_year,
     }
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
@@ -380,6 +455,20 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--scratch", type=Path, required=True)
     materialize.add_argument("--ticker", action="append", required=True)
     materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    dividend_inventory = commands.add_parser(
+        "inventory-orats-dividend-archives",
+        help="freeze annual ORATS dividend archive identities through strict HTTPS HEAD",
+    )
+    dividend_inventory.add_argument("--start-year", type=_archive_year, required=True)
+    dividend_inventory.add_argument("--end-year", type=_archive_year, required=True)
+    dividend_inventory.add_argument("--manifest", type=Path, required=True)
+    dividend_download = commands.add_parser(
+        "download-orats-dividend-archives",
+        help="resume every inventoried annual ORATS dividend archive with SHA-256 receipts",
+    )
+    dividend_download.add_argument("--manifest", type=Path, required=True)
+    dividend_download.add_argument("--destination", type=Path, required=True)
+    dividend_download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",
@@ -444,6 +533,14 @@ def _positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError(_POSITIVE_INTEGER_MESSAGE) from error
     if parsed <= 0:
         raise argparse.ArgumentTypeError(_POSITIVE_INTEGER_MESSAGE)
+    return parsed
+
+
+def _archive_year(value: str) -> int:
+    parsed = _positive_int(value)
+    if not _MINIMUM_ARCHIVE_YEAR <= parsed <= _MAXIMUM_ARCHIVE_YEAR:
+        msg = "archive year must be in [2007, 9999]"
+        raise argparse.ArgumentTypeError(msg)
     return parsed
 
 

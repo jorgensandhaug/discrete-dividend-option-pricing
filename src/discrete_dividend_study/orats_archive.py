@@ -800,7 +800,7 @@ class OratsFtpsClient:
     ) -> None:
         if offset == entry.size_bytes:
             return
-        mode = "ab" if offset else "xb"
+        mode = "ab" if partial_path.exists() else "xb"
         try:
             with partial_path.open(mode) as destination:
                 self._session().retrbinary(

@@ -109,6 +109,27 @@ writes content-addressed Zstandard Parquet plus complete cryptographic receipts.
 illustrative; it must equal the supplied manifest. The bounded, restart-safe contract is recorded in
 [ADR 0023](docs/adr/0023-verified-orats-option-projection.md).
 
+The separate annual dividend-forecast archive uses its exact production HTTPS origin and needs no
+credential. Freeze the complete year range before transfer:
+
+```shell
+uv run --locked discrete-dividend-study inventory-orats-dividend-archives \
+  --start-year 2007 \
+  --end-year 2024 \
+  --manifest /absolute/private/path/orats-dividend-inventory.json
+
+uv run --locked discrete-dividend-study download-orats-dividend-archives \
+  --manifest /absolute/private/path/orats-dividend-inventory.json \
+  --destination /absolute/private/path/orats-dividend-raw \
+  --confirm-entry-count 18
+```
+
+The manifest freezes every annual Content-Length, Last-Modified value, and strong S3 ETag. Exact
+range resume uses `If-Match`; every completed ZIP receives a local SHA-256 receipt. The count must
+equal the supplied manifest, and the transport never follows redirects or substitutes a full GET
+for a rejected range. [ADR 0024](docs/adr/0024-manifest-first-orats-dividend-archives.md) records the
+contract.
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.

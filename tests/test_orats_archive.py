@@ -243,6 +243,18 @@ def test_download_resumes_hashes_and_reuses_only_verified_receipt(tmp_path: Path
         client.download(entry, tmp_path)
 
 
+def test_download_resumes_an_existing_zero_byte_partial(tmp_path: Path) -> None:
+    """An interruption before the first payload byte remains a valid exact resume point."""
+    fake = _FakeFtps()
+    client = _client_with_fake(fake)
+    entry = archive_entry()
+    partial = tmp_path / f".{orats_archive_name(entry.trade_date)}.part"
+    partial.touch()
+    receipt = client.download(entry, tmp_path)
+    assert receipt.sha256 == "fd03e1d0712c6f2f52de1a60729b007af9ab6d8fbf10522d86ca3fdf2f6a9fc7"
+    assert fake.retrievals == [(f"RETR {entry.remote_path}", 64 * 1024, None)]
+
+
 def test_download_rejects_remote_identity_change_before_transfer(tmp_path: Path) -> None:
     """A changed MLSD timestamp invalidates a previously observed entry."""
     fake = _FakeFtps(modified="20240929032100")
