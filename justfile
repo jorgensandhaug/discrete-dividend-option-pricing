@@ -28,3 +28,6 @@ bench-inference variant="nn_bin" rows="100000" batch_size="8192":
 
 bench-rolling-preparation strategy="full_horizon" rows="100000" windows="12" threads="1":
     python3 tools/dev.py -- python -m benchmarks.neural_rolling_preparation --strategy {{strategy}} --rows {{rows}} --windows {{windows}} --threads {{threads}}
+
+bench-tabpfn-preparation rows="1000000":
+    python3 tools/dev.py -- python -m benchmarks.tabpfn_preparation --rows {{rows}}

@@ -6,11 +6,11 @@ import argparse
 import hashlib
 import json
 import platform
-import resource
 import sys
 import time
 from typing import Final
 
+from benchmarks._support import max_rss_bytes
 from benchmarks.neural_training import PARAMETER_SEED, synthetic_neural_batch
 from discrete_dividend_study.mlx_neural import build_mlx_project_model
 from discrete_dividend_study.mlx_training import predict_mlx_project_model
@@ -84,7 +84,7 @@ def main() -> None:
                 "device": execution.device.value,
                 "elapsed_seconds": elapsed,
                 "machine": platform.machine(),
-                "max_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "max_rss_bytes": max_rss_bytes(),
                 "prediction_sha256": hashlib.sha256(
                     memoryview(prediction).cast("B"),
                 ).hexdigest(),

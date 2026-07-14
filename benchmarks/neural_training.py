@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import platform
-import resource
 import sys
 import time
 from dataclasses import asdict, replace
@@ -17,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 from finoptions import BinnedCashDividends, PaddedCashDividends
 
+from benchmarks._support import max_rss_bytes
 from discrete_dividend_study.mlx_training import train_mlx_project_model
 from discrete_dividend_study.model_inputs import PreparedNeuralBatch
 from discrete_dividend_study.neural_execution import (
@@ -131,7 +131,7 @@ def main() -> None:
                 "elapsed_seconds": elapsed,
                 "epochs": completed,
                 "machine": platform.machine(),
-                "max_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "max_rss_bytes": max_rss_bytes(),
                 "rows": arguments.rows,
                 "summary_sha256": _canonical_json_sha256(asdict(result.summary)),
                 "total_row_epochs_per_second": (

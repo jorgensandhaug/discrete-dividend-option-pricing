@@ -22,6 +22,7 @@ just check
 just bench-neural nn_bin 100000 10000 10
 just bench-inference nn_bin 100000 8192
 just bench-rolling-preparation full_horizon 500000 117 8
+just bench-tabpfn-preparation 1000000
 ```
 
 The state-aware launcher synchronizes the locked environment and rebuilds a changed Rust extension

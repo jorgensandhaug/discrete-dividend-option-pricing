@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import platform
-import resource
 import sys
 import tempfile
 import time
@@ -19,6 +18,7 @@ import numpy as np
 import polars as pl
 from finoptions import CpuExecutor
 
+from benchmarks._support import max_rss_bytes
 from discrete_dividend_study.neural_rolling import (
     PROJECT_NEURAL_ROLLING_PREPARATION_SPEC,
     prepare_project_neural_rolling_source,
@@ -77,7 +77,7 @@ def main() -> None:
                 "checksum": checksum,
                 "elapsed_seconds": elapsed,
                 "machine": platform.machine(),
-                "max_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "max_rss_bytes": max_rss_bytes(),
                 "model_windows_per_second": (len(PROJECT_NEURAL_STUDY_SPEC.models) * len(windows))
                 / elapsed,
                 "phase_count": phase_count,
