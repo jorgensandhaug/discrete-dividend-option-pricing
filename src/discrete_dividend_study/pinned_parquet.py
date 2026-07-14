@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Self, cast
 
 import polars as pl
 
@@ -46,13 +46,23 @@ class PinnedParquetIdentity:
 
     def __post_init__(self) -> None:
         """Reject malformed serialized identities."""
-        if not self.name or Path(self.name).name != self.name:
+        if type(self.name) is not str or not self.name or Path(self.name).name != self.name:
             msg = "pinned Parquet source name is malformed"
             raise PinnedParquetContentError(msg)
-        if self.size_bytes <= 0 or self.rows <= 0:
+        if (
+            type(self.size_bytes) is not int
+            or type(self.rows) is not int
+            or self.size_bytes <= 0
+            or self.rows <= 0
+        ):
             msg = "pinned Parquet byte and row counts must be positive"
             raise PinnedParquetContentError(msg)
-        if not _is_sha256(self.sha256) or not _is_sha256(self.schema_sha256):
+        if (
+            type(self.sha256) is not str
+            or type(self.schema_sha256) is not str
+            or not _is_sha256(self.sha256)
+            or not _is_sha256(self.schema_sha256)
+        ):
             msg = "pinned Parquet SHA-256 is malformed"
             raise PinnedParquetContentError(msg)
 
@@ -66,6 +76,26 @@ class PinnedParquetIdentity:
             "size_bytes": self.size_bytes,
         }
 
+    @classmethod
+    def from_dict(cls, raw: object) -> Self:
+        """Parse an exact canonical identity mapping without coercion."""
+        if type(raw) is not dict:
+            msg = "pinned Parquet identity must be a JSON object"
+            raise PinnedParquetContentError(msg)
+        mapping = cast("dict[object, object]", raw)
+        expected = {"name", "rows", "schema_sha256", "sha256", "size_bytes"}
+        if set(mapping) != expected or any(type(key) is not str for key in mapping):
+            msg = f"pinned Parquet identity keys must be exactly {sorted(expected)!r}"
+            raise PinnedParquetContentError(msg)
+        typed = cast("dict[str, object]", mapping)
+        return cls(
+            name=cast("str", typed["name"]),
+            size_bytes=cast("int", typed["size_bytes"]),
+            sha256=cast("str", typed["sha256"]),
+            rows=cast("int", typed["rows"]),
+            schema_sha256=cast("str", typed["schema_sha256"]),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class VerifiedPinnedParquet:
@@ -76,7 +106,7 @@ class VerifiedPinnedParquet:
 
     def scan(self) -> pl.LazyFrame:
         """Lazily scan the exact verified file."""
-        return pl.scan_parquet(self.path)
+        return pl.scan_parquet(self.path, rechunk=False)
 
 
 def parquet_schema_sha256(

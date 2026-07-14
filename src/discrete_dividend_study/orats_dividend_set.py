@@ -18,8 +18,10 @@ from .orats_dividend_archive import (
 )
 from .orats_dividend_projection import (
     MaterializedOratsDividendProjection,
+    OratsDividendProjectionError,
     OratsDividendProjectionReceipt,
     OratsDividendProjectionSpec,
+    load_verified_orats_dividend_projection,
     orats_dividend_projection_spec_sha256,
     orats_dividend_schema_sha256,
 )
@@ -494,7 +496,10 @@ def _build_manifest(
         if sidecar != receipt:
             msg = "annual projection sidecar disagrees with the supplied receipt"
             raise OratsDividendProjectionSetContentError(msg, str(receipt_path))
-        _verify_output_identity(output, receipt)
+        verified = load_verified_orats_dividend_projection(output)
+        if verified.receipt != receipt:
+            msg = "verified annual projection disagrees with the supplied receipt"
+            raise OratsDividendProjectionSetContentError(msg, str(output))
         entries.append(
             OratsDividendProjectionSetEntry(
                 year=source_entry.year,
@@ -584,20 +589,15 @@ def _verify_entry(
     ):
         msg = "annual projection receipt identity disagrees with the projection-set entry"
         raise OratsDividendProjectionSetContentError(msg, str(receipt_path))
-    _verify_output_identity(output, receipt)
+    try:
+        verified = load_verified_orats_dividend_projection(output)
+    except OratsDividendProjectionError as error:
+        msg = f"annual projection content fails its complete receipt contract: {error}"
+        raise OratsDividendProjectionSetContentError(msg, str(output)) from error
+    if verified.receipt != receipt:
+        msg = "verified annual projection receipt disagrees with the projection-set entry"
+        raise OratsDividendProjectionSetContentError(msg, str(output))
     return output
-
-
-def _verify_output_identity(path: Path, receipt: OratsDividendProjectionReceipt) -> None:
-    if path.name != receipt.output_name:
-        msg = "annual projection filename disagrees with its receipt"
-        raise OratsDividendProjectionSetContentError(msg, str(path))
-    if path.stat().st_size != receipt.output_bytes:
-        msg = "annual projection byte count disagrees with its receipt"
-        raise OratsDividendProjectionSetContentError(msg, str(path))
-    if _file_sha256(path) != receipt.output_sha256:
-        msg = "annual projection bytes disagree with its receipt SHA-256"
-        raise OratsDividendProjectionSetContentError(msg, str(path))
 
 
 def _read_manifest(path: Path) -> OratsDividendProjectionSetManifest:

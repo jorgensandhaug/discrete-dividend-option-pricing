@@ -11,6 +11,7 @@ import pytest
 
 from discrete_dividend_study.pinned_parquet import (
     PinnedParquetContentError,
+    PinnedParquetIdentity,
     parquet_schema_sha256,
     verify_pinned_parquet,
     verify_pinned_parquet_unchanged,
@@ -43,6 +44,7 @@ def test_exact_source_is_relocatable_typed_and_rescannable(tmp_path: Path) -> No
     )
     assert verified.identity.name == path.name
     assert verified.identity.schema_sha256 == parquet_schema_sha256(SCHEMA)
+    assert PinnedParquetIdentity.from_dict(verified.identity.as_dict()) == verified.identity
     assert verified.scan().collect().height == rows
     verify_pinned_parquet_unchanged(verified)
 
@@ -98,3 +100,17 @@ def test_symlink_sources_are_rejected(tmp_path: Path) -> None:
             expected_rows=rows,
             expected_schema=SCHEMA,
         )
+
+
+@pytest.mark.parametrize("value", [True, 1.0, "2"])
+def test_serialized_identity_rejects_non_plain_integer_counts(value: object) -> None:
+    """JSON-like values never receive Python's implicit numeric coercions."""
+    raw = {
+        "name": "source.parquet",
+        "rows": value,
+        "schema_sha256": "1" * 64,
+        "sha256": "2" * 64,
+        "size_bytes": 10,
+    }
+    with pytest.raises(PinnedParquetContentError, match="byte and row counts"):
+        PinnedParquetIdentity.from_dict(raw)
