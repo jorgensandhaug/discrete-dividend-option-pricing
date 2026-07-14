@@ -15,17 +15,26 @@ from typing import TYPE_CHECKING, Final
 import polars as pl
 from finoptions import CpuExecutor, CpuMathBackend
 
-from .classical_artifact import load_classical_study_artifact, write_classical_study_artifact
+from .classical_artifact import (
+    load_classical_study_artifact,
+    write_classical_grouped_study_artifact,
+    write_classical_study_artifact,
+)
 from .classical_comparison import (
     build_classical_publication_comparison,
     classical_publication_latex,
     classical_publication_markdown,
 )
+from .classical_groups import (
+    build_project_classical_grouped_frame,
+    prepare_project_classical_strike_groups,
+)
 from .classical_inputs import prepare_project_classical_inputs
-from .classical_pricing import run_project_classical_study
+from .classical_pricing import run_project_classical_grouped_study, run_project_classical_study
 from .classical_spec import (
     PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
     ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
 )
 from .event_buffers import EventBufferPolicy
 from .federal_reserve_curve import (
@@ -713,6 +722,7 @@ def _run_classical_study(
         training_domain_start=arguments.training_domain_start,
         evaluation_seed=arguments.evaluation_seed,
         evaluation_domain_start=arguments.evaluation_domain_start,
+        population_addressing=ClassicalPopulationAddressing(arguments.population_addressing),
     )
     source = resolve_study_source_identity(
         context.feature_artifact,
@@ -721,11 +731,11 @@ def _run_classical_study(
         context.engine_revision,
     )
     try:
-        frame = (
-            pl.scan_parquet(context.feature_artifact, rechunk=False)
-            .select(study.input_columns())
-            .collect()
-        )
+        source_frame = pl.scan_parquet(context.feature_artifact, rechunk=False)
+        if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS:
+            frame = source_frame.select(study.input_columns()).collect()
+        else:
+            frame = build_project_classical_grouped_frame(source_frame, study).collect()
     except pl.exceptions.PolarsError as error:
         raise StudyCliError(
             reason=f"cannot materialize classical input columns: {error}"
@@ -738,24 +748,42 @@ def _run_classical_study(
     )
     if resolved_after_scan != source:
         raise StudyCliError(reason="source or dependency lock changed during preparation")
-    inputs = prepare_project_classical_inputs(
-        frame,
-        study,
-        event_buffer_policy=EventBufferPolicy(arguments.event_buffer_policy),
-    )
-    result = run_project_classical_study(inputs, execution, study)
-    artifact = write_classical_study_artifact(
-        context.artifact_root,
-        source,
-        inputs,
-        execution,
-        result,
-    )
+    event_buffer_policy = EventBufferPolicy(arguments.event_buffer_policy)
+    if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS:
+        row_inputs = prepare_project_classical_inputs(
+            frame,
+            study,
+            event_buffer_policy=event_buffer_policy,
+        )
+        result = run_project_classical_study(row_inputs, execution, study)
+        artifact = write_classical_study_artifact(
+            context.artifact_root,
+            source,
+            row_inputs,
+            execution,
+            result,
+        )
+    else:
+        grouped_inputs = prepare_project_classical_strike_groups(
+            frame,
+            study,
+            event_buffer_policy=event_buffer_policy,
+        )
+        result = run_project_classical_grouped_study(grouped_inputs, execution, study)
+        artifact = write_classical_grouped_study_artifact(
+            context.artifact_root,
+            source,
+            grouped_inputs,
+            execution,
+            result,
+        )
     summary = {
         "artifact_path": str(artifact.path),
         "artifact_sha256": artifact.sha256,
         "request_sha256": artifact.manifest.request_sha256,
         "rows": artifact.manifest.observations,
+        "simulation_units": artifact.manifest.simulation_units,
+        "population_addressing": artifact.manifest.execution.population_addressing.value,
         "metrics": {
             variant.variant.variant.value: asdict(variant.metrics) for variant in result.variants
         },
@@ -806,6 +834,11 @@ def _parser() -> argparse.ArgumentParser:
     classical.add_argument("--training-domain-start", type=_unsigned_domain, required=True)
     classical.add_argument("--evaluation-seed", type=_unsigned_seed, required=True)
     classical.add_argument("--evaluation-domain-start", type=_unsigned_domain, required=True)
+    classical.add_argument(
+        "--population-addressing",
+        choices=tuple(addressing.value for addressing in ClassicalPopulationAddressing),
+        required=True,
+    )
     classical.add_argument(
         "--event-buffer-policy",
         choices=tuple(policy.value for policy in EventBufferPolicy),

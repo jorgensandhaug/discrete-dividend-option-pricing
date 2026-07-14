@@ -17,15 +17,21 @@ from finoptions import CpuMathBackend, LsmBatchResult, build_info
 from safetensors import SafetensorError, safe_open
 from safetensors.numpy import load_file, save_file
 
+from .classical_groups import (
+    PreparedClassicalStrikeGroups,
+    prepared_classical_strike_groups_sha256,
+)
 from .classical_inputs import PreparedClassicalInputs, prepared_classical_inputs_sha256
 from .classical_pricing import (
     ClassicalStudyPricingResult,
     ClassicalVariantPricingResult,
+    run_project_classical_grouped_study,
     run_project_classical_study,
 )
 from .classical_spec import (
     PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
     ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
     ClassicalStudySpec,
     ClassicalVariant,
     ClassicalVariantSpec,
@@ -43,8 +49,11 @@ Float64Vector = npt.NDArray[np.float64]
 UInt32Vector = npt.NDArray[np.uint32]
 BoolVector = npt.NDArray[np.bool_]
 
-_FORMAT: Final = "discrete-dividend-classical-study-artifact-v2"
-_FORMAT_VERSION: Final = 2
+_FORMAT_V2: Final = "discrete-dividend-classical-study-artifact-v2"
+_FORMAT: Final = "discrete-dividend-classical-study-artifact-v3"
+_LEGACY_FORMAT_VERSION: Final = 2
+_FORMAT_VERSION: Final = 3
+_SUPPORTED_FORMATS: Final = frozenset({_FORMAT_V2, _FORMAT})
 _PAPER_PACKAGE: Final = "discrete-dividend-option-pricing"
 _METADATA_KEY: Final = "classical_study"
 _ENVELOPE_KEYS: Final = frozenset({"format", "manifest", "metrics"})
@@ -108,6 +117,7 @@ class ClassicalStudyArtifactManifest:
     execution_sha256: str
     prepared_inputs_sha256: str
     observations: int
+    simulation_units: int
     variants: tuple[str, ...]
     submitted_result_names: tuple[str, ...]
     paper_package_version: str
@@ -118,8 +128,11 @@ class ClassicalStudyArtifactManifest:
 
     def __post_init__(self) -> None:
         """Reject incomplete, inconsistent, or unsupported serialized run identity."""
-        if type(self.format_version) is not int or self.format_version != _FORMAT_VERSION:
-            raise ClassicalArtifactError(reason="format_version must be the plain int 2")
+        if type(self.format_version) is not int or self.format_version not in (
+            _LEGACY_FORMAT_VERSION,
+            _FORMAT_VERSION,
+        ):
+            raise ClassicalArtifactError(reason="format_version must be the plain int 2 or 3")
         _validate_manifest_hashes(self)
         if type(self.source) is not StudySourceIdentity:
             raise ClassicalArtifactError(reason="source must be StudySourceIdentity")
@@ -129,6 +142,28 @@ class ClassicalStudyArtifactManifest:
             raise ClassicalArtifactError(reason="execution_sha256 disagrees with execution")
         if type(self.observations) is not int or self.observations <= 0:
             raise ClassicalArtifactError(reason="observations must be a positive plain int")
+        if (
+            type(self.simulation_units) is not int
+            or not 0 < self.simulation_units <= self.observations
+        ):
+            raise ClassicalArtifactError(
+                reason="simulation_units must be a positive plain int no greater than observations"
+            )
+        if self.format_version == _LEGACY_FORMAT_VERSION and (
+            self.execution.population_addressing is not ClassicalPopulationAddressing.CONTRACT_ROWS
+            or self.simulation_units != self.observations
+        ):
+            raise ClassicalArtifactError(
+                reason="format_version 2 requires contract-row population addressing"
+            )
+        if (
+            self.execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS
+            and self.simulation_units != self.observations
+        ):
+            raise ClassicalArtifactError(
+                reason="contract-row execution requires one simulation unit per observation"
+            )
+        self.execution.validate_units(self.simulation_units)
         _validate_manifest_variants(self)
         _validate_manifest_versions(self)
         if self.request_sha256 != _request_sha256_from_manifest(self):
@@ -193,6 +228,23 @@ def run_and_write_project_classical_study(
     return write_classical_study_artifact(directory, source, inputs, execution, result)
 
 
+def run_and_write_project_classical_grouped_study(
+    directory: Path,
+    source: StudySourceIdentity,
+    inputs: PreparedClassicalStrikeGroups,
+    execution: ClassicalExecutionSpec,
+) -> ClassicalStudyArtifact:
+    """Run the group-addressed four-way study and persist its complete explicit identity."""
+    result = run_project_classical_grouped_study(inputs, execution)
+    return write_classical_grouped_study_artifact(
+        directory,
+        source,
+        inputs,
+        execution,
+        result,
+    )
+
+
 def write_classical_study_artifact(
     directory: Path,
     source: StudySourceIdentity,
@@ -200,9 +252,68 @@ def write_classical_study_artifact(
     execution: ClassicalExecutionSpec,
     result: ClassicalStudyPricingResult,
 ) -> ClassicalStudyArtifact:
-    """Atomically store one complete result and verify it through the public loader."""
-    _validate_write_request(directory, source, inputs, execution, result)
-    tensors = _result_tensors(inputs.targets, result)
+    """Atomically store one contract-row result and verify it through the public loader."""
+    _validate_write_request(
+        directory,
+        source,
+        inputs,
+        execution,
+        result,
+        expected_inputs=PreparedClassicalInputs,
+        expected_addressing=ClassicalPopulationAddressing.CONTRACT_ROWS,
+        simulation_units=inputs.rows,
+    )
+    return _write_classical_study_artifact(
+        directory,
+        source,
+        execution,
+        result,
+        target=inputs.targets,
+        prepared_inputs_sha256=prepared_classical_inputs_sha256(inputs),
+        simulation_units=inputs.rows,
+    )
+
+
+def write_classical_grouped_study_artifact(
+    directory: Path,
+    source: StudySourceIdentity,
+    inputs: PreparedClassicalStrikeGroups,
+    execution: ClassicalExecutionSpec,
+    result: ClassicalStudyPricingResult,
+) -> ClassicalStudyArtifact:
+    """Atomically store one natural-strike-group result and verify it through the loader."""
+    _validate_write_request(
+        directory,
+        source,
+        inputs,
+        execution,
+        result,
+        expected_inputs=PreparedClassicalStrikeGroups,
+        expected_addressing=ClassicalPopulationAddressing.NATURAL_STRIKE_GROUPS,
+        simulation_units=inputs.groups,
+    )
+    return _write_classical_study_artifact(
+        directory,
+        source,
+        execution,
+        result,
+        target=inputs.targets,
+        prepared_inputs_sha256=prepared_classical_strike_groups_sha256(inputs),
+        simulation_units=inputs.groups,
+    )
+
+
+def _write_classical_study_artifact(  # noqa: PLR0913 - complete artifact identity is explicit
+    directory: Path,
+    source: StudySourceIdentity,
+    execution: ClassicalExecutionSpec,
+    result: ClassicalStudyPricingResult,
+    *,
+    target: Float64Vector,
+    prepared_inputs_sha256: str,
+    simulation_units: int,
+) -> ClassicalStudyArtifact:
+    tensors = _result_tensors(target, result)
     metrics_payload = {
         variant.variant.variant.value: asdict(variant.metrics) for variant in result.variants
     }
@@ -212,10 +323,11 @@ def write_classical_study_artifact(
     request_payload: dict[str, object] = {
         "source": asdict(source),
         "study_sha256": classical_study_sha256(result.study),
-        "execution": asdict(execution),
+        "execution": _execution_payload(execution, format_version=_FORMAT_VERSION),
         "execution_sha256": classical_execution_sha256(execution),
-        "prepared_inputs_sha256": prepared_classical_inputs_sha256(inputs),
+        "prepared_inputs_sha256": prepared_inputs_sha256,
         "observations": result.rows,
+        "simulation_units": simulation_units,
         "variants": tuple(variant.variant.value for variant in result.study.variants),
         "submitted_result_names": tuple(
             variant.submitted_result_name for variant in result.study.variants
@@ -224,7 +336,7 @@ def write_classical_study_artifact(
         "engine_package_version": native.package_version,
         "rustc_version": native.rustc_version,
     }
-    request_sha256 = _request_sha256(request_payload)
+    request_sha256 = _request_sha256(request_payload, artifact_format=_FORMAT)
     manifest = ClassicalStudyArtifactManifest(
         format_version=_FORMAT_VERSION,
         request_sha256=request_sha256,
@@ -232,8 +344,9 @@ def write_classical_study_artifact(
         study_sha256=classical_study_sha256(result.study),
         execution=execution,
         execution_sha256=classical_execution_sha256(execution),
-        prepared_inputs_sha256=prepared_classical_inputs_sha256(inputs),
+        prepared_inputs_sha256=prepared_inputs_sha256,
         observations=result.rows,
+        simulation_units=simulation_units,
         variants=tuple(variant.variant.value for variant in result.study.variants),
         submitted_result_names=tuple(
             variant.submitted_result_name for variant in result.study.variants
@@ -241,7 +354,7 @@ def write_classical_study_artifact(
         paper_package_version=paper_version,
         engine_package_version=native.package_version,
         rustc_version=native.rustc_version,
-        tensors_sha256=_tensors_sha256(tensors),
+        tensors_sha256=_tensors_sha256(tensors, artifact_format=_FORMAT),
         metrics_sha256=_text_sha256(metrics_json),
     )
     envelope = {
@@ -277,12 +390,13 @@ def load_classical_study_artifact(
     if file_sha256 != path.stem:
         raise ClassicalArtifactError(reason="artifact bytes do not match the filename hash")
     metadata, tensors = _read_payload(path, study)
-    manifest = _decode_manifest(metadata["manifest"])
+    artifact_format = metadata["format"]
+    manifest = _decode_manifest(metadata["manifest"], artifact_format=artifact_format)
     if manifest.study_sha256 != classical_study_sha256(study):
         raise ClassicalArtifactError(reason="artifact and requested study identities differ")
     if set(tensors) != _expected_tensor_keys(study):
         raise ClassicalArtifactError(reason="artifact tensor keys are missing or unexpected")
-    if _tensors_sha256(tensors) != manifest.tensors_sha256:
+    if _tensors_sha256(tensors, artifact_format=artifact_format) != manifest.tensors_sha256:
         raise ClassicalArtifactError(reason="result tensors disagree with the manifest hash")
     metrics = _decode_metrics(metadata["metrics"], study)
     if _text_sha256(metadata["metrics"]) != manifest.metrics_sha256:
@@ -305,26 +419,35 @@ def load_classical_study_artifact(
     return LoadedClassicalStudyArtifact(artifact=artifact, target=target, result=result)
 
 
-def _validate_write_request(
+def _validate_write_request(  # noqa: PLR0913 - validates each independent identity component
     directory: Path,
     source: object,
     inputs: object,
     execution: object,
     result: object,
+    *,
+    expected_inputs: type[object],
+    expected_addressing: ClassicalPopulationAddressing,
+    simulation_units: int,
 ) -> None:
     if not isinstance(directory, Path) or not directory.is_dir() or directory.is_symlink():
         raise ClassicalArtifactError(reason="directory must be an existing non-symlink directory")
     if type(source) is not StudySourceIdentity:
         raise ClassicalArtifactError(reason="source must be StudySourceIdentity")
-    if type(inputs) is not PreparedClassicalInputs:
-        raise ClassicalArtifactError(reason="inputs must be PreparedClassicalInputs")
+    if type(inputs) is not expected_inputs:
+        raise ClassicalArtifactError(reason=f"inputs must be {expected_inputs.__name__}")
     if type(execution) is not ClassicalExecutionSpec:
         raise ClassicalArtifactError(reason="execution must be ClassicalExecutionSpec")
     if type(result) is not ClassicalStudyPricingResult:
         raise ClassicalArtifactError(reason="result must be ClassicalStudyPricingResult")
-    if result.study != inputs.study or result.rows != inputs.rows:
+    typed_inputs = cast("PreparedClassicalInputs | PreparedClassicalStrikeGroups", inputs)
+    if result.study != typed_inputs.study or result.rows != typed_inputs.rows:
         raise ClassicalArtifactError(reason="result and prepared input identities differ")
-    execution.validate_rows(result.rows)
+    if execution.population_addressing is not expected_addressing:
+        raise ClassicalArtifactError(
+            reason=f"execution population addressing must be {expected_addressing.value!r}"
+        )
+    execution.validate_units(simulation_units)
 
 
 def _result_tensors(
@@ -471,21 +594,37 @@ def _read_payload(
     if any(type(values[key]) is not str for key in _ENVELOPE_KEYS):
         raise ClassicalArtifactError(reason="artifact envelope values must be plain strings")
     decoded = cast("dict[str, str]", values)
-    if decoded["format"] != _FORMAT:
+    if decoded["format"] not in _SUPPORTED_FORMATS:
         raise ClassicalArtifactError(reason="artifact format identifier is unsupported")
     if set(tensors) != _expected_tensor_keys(study):
         raise ClassicalArtifactError(reason="artifact tensor keys are missing or unexpected")
     return decoded, tensors
 
 
-def _decode_manifest(value: str) -> ClassicalStudyArtifactManifest:
+def _decode_manifest(
+    value: str,
+    *,
+    artifact_format: str,
+) -> ClassicalStudyArtifactManifest:
     payload = _decode_canonical_json(value, field="manifest")
-    _require_exact_keys(payload, ClassicalStudyArtifactManifest, field="manifest")
+    if type(payload) is not dict:
+        raise ClassicalArtifactError(reason="manifest must be an object")
     values = cast("dict[str, Any]", payload)
+    if values.get("format_version") == _LEGACY_FORMAT_VERSION and artifact_format == _FORMAT_V2:
+        values["simulation_units"] = values.get("observations")
+    elif values.get("format_version") != _FORMAT_VERSION or artifact_format != _FORMAT:
+        raise ClassicalArtifactError(reason="manifest and artifact format versions disagree")
+    _require_exact_keys(values, ClassicalStudyArtifactManifest, field="manifest")
     try:
         values["source"] = StudySourceIdentity(**cast("dict[str, Any]", values["source"]))
         execution = cast("dict[str, Any]", values["execution"])
         execution["math_backend"] = CpuMathBackend(execution["math_backend"])
+        execution["population_addressing"] = ClassicalPopulationAddressing(
+            execution.get(
+                "population_addressing",
+                ClassicalPopulationAddressing.CONTRACT_ROWS.value,
+            )
+        )
         values["execution"] = ClassicalExecutionSpec(**execution)
         values["variants"] = tuple(cast("list[str]", values["variants"]))
         values["submitted_result_names"] = tuple(
@@ -589,9 +728,13 @@ def _tensor_key(variant: ClassicalVariant, field: str) -> str:
     return f"{variant.value}.{field}"
 
 
-def _tensors_sha256(tensors: dict[str, np.ndarray]) -> str:
+def _tensors_sha256(
+    tensors: dict[str, np.ndarray],
+    *,
+    artifact_format: str,
+) -> str:
     hasher = hashlib.sha256()
-    _hash_text(hasher, _FORMAT)
+    _hash_text(hasher, artifact_format)
     for key in sorted(tensors):
         array = tensors[key]
         _hash_text(hasher, key)
@@ -604,25 +747,48 @@ def _tensors_sha256(tensors: dict[str, np.ndarray]) -> str:
 
 
 def _request_sha256_from_manifest(manifest: ClassicalStudyArtifactManifest) -> str:
-    return _request_sha256(
-        {
-            "source": asdict(manifest.source),
-            "study_sha256": manifest.study_sha256,
-            "execution": asdict(manifest.execution),
-            "execution_sha256": manifest.execution_sha256,
-            "prepared_inputs_sha256": manifest.prepared_inputs_sha256,
-            "observations": manifest.observations,
-            "variants": manifest.variants,
-            "submitted_result_names": manifest.submitted_result_names,
-            "paper_package_version": manifest.paper_package_version,
-            "engine_package_version": manifest.engine_package_version,
-            "rustc_version": manifest.rustc_version,
-        }
-    )
+    artifact_format = _FORMAT_V2 if manifest.format_version == _LEGACY_FORMAT_VERSION else _FORMAT
+    payload: dict[str, object] = {
+        "source": asdict(manifest.source),
+        "study_sha256": manifest.study_sha256,
+        "execution": _execution_payload(
+            manifest.execution,
+            format_version=manifest.format_version,
+        ),
+        "execution_sha256": manifest.execution_sha256,
+        "prepared_inputs_sha256": manifest.prepared_inputs_sha256,
+        "observations": manifest.observations,
+        "variants": manifest.variants,
+        "submitted_result_names": manifest.submitted_result_names,
+        "paper_package_version": manifest.paper_package_version,
+        "engine_package_version": manifest.engine_package_version,
+        "rustc_version": manifest.rustc_version,
+    }
+    if manifest.format_version >= _FORMAT_VERSION:
+        payload["simulation_units"] = manifest.simulation_units
+    return _request_sha256(payload, artifact_format=artifact_format)
 
 
-def _request_sha256(payload: dict[str, object]) -> str:
-    request = {"format": _FORMAT, "request": payload}
+def _execution_payload(
+    execution: ClassicalExecutionSpec,
+    *,
+    format_version: int,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "threads": execution.threads,
+        "math_backend": execution.math_backend,
+        "training_seed": execution.training_seed,
+        "training_domain_start": execution.training_domain_start,
+        "evaluation_seed": execution.evaluation_seed,
+        "evaluation_domain_start": execution.evaluation_domain_start,
+    }
+    if format_version >= _FORMAT_VERSION:
+        payload["population_addressing"] = execution.population_addressing
+    return payload
+
+
+def _request_sha256(payload: dict[str, object], *, artifact_format: str) -> str:
+    request = {"format": artifact_format, "request": payload}
     return hashlib.sha256(_canonical_json(request).encode("ascii")).hexdigest()
 
 
@@ -759,6 +925,8 @@ __all__ = [
     "ClassicalStudyArtifactManifest",
     "LoadedClassicalStudyArtifact",
     "load_classical_study_artifact",
+    "run_and_write_project_classical_grouped_study",
     "run_and_write_project_classical_study",
+    "write_classical_grouped_study_artifact",
     "write_classical_study_artifact",
 ]

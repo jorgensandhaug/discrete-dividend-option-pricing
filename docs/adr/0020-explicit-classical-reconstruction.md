@@ -50,3 +50,6 @@ is a native batch call outside Polars expressions.
 - A deterministic Markdown or booktabs LaTeX fragment is rendered only from a fully verified
   artifact. It contains aggregate comparisons and the source artifact hash, never row-level
   licensed values or machine-local paths.
+- [ADR 0033](0033-verified-natural-strike-groups.md) adds an explicit faster runner that proves all
+  simulated inputs constant inside natural quote/expiry groups before sharing path populations.
+  The row-addressed runner remains the audit comparator; grouping is never selected automatically.

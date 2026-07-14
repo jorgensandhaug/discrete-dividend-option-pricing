@@ -22,6 +22,7 @@ from finoptions import (
 
 _STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v1"
 _EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v2"
+_GROUPED_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v3"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
 _MIN_EVALUATION_PATHS: Final = 2
@@ -61,6 +62,13 @@ class ClassicalDividendRepresentation(StrEnum):
     ESCROWED_PREPAID_FORWARD = "escrowed_prepaid_forward"
     CONTINUOUS_FORECAST_YIELD = "continuous_forecast_yield"
     CONTINUOUS_HISTORICAL_YIELD = "continuous_historical_yield"
+
+
+class ClassicalPopulationAddressing(StrEnum):
+    """Random-domain and path-population unit for one complete classical execution."""
+
+    CONTRACT_ROWS = "contract_rows"
+    NATURAL_STRIKE_GROUPS = "natural_strike_groups"
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,7 +299,7 @@ class ClassicalStudySpec:
 
 @dataclass(frozen=True, slots=True)
 class ClassicalExecutionSpec:
-    """CPU resources and row-addressed random namespaces, separate from financial identity."""
+    """CPU resources and explicitly addressed namespaces, separate from financial identity."""
 
     threads: int
     math_backend: CpuMathBackend
@@ -299,6 +307,9 @@ class ClassicalExecutionSpec:
     training_domain_start: int
     evaluation_seed: int
     evaluation_domain_start: int
+    population_addressing: ClassicalPopulationAddressing = (
+        ClassicalPopulationAddressing.CONTRACT_ROWS
+    )
 
     def __post_init__(self) -> None:
         """Reject automatic resources, truncated seeds, or invalid random-domain roots."""
@@ -313,6 +324,12 @@ class ClassicalExecutionSpec:
                 field="math_backend",
                 observed=self.math_backend,
                 requirement="CpuMathBackend",
+            )
+        if type(self.population_addressing) is not ClassicalPopulationAddressing:
+            raise ClassicalSpecValueError(
+                field="population_addressing",
+                observed=self.population_addressing,
+                requirement="ClassicalPopulationAddressing",
             )
         for field, value in (
             ("training_seed", self.training_seed),
@@ -339,16 +356,16 @@ class ClassicalExecutionSpec:
         """Construct the exact requested dedicated CPU executor."""
         return CpuExecutor(threads=self.threads, math_backend=self.math_backend)
 
-    def validate_rows(self, rows: int) -> None:
-        """Reject overflowing or colliding row-addressed random-domain intervals."""
-        if type(rows) is not int or rows <= 0:
+    def validate_units(self, units: int) -> None:
+        """Reject overflowing or colliding declared-population random-domain intervals."""
+        if type(units) is not int or units <= 0:
             raise ClassicalSpecValueError(
-                field="rows",
-                observed=rows,
+                field="simulation_units",
+                observed=units,
                 requirement="a positive plain int",
             )
-        training_end = self.training_domain_start + rows - 1
-        evaluation_end = self.evaluation_domain_start + rows - 1
+        training_end = self.training_domain_start + units - 1
+        evaluation_end = self.evaluation_domain_start + units - 1
         if training_end > _MAX_U32:
             raise ClassicalSpecValueError(
                 field="training random-domain interval",
@@ -373,6 +390,10 @@ class ClassicalExecutionSpec:
                 ),
                 requirement="disjoint intervals",
             )
+
+    def validate_rows(self, rows: int) -> None:
+        """Compatibility alias for contract-row executions."""
+        self.validate_units(rows)
 
 
 _REPRESENTATION_BY_VARIANT: Final = {
@@ -482,8 +503,13 @@ def classical_execution_sha256(execution: ClassicalExecutionSpec) -> str:
             observed=execution,
             requirement="ClassicalExecutionSpec",
         )
-    payload = {
-        "format": _EXECUTION_HASH_FORMAT,
+    format_identity = (
+        _EXECUTION_HASH_FORMAT
+        if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS
+        else _GROUPED_EXECUTION_HASH_FORMAT
+    )
+    payload: dict[str, object] = {
+        "format": format_identity,
         "threads": execution.threads,
         "math_backend": execution.math_backend.value,
         "training_seed": execution.training_seed,
@@ -491,6 +517,8 @@ def classical_execution_sha256(execution: ClassicalExecutionSpec) -> str:
         "evaluation_seed": execution.evaluation_seed,
         "evaluation_domain_start": execution.evaluation_domain_start,
     }
+    if execution.population_addressing is not ClassicalPopulationAddressing.CONTRACT_ROWS:
+        payload["population_addressing"] = execution.population_addressing.value
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -506,6 +534,7 @@ __all__ = [
     "ClassicalDividendRepresentation",
     "ClassicalEstimatorSpec",
     "ClassicalExecutionSpec",
+    "ClassicalPopulationAddressing",
     "ClassicalSpecError",
     "ClassicalSpecValueError",
     "ClassicalStudySpec",

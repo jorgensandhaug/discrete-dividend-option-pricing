@@ -5,12 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from finoptions import CpuExecutor, InputError, Lsm, LsmBatchResult, LsmError, price_lsm_call_batch
+from finoptions import (
+    CpuExecutor,
+    InputError,
+    Lsm,
+    LsmBatchResult,
+    LsmError,
+    price_lsm_call_batch,
+    price_lsm_call_grouped_batch,
+)
 
+from .classical_groups import PreparedClassicalStrikeGroups
 from .classical_inputs import PreparedClassicalInputs
 from .classical_spec import (
     PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
     ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
     ClassicalStudySpec,
     ClassicalVariant,
     ClassicalVariantSpec,
@@ -141,12 +151,58 @@ def run_project_classical_study(
         raise ClassicalPricingContractError(
             reason="prepared inputs and requested classical study must be identical"
         )
-    execution.validate_rows(inputs.rows)
+    if execution.population_addressing is not ClassicalPopulationAddressing.CONTRACT_ROWS:
+        raise ClassicalPricingContractError(
+            reason="row inputs require contract_rows population addressing"
+        )
+    execution.validate_units(inputs.rows)
     executor = execution.executor()
     estimator = study.estimator
     method = estimator.method(execution)
     results = tuple(
         _price_variant(
+            inputs,
+            variant,
+            execution_paths=estimator.evaluation_paths,
+            executor=executor,
+            method=method,
+        )
+        for variant in study.variants
+    )
+    return ClassicalStudyPricingResult(study=study, rows=inputs.rows, variants=results)
+
+
+def run_project_classical_grouped_study(
+    inputs: PreparedClassicalStrikeGroups,
+    execution: ClassicalExecutionSpec,
+    study: ClassicalStudySpec = PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
+) -> ClassicalStudyPricingResult:
+    """Price all four variants with one exact path pair per natural strike group.
+
+    Every variant uses the same group-addressed random populations. Every strike and variant still
+    fits its own stopping policy and uses a disjoint out-of-sample evaluation population. A failure
+    stops the study and returns no partial result.
+    """
+    if type(inputs) is not PreparedClassicalStrikeGroups:
+        raise ClassicalPricingContractError(reason="inputs must be PreparedClassicalStrikeGroups")
+    if type(execution) is not ClassicalExecutionSpec:
+        raise ClassicalPricingContractError(reason="execution must be ClassicalExecutionSpec")
+    if type(study) is not ClassicalStudySpec:
+        raise ClassicalPricingContractError(reason="study must be ClassicalStudySpec")
+    if inputs.study != study:
+        raise ClassicalPricingContractError(
+            reason="prepared strike groups and requested classical study must be identical"
+        )
+    if execution.population_addressing is not ClassicalPopulationAddressing.NATURAL_STRIKE_GROUPS:
+        raise ClassicalPricingContractError(
+            reason="grouped inputs require natural_strike_groups population addressing"
+        )
+    execution.validate_units(inputs.groups)
+    executor = execution.executor()
+    estimator = study.estimator
+    method = estimator.method(execution)
+    results = tuple(
+        _price_grouped_variant(
             inputs,
             variant,
             execution_paths=estimator.evaluation_paths,
@@ -185,6 +241,28 @@ def _price_variant(
     return ClassicalVariantPricingResult(variant=variant, native=native, metrics=metrics)
 
 
+def _price_grouped_variant(
+    inputs: PreparedClassicalStrikeGroups,
+    variant: ClassicalVariantSpec,
+    *,
+    execution_paths: int,
+    executor: CpuExecutor,
+    method: Lsm,
+) -> ClassicalVariantPricingResult:
+    try:
+        native = price_lsm_call_grouped_batch(
+            groups=inputs.engine_groups_for(variant.variant),
+            mesh=inputs.study.estimator.mesh(),
+            executor=executor,
+            method=method,
+        )
+        _validate_stopping_counts(native, inputs.rows, execution_paths)
+        metrics = evaluate_project_pricing_f64(inputs.targets, native.prices)
+    except (InputError, LsmError, ProjectMetricError, ClassicalPricingContractError) as error:
+        raise ClassicalPricingError(variant=variant.variant, source=error) from error
+    return ClassicalVariantPricingResult(variant=variant, native=native, metrics=metrics)
+
+
 def _validate_stopping_counts(native: LsmBatchResult, rows: int, evaluation_paths: int) -> None:
     stopping_paths = native.early_exercise_paths.astype(np.uint64) + native.expiry_paths.astype(
         np.uint64
@@ -203,5 +281,6 @@ __all__ = [
     "ClassicalPricingError",
     "ClassicalStudyPricingResult",
     "ClassicalVariantPricingResult",
+    "run_project_classical_grouped_study",
     "run_project_classical_study",
 ]

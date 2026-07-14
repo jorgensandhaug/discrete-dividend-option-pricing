@@ -12,7 +12,9 @@ from .classical_artifact import (
     ClassicalStudyArtifactManifest,
     LoadedClassicalStudyArtifact,
     load_classical_study_artifact,
+    run_and_write_project_classical_grouped_study,
     run_and_write_project_classical_study,
+    write_classical_grouped_study_artifact,
     write_classical_study_artifact,
 )
 from .classical_comparison import (
@@ -25,6 +27,12 @@ from .classical_comparison import (
     classical_publication_frame,
     classical_publication_latex,
     classical_publication_markdown,
+)
+from .classical_groups import (
+    PreparedClassicalStrikeGroups,
+    build_project_classical_grouped_frame,
+    prepare_project_classical_strike_groups,
+    prepared_classical_strike_groups_sha256,
 )
 from .classical_inputs import (
     ClassicalInputContentError,
@@ -40,6 +48,7 @@ from .classical_pricing import (
     ClassicalPricingError,
     ClassicalStudyPricingResult,
     ClassicalVariantPricingResult,
+    run_project_classical_grouped_study,
     run_project_classical_study,
 )
 from .classical_spec import (
@@ -47,6 +56,7 @@ from .classical_spec import (
     ClassicalDividendRepresentation,
     ClassicalEstimatorSpec,
     ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
     ClassicalSpecError,
     ClassicalSpecValueError,
     ClassicalStudySpec,
@@ -684,6 +694,7 @@ __all__ = [
     "ClassicalInputError",
     "ClassicalInputSchemaError",
     "ClassicalInputTypeError",
+    "ClassicalPopulationAddressing",
     "ClassicalPricingContractError",
     "ClassicalPricingError",
     "ClassicalPublicationComparison",
@@ -869,6 +880,7 @@ __all__ = [
     "PinnedParquetError",
     "PinnedParquetIdentity",
     "PreparedClassicalInputs",
+    "PreparedClassicalStrikeGroups",
     "PreparedNeuralBatch",
     "PreparedNeuralRollingSource",
     "PreparedNeuralWindow",
@@ -933,6 +945,7 @@ __all__ = [
     "build_classical_publication_comparison",
     "build_neural_epoch_batch_indices",
     "build_project_as_submitted_features",
+    "build_project_classical_grouped_frame",
     "build_project_quote_cohort",
     "canonicalize_orats_curve_frame",
     "canonicalize_raw_orats_dividend_forecast",
@@ -996,6 +1009,7 @@ __all__ = [
     "orats_remote_directory",
     "parquet_schema_sha256",
     "prepare_project_classical_inputs",
+    "prepare_project_classical_strike_groups",
     "prepare_project_neural_batch",
     "prepare_project_neural_batches",
     "prepare_project_neural_rolling_source",
@@ -1003,6 +1017,7 @@ __all__ = [
     "prepare_project_tabpfn_binned_batch",
     "prepare_underlying_history",
     "prepared_classical_inputs_sha256",
+    "prepared_classical_strike_groups_sha256",
     "prepared_neural_batch_sha256",
     "prepared_tabpfn_batch_sha256",
     "project_feature_pipeline_sha256",
@@ -1016,8 +1031,10 @@ __all__ = [
     "require_neural_runtime",
     "resolve_study_source_identity",
     "rolling_window_manifest",
+    "run_and_write_project_classical_grouped_study",
     "run_and_write_project_classical_study",
     "run_neural_window",
+    "run_project_classical_grouped_study",
     "run_project_classical_study",
     "run_project_neural_rolling_study",
     "scan_raw_orats_csv",
@@ -1033,6 +1050,7 @@ __all__ = [
     "verify_orats_option_compaction_unchanged",
     "verify_pinned_parquet",
     "verify_pinned_parquet_unchanged",
+    "write_classical_grouped_study_artifact",
     "write_classical_study_artifact",
     "write_neural_checkpoint",
     "write_neural_prediction",
