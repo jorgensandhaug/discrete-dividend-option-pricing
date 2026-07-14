@@ -71,10 +71,12 @@ from .orats_dividend_projection import (
     orats_dividend_projection_spec_sha256,
 )
 from .orats_option_projection import (
+    MaterializedOratsOptionProjection,
     OratsOptionProjectionSpec,
     materialize_orats_option_projection,
     orats_option_projection_spec_sha256,
 )
+from .orats_option_set import write_orats_option_projection_set_manifest
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
 
 if TYPE_CHECKING:
@@ -217,10 +219,15 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
     raw_directory = _required_path(arguments.raw_directory, field="raw-directory", kind="directory")
     scratch = _required_path(arguments.scratch, field="scratch", kind="directory")
     output_root = _destination_directory(arguments.output_root)
+    projection_manifest = _reusable_output_path(
+        arguments.projection_manifest,
+        field="projection-manifest",
+    )
     spec = OratsOptionProjectionSpec(tickers=tuple(arguments.ticker))
     entries_completed = 0
     output_bytes = 0
     output_rows = 0
+    projections: list[MaterializedOratsOptionProjection] = []
     for entry in inventory.entries:
         archive_path = raw_directory / orats_archive_name(entry.trade_date)
         source = load_verified_orats_archive(archive_path)
@@ -229,6 +236,7 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
                 reason="raw archive receipt disagrees with its immutable inventory entry",
             )
         output = materialize_orats_option_projection(source, spec, output_root, scratch)
+        projections.append(output)
         entries_completed += 1
         output_bytes += output.receipt.output_bytes
         output_rows += output.receipt.output_rows
@@ -239,12 +247,21 @@ def _materialize_orats_options(arguments: argparse.Namespace) -> int:
             "trade_date": entry.trade_date.isoformat(),
         }
         sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+    verified_set = write_orats_option_projection_set_manifest(
+        projection_manifest,
+        manifest,
+        inventory,
+        output_root,
+        projections,
+    )
     summary = {
         "entries": entries_completed,
         "entries_sha256": inventory.entries_sha256,
         "output_bytes": output_bytes,
         "output_root": str(output_root),
+        "projection_manifest": str(projection_manifest),
         "projection_spec_sha256": orats_option_projection_spec_sha256(spec),
+        "projection_set_entries_sha256": verified_set.manifest.entries_sha256,
         "rows": output_rows,
     }
     sys.stdout.write(
@@ -606,6 +623,7 @@ def _add_option_data_commands(
     materialize.add_argument("--manifest", type=Path, required=True)
     materialize.add_argument("--raw-directory", type=Path, required=True)
     materialize.add_argument("--output-root", type=Path, required=True)
+    materialize.add_argument("--projection-manifest", type=Path, required=True)
     materialize.add_argument("--scratch", type=Path, required=True)
     materialize.add_argument("--ticker", action="append", required=True)
     materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
@@ -736,6 +754,18 @@ def _new_output_path(value: object, *, field: str) -> Path:
     if not parent.is_dir() or parent.is_symlink():
         raise StudyCliError(reason=f"{field} parent must be an existing non-symlink directory")
     return value.expanduser()
+
+
+def _reusable_output_path(value: object, *, field: str) -> Path:
+    if not isinstance(value, Path) or value.is_symlink():
+        raise StudyCliError(reason=f"{field} must be an explicit non-symlink path")
+    path = value.expanduser()
+    if path.exists() and not path.is_file():
+        raise StudyCliError(reason=f"{field} must be absent or an existing file")
+    parent = path.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise StudyCliError(reason=f"{field} parent must be an existing non-symlink directory")
+    return path
 
 
 def _destination_directory(value: object) -> Path:

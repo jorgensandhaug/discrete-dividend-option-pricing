@@ -6,7 +6,7 @@ import hashlib
 import json
 import zipfile
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pytest
@@ -18,15 +18,19 @@ from discrete_dividend_study import (
     OratsArchiveReceipt,
     OratsOptionProjectionContentError,
     OratsOptionProjectionReceipt,
+    OratsOptionProjectionSetContentError,
+    OratsOptionProjectionSetManifest,
     OratsOptionProjectionSpec,
     OratsOptionProjectionSpecError,
     VerifiedOratsArchive,
     archive_entries_sha256,
+    load_verified_orats_option_projection_set,
     materialize_orats_option_projection,
     orats_archive_name,
     orats_option_projection_spec_sha256,
     orats_remote_directory,
     write_orats_archive_inventory,
+    write_orats_option_projection_set_manifest,
 )
 from discrete_dividend_study.cli import StudyCliError, main
 
@@ -138,6 +142,64 @@ def test_existing_output_is_never_reused_after_same_size_tampering(tmp_path: Pat
         )
 
 
+def test_complete_projection_set_is_bound_to_inventory_receipts_and_outputs(
+    tmp_path: Path,
+) -> None:
+    """One compact manifest binds source inventory, daily sidecars, and Parquet bytes."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source = _verified_archive(raw)
+    source.path.with_name(f"{source.path.name}.receipt.json").write_text(
+        json.dumps(source.receipt.as_dict()),
+    )
+    inventory = OratsArchiveInventory(
+        host="de1.hostedftp.com",
+        start_date=TRADE_DATE,
+        end_date=TRADE_DATE,
+        observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
+        entries=(source.receipt.entry,),
+        entries_sha256=archive_entries_sha256((source.receipt.entry,)),
+    )
+    inventory_path = tmp_path / "inventory.json"
+    write_orats_archive_inventory(inventory_path, inventory)
+    output_root = tmp_path / "projected"
+    projection = materialize_orats_option_projection(source, _spec(), output_root, tmp_path)
+    manifest_path = tmp_path / "projection-set.json"
+
+    first = write_orats_option_projection_set_manifest(
+        manifest_path,
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
+    second = write_orats_option_projection_set_manifest(
+        manifest_path,
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
+    assert first == second
+    assert first.scan().collect().height == len(_spec().tickers)
+    assert json.loads(manifest_path.read_bytes()) == first.manifest.as_dict()
+    assert (
+        load_verified_orats_option_projection_set(manifest_path, inventory_path, output_root)
+        == first
+    )
+
+    unsafe = first.manifest.as_dict()
+    unsafe_entries = cast("list[dict[str, object]]", unsafe["entries"])
+    unsafe_entries[0]["output_relative_path"] = "../outside.parquet"
+    with pytest.raises(OratsOptionProjectionSetContentError, match="canonical and relative"):
+        OratsOptionProjectionSetManifest.from_dict(unsafe)
+
+    size = projection.path.stat().st_size
+    projection.path.write_bytes(b"x" * size)
+    with pytest.raises(OratsOptionProjectionSetContentError, match="receipt SHA-256"):
+        load_verified_orats_option_projection_set(manifest_path, inventory_path, output_root)
+
+
 @pytest.mark.parametrize(
     ("member_name", "extra_member", "message"),
     [
@@ -218,6 +280,8 @@ def test_cli_requires_complete_inventory_confirmation_and_projects_every_entry(
         str(raw),
         "--output-root",
         str(tmp_path / "projected"),
+        "--projection-manifest",
+        str(tmp_path / "projection-set.json"),
         "--scratch",
         str(tmp_path),
         "--ticker",

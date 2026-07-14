@@ -98,6 +98,7 @@ uv run --locked discrete-dividend-study materialize-orats-options \
   --manifest /absolute/private/path/orats-options-inventory.json \
   --raw-directory /absolute/private/path/orats-options-raw \
   --output-root /absolute/private/path/orats-options-projected \
+  --projection-manifest /absolute/private/path/orats-options-projection-set.json \
   --scratch /absolute/private/path/temporary-extraction \
   --ticker DUK --ticker EPD --ticker ETR --ticker MO --ticker SO --ticker VZ \
   --confirm-entry-count 4913
@@ -106,8 +107,12 @@ uv run --locked discrete-dividend-study materialize-orats-options \
 The command verifies every raw receipt, requires one exact daily CSV member, pushes the declared
 ticker filter into a strict Polars scan, validates normalized schema and quote-date identity, and
 writes content-addressed Zstandard Parquet plus complete cryptographic receipts. The count remains
-illustrative; it must equal the supplied manifest. The bounded, restart-safe contract is recorded in
-[ADR 0023](docs/adr/0023-verified-orats-option-projection.md).
+illustrative; it must equal the supplied manifest. Completion also writes one compact aggregate
+manifest that binds the source inventory bytes and identity to every ordered daily Parquet and
+sidecar SHA-256. Loading that set rehashes every referenced file before exposing one lazy Polars
+scan. The bounded, restart-safe contracts are recorded in
+[ADR 0023](docs/adr/0023-verified-orats-option-projection.md) and
+[ADR 0027](docs/adr/0027-aggregate-option-projection-identity.md).
 
 The separate annual dividend-forecast archive uses its exact production HTTPS origin and needs no
 credential. Freeze the complete year range before transfer:
