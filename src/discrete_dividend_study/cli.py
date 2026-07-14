@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -39,6 +40,15 @@ from .neural_study import (
     project_neural_seed_plan,
     run_project_neural_rolling_study,
 )
+from .orats_archive import (
+    ORATS_DEFAULT_FTPS_HOST,
+    OratsArchiveInventory,
+    OratsFtpsClient,
+    OratsFtpsCredentials,
+    OratsFtpsSpec,
+    read_orats_archive_inventory,
+    write_orats_archive_inventory,
+)
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
 
 if TYPE_CHECKING:
@@ -51,6 +61,7 @@ _SHA1_HEX_LENGTH: Final = 40
 _POSITIVE_INTEGER_MESSAGE: Final = "value must be a positive integer"
 _SEED_MESSAGE: Final = "seed must be an unsigned 64-bit integer"
 _DOMAIN_MESSAGE: Final = "domain must be an unsigned 32-bit integer"
+_ISO_DATE_MESSAGE: Final = "date must use exact ISO YYYY-MM-DD syntax"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +87,10 @@ class _StudyCliContext:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one explicit command and return zero only after verified artifact completion."""
     arguments = _parser().parse_args(argv)
+    if arguments.command == "inventory-orats-archives":
+        return _inventory_orats_archives(arguments)
+    if arguments.command == "download-orats-archives":
+        return _download_orats_archives(arguments)
     if arguments.command == "render-classical-table":
         return _render_classical_table(arguments)
     feature_artifact = _required_path(arguments.features, field="features", kind="file")
@@ -101,6 +116,70 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "run-classical-study":
         return _run_classical_study(arguments, context)
     raise StudyCliError(reason="an explicit supported command is required")
+
+
+def _inventory_orats_archives(arguments: argparse.Namespace) -> int:
+    manifest = _new_output_path(arguments.manifest, field="manifest")
+    credentials = OratsFtpsCredentials.from_environment()
+    spec = OratsFtpsSpec(host=arguments.host)
+    with OratsFtpsClient(spec, credentials) as client:
+        inventory = client.inventory(
+            start_date=arguments.start_date,
+            end_date=arguments.end_date,
+        )
+    write_orats_archive_inventory(manifest, inventory)
+    _write_inventory_summary(inventory, manifest)
+    return 0
+
+
+def _download_orats_archives(arguments: argparse.Namespace) -> int:
+    manifest = _required_path(arguments.manifest, field="manifest", kind="file")
+    inventory = read_orats_archive_inventory(manifest)
+    if arguments.confirm_entry_count != len(inventory.entries):
+        raise StudyCliError(
+            reason="confirm-entry-count must exactly equal the immutable manifest entry count",
+        )
+    destination = _destination_directory(arguments.destination)
+    credentials = OratsFtpsCredentials.from_environment()
+    spec = OratsFtpsSpec(host=inventory.host)
+    receipts = []
+    with OratsFtpsClient(spec, credentials) as client:
+        for entry in inventory.entries:
+            receipt = client.download(entry, destination)
+            receipts.append(receipt)
+            progress = {
+                "archive": receipt.local_name,
+                "sha256": receipt.sha256,
+                "trade_date": receipt.entry.trade_date.isoformat(),
+            }
+            sys.stderr.write(
+                json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n",
+            )
+    summary = {
+        "destination": str(destination),
+        "entries": len(receipts),
+        "entries_sha256": inventory.entries_sha256,
+        "manifest": str(manifest),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _write_inventory_summary(inventory: OratsArchiveInventory, manifest: Path) -> None:
+    summary = {
+        "compressed_bytes": sum(entry.size_bytes for entry in inventory.entries),
+        "end_date": inventory.end_date.isoformat(),
+        "entries": len(inventory.entries),
+        "entries_sha256": inventory.entries_sha256,
+        "host": inventory.host,
+        "manifest": str(manifest),
+        "start_date": inventory.start_date.isoformat(),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
 
 
 def _run_neural_study(
@@ -221,6 +300,21 @@ def _parser() -> argparse.ArgumentParser:
         description="Run immutable discrete-dividend option-pricing studies.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    inventory = commands.add_parser(
+        "inventory-orats-archives",
+        help="write an immutable MLSD inventory over explicit TLS without downloading archives",
+    )
+    inventory.add_argument("--start-date", type=_iso_date, required=True)
+    inventory.add_argument("--end-date", type=_iso_date, required=True)
+    inventory.add_argument("--manifest", type=Path, required=True)
+    inventory.add_argument("--host", default=ORATS_DEFAULT_FTPS_HOST)
+    download = commands.add_parser(
+        "download-orats-archives",
+        help="resume every archive in a verified inventory under cryptographic receipts",
+    )
+    download.add_argument("--manifest", type=Path, required=True)
+    download.add_argument("--destination", type=Path, required=True)
+    download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",
@@ -308,6 +402,16 @@ def _unsigned_domain(value: str) -> int:
     return parsed
 
 
+def _iso_date(value: str) -> date:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(_ISO_DATE_MESSAGE) from error
+    if parsed.isoformat() != value:
+        raise argparse.ArgumentTypeError(_ISO_DATE_MESSAGE)
+    return parsed
+
+
 def _required_path(value: object, *, field: str, kind: str) -> Path:
     if not isinstance(value, Path):
         raise StudyCliError(reason=f"{field} must be an explicit path")
@@ -315,6 +419,29 @@ def _required_path(value: object, *, field: str, kind: str) -> Path:
     if not valid or value.is_symlink():
         raise StudyCliError(reason=f"{field} must be an existing non-symlink {kind}")
     return value
+
+
+def _new_output_path(value: object, *, field: str) -> Path:
+    if not isinstance(value, Path) or value.is_symlink() or value.exists():
+        raise StudyCliError(reason=f"{field} must be a new non-symlink path")
+    parent = value.expanduser().parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise StudyCliError(reason=f"{field} parent must be an existing non-symlink directory")
+    return value.expanduser()
+
+
+def _destination_directory(value: object) -> Path:
+    if not isinstance(value, Path) or value.is_symlink():
+        raise StudyCliError(reason="destination must be an explicit non-symlink path")
+    destination = value.expanduser()
+    if destination.exists() and not destination.is_dir():
+        raise StudyCliError(reason="destination must be absent or an existing directory")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise StudyCliError(
+            reason="destination parent must be an existing non-symlink directory",
+        )
+    return destination
 
 
 def _clean_git_revision(repository: Path) -> str:

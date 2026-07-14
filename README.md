@@ -60,6 +60,36 @@ Daily option deliveries use the same strict boundary: `scan_raw_orats_csv` owns 
 and `canonicalize_raw_orats_options` returns the exact shared 17-column thesis representation
 without filtering, dropping, or imputing rows. Licensed inputs and generated artifacts stay local.
 
+Raw archive acquisition is manifest-first and encrypted. Credentials are accepted only through
+`ORATS_FTP_USER` and `ORATS_FTP_PASSWORD`; they are never command arguments or artifact fields.
+Inventory performs no download:
+
+```shell
+export ORATS_FTP_USER='...'
+export ORATS_FTP_PASSWORD='...'
+
+uv run --locked discrete-dividend-study inventory-orats-archives \
+  --start-date 2007-01-03 \
+  --end-date 2026-07-10 \
+  --manifest /absolute/private/path/orats-options-inventory.json
+```
+
+The inventory summary prints the exact entry count and compressed bytes. Transfer requires the
+caller to repeat that count, then resumes partial ZIPs and cryptographically revalidates completed
+ones:
+
+```shell
+uv run --locked discrete-dividend-study download-orats-archives \
+  --manifest /absolute/private/path/orats-options-inventory.json \
+  --destination /absolute/private/path/orats-options-raw \
+  --confirm-entry-count 4913
+```
+
+The example count is illustrative of one observed inventory, not a hard-coded expectation. A fresh
+manifest is authoritative. Explicit FTPS, MLSD/MLST identity, pre/post-transfer verification,
+byte-exact resume, SHA-256 receipts, and refusal to overwrite are recorded in
+[ADR 0022](docs/adr/0022-manifest-first-orats-acquisition.md).
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.
