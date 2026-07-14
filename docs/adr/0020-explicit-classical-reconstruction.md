@@ -43,3 +43,7 @@ is a native batch call outside Polars expressions.
   equivalence.
 - Float64 classical predictions and metrics are not silently downcast to the neural Float32
   boundary.
+- A complete four-way result is persisted atomically as one content-addressed safe-tensors file.
+  It stores the target once, every native result/diagnostic column, exact Float64 metrics, and a
+  canonical manifest binding source hashes, full code revisions, dependency lock, engine/compiler,
+  prepared input bytes, and execution identity. Local filesystem paths are excluded.

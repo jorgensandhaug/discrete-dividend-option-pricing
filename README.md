@@ -100,7 +100,9 @@ preflight fails before training if any required partition is empty.
 their distinct exact-cash, escrowed-cash, forecast-yield, and historical-yield semantics. One
 materialized boundary prepares shared immutable Float64 columns and zero-copy ragged cash children;
 stateful contract-parallel pricing stays outside Polars and receives a separate explicit CPU/random
-execution specification. The contract is recorded in
+execution specification. A completed paired run is one content-addressed safe-tensors artifact
+containing the target once, every variant's native diagnostics, Float64 metrics, and a canonical
+source/code/engine/execution manifest without local paths. The contract is recorded in
 [ADR 0020](docs/adr/0020-explicit-classical-reconstruction.md).
 
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
@@ -130,8 +132,27 @@ artifact reference and observation-pooled metrics for each model separately; it 
 window RMSE or combines metrics across different models. The full contract is recorded in
 [ADR 0019](docs/adr/0019-one-pass-neural-study-and-exact-resume.md).
 
-From clean paper and engine checkouts at the pinned engine revision, the complete private-data run
-has one explicit entry point:
+From clean paper and engine checkouts at the pinned engine revision, the complete private-data
+classical comparison has one explicit entry point:
+
+```shell
+uv run --locked discrete-dividend-study run-classical-study \
+  --features /absolute/path/project-features.parquet \
+  --artifacts /absolute/path/immutable-run-artifacts \
+  --threads 8 \
+  --training-seed 2026071401 \
+  --training-domain-start 0 \
+  --evaluation-seed 2026071402 \
+  --evaluation-domain-start 1000000000 \
+  --event-buffer-policy allow_rechunk
+```
+
+The command projects and materializes only the ten classical input columns, verifies that the
+feature artifact and dependency lock did not change during preparation, and prints only aggregate
+metrics plus the verified content-addressed artifact identity. `require_zero_copy` is available
+when the Parquet list buffers are already contiguous; rechunking is never implicit.
+
+The complete private-data neural run remains a separate explicit command:
 
 ```shell
 uv run --locked discrete-dividend-study run-neural-study \
