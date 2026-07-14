@@ -11,6 +11,7 @@ from typing import Final
 
 from finoptions import (
     CpuExecutor,
+    CpuMathBackend,
     DividendPolicy,
     ExerciseTieRule,
     Lsm,
@@ -20,7 +21,7 @@ from finoptions import (
 )
 
 _STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v1"
-_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v1"
+_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v2"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
 _MIN_EVALUATION_PATHS: Final = 2
@@ -293,6 +294,7 @@ class ClassicalExecutionSpec:
     """CPU resources and row-addressed random namespaces, separate from financial identity."""
 
     threads: int
+    math_backend: CpuMathBackend
     training_seed: int
     training_domain_start: int
     evaluation_seed: int
@@ -305,6 +307,12 @@ class ClassicalExecutionSpec:
                 field="threads",
                 observed=self.threads,
                 requirement="a positive plain int",
+            )
+        if type(self.math_backend) is not CpuMathBackend:
+            raise ClassicalSpecValueError(
+                field="math_backend",
+                observed=self.math_backend,
+                requirement="CpuMathBackend",
             )
         for field, value in (
             ("training_seed", self.training_seed),
@@ -329,7 +337,7 @@ class ClassicalExecutionSpec:
 
     def executor(self) -> CpuExecutor:
         """Construct the exact requested dedicated CPU executor."""
-        return CpuExecutor(threads=self.threads)
+        return CpuExecutor(threads=self.threads, math_backend=self.math_backend)
 
     def validate_rows(self, rows: int) -> None:
         """Reject overflowing or colliding row-addressed random-domain intervals."""
@@ -477,6 +485,7 @@ def classical_execution_sha256(execution: ClassicalExecutionSpec) -> str:
     payload = {
         "format": _EXECUTION_HASH_FORMAT,
         "threads": execution.threads,
+        "math_backend": execution.math_backend.value,
         "training_seed": execution.training_seed,
         "training_domain_start": execution.training_domain_start,
         "evaluation_seed": execution.evaluation_seed,

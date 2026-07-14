@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from finoptions import CpuMathBackend
+
 from discrete_dividend_study.classical_artifact import load_classical_study_artifact
 from discrete_dividend_study.cli import main
 from tests.test_classical_inputs import classical_frame
@@ -44,6 +46,8 @@ def test_classical_command_emits_one_verified_complete_artifact(
             str(artifacts),
             "--threads",
             "2",
+            "--math-backend",
+            "rust_std_f64",
             "--training-seed",
             "7",
             "--training-domain-start",
@@ -62,6 +66,7 @@ def test_classical_command_emits_one_verified_complete_artifact(
     loaded = load_classical_study_artifact(Path(artifact_path))
     assert loaded.artifact.manifest.source.paper_revision == paper_revision
     assert loaded.artifact.manifest.source.engine_revision == engine_revision
+    assert loaded.artifact.manifest.execution.math_backend is CpuMathBackend.RUST_STD_F64
     assert summary["artifact_sha256"] == loaded.artifact.sha256
     assert summary["rows"] == classical_frame().height
     assert set(cast("dict[str, object]", summary["metrics"])) == set(

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from finoptions import CpuMathBackend
 
 from discrete_dividend_study.classical_artifact import (
     ClassicalArtifactError,
@@ -37,6 +39,7 @@ _SOURCE = StudySourceIdentity(
 def _execution() -> ClassicalExecutionSpec:
     return ClassicalExecutionSpec(
         threads=2,
+        math_backend=CpuMathBackend.RUST_STD_F64,
         training_seed=7,
         training_domain_start=100,
         evaluation_seed=11,
@@ -55,6 +58,7 @@ def test_complete_artifact_round_trip_is_exact_relocatable_and_idempotent(tmp_pa
     assert first.manifest.source == _SOURCE
     assert first.manifest.study_sha256 == classical_study_sha256(inputs.study)
     assert first.manifest.execution_sha256 == classical_execution_sha256(execution)
+    assert first.manifest.execution.math_backend is CpuMathBackend.RUST_STD_F64
     assert tuple(first.manifest.variants) == tuple(variant.value for variant in ClassicalVariant)
     assert str(tmp_path).encode() not in first.path.read_bytes()
 
@@ -66,6 +70,12 @@ def test_complete_artifact_round_trip_is_exact_relocatable_and_idempotent(tmp_pa
         assert observed.metrics.observations == inputs.rows
         assert np.isfinite(observed.native.prices).all()
         assert not observed.native.prices.flags.writeable
+
+    apple_execution = replace(
+        execution,
+        math_backend=CpuMathBackend.APPLE_ACCELERATE_VFORCE,
+    )
+    assert classical_execution_sha256(apple_execution) != classical_execution_sha256(execution)
 
 
 def test_artifact_filename_and_bytes_must_share_one_content_hash(tmp_path: Path) -> None:

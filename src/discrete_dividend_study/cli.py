@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import polars as pl
-from finoptions import CpuExecutor
+from finoptions import CpuExecutor, CpuMathBackend
 
 from .classical_artifact import write_classical_study_artifact
 from .classical_inputs import prepare_project_classical_inputs
@@ -137,6 +137,7 @@ def _run_classical_study(
     study = PROJECT_CLASSICAL_RECONSTRUCTION_SPEC
     execution = ClassicalExecutionSpec(
         threads=arguments.threads,
+        math_backend=CpuMathBackend(arguments.math_backend),
         training_seed=arguments.training_seed,
         training_domain_start=arguments.training_domain_start,
         evaluation_seed=arguments.evaluation_seed,
@@ -221,6 +222,11 @@ def _parser() -> argparse.ArgumentParser:
     classical.add_argument("--features", type=Path, required=True)
     classical.add_argument("--artifacts", type=Path, required=True)
     classical.add_argument("--threads", type=_positive_int, required=True)
+    classical.add_argument(
+        "--math-backend",
+        choices=tuple(backend.value for backend in CpuMathBackend),
+        required=True,
+    )
     classical.add_argument("--training-seed", type=_unsigned_seed, required=True)
     classical.add_argument("--training-domain-start", type=_unsigned_domain, required=True)
     classical.add_argument("--evaluation-seed", type=_unsigned_seed, required=True)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import polars as pl
+from finoptions import CpuMathBackend
 
 from discrete_dividend_study.classical_artifact import (
     load_classical_study_artifact,
@@ -37,6 +38,7 @@ def _comparison(tmp_path: Path) -> ClassicalPublicationComparison:
     inputs = prepare_project_classical_inputs(classical_frame())
     execution = ClassicalExecutionSpec(
         threads=2,
+        math_backend=CpuMathBackend.RUST_STD_F64,
         training_seed=7,
         training_domain_start=100,
         evaluation_seed=11,

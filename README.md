@@ -140,6 +140,7 @@ uv run --locked discrete-dividend-study run-classical-study \
   --features /absolute/path/project-features.parquet \
   --artifacts /absolute/path/immutable-run-artifacts \
   --threads 8 \
+  --math-backend apple_accelerate_vforce \
   --training-seed 2026071401 \
   --training-domain-start 0 \
   --evaluation-seed 2026071402 \
@@ -151,6 +152,8 @@ The command projects and materializes only the ten classical input columns, veri
 feature artifact and dependency lock did not change during preparation, and prints only aggregate
 metrics plus the verified content-addressed artifact identity. `require_zero_copy` is available
 when the Parquet list buffers are already contiguous; rechunking is never implicit.
+Use `rust_std_f64` instead on non-macOS systems; backend identity is mandatory and embedded in the
+artifact rather than selected from the host automatically.
 
 The complete private-data neural run remains a separate explicit command:
 

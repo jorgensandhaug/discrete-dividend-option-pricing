@@ -8,6 +8,7 @@ import pytest
 from finoptions import (
     CashDividendBatch,
     ContinuousDividendYieldBatch,
+    CpuMathBackend,
     EscrowedCashDividendBatch,
     EscrowedVolatilityConvention,
 )
@@ -194,6 +195,7 @@ def test_all_four_prepared_variants_execute_through_the_native_batch_contract() 
     prepared = prepare_project_classical_inputs(classical_frame())
     execution = ClassicalExecutionSpec(
         threads=2,
+        math_backend=CpuMathBackend.RUST_STD_F64,
         training_seed=7,
         training_domain_start=100,
         evaluation_seed=11,

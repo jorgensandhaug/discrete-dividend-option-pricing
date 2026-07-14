@@ -13,7 +13,7 @@ from typing import Any, Final, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
-from finoptions import LsmBatchResult, build_info
+from finoptions import CpuMathBackend, LsmBatchResult, build_info
 from safetensors import SafetensorError, safe_open
 from safetensors.numpy import load_file, save_file
 
@@ -43,8 +43,8 @@ Float64Vector = npt.NDArray[np.float64]
 UInt32Vector = npt.NDArray[np.uint32]
 BoolVector = npt.NDArray[np.bool_]
 
-_FORMAT: Final = "discrete-dividend-classical-study-artifact-v1"
-_FORMAT_VERSION: Final = 1
+_FORMAT: Final = "discrete-dividend-classical-study-artifact-v2"
+_FORMAT_VERSION: Final = 2
 _PAPER_PACKAGE: Final = "discrete-dividend-option-pricing"
 _METADATA_KEY: Final = "classical_study"
 _ENVELOPE_KEYS: Final = frozenset({"format", "manifest", "metrics"})
@@ -119,7 +119,7 @@ class ClassicalStudyArtifactManifest:
     def __post_init__(self) -> None:
         """Reject incomplete, inconsistent, or unsupported serialized run identity."""
         if type(self.format_version) is not int or self.format_version != _FORMAT_VERSION:
-            raise ClassicalArtifactError(reason="format_version must be the plain int 1")
+            raise ClassicalArtifactError(reason="format_version must be the plain int 2")
         _validate_manifest_hashes(self)
         if type(self.source) is not StudySourceIdentity:
             raise ClassicalArtifactError(reason="source must be StudySourceIdentity")
@@ -484,7 +484,9 @@ def _decode_manifest(value: str) -> ClassicalStudyArtifactManifest:
     values = cast("dict[str, Any]", payload)
     try:
         values["source"] = StudySourceIdentity(**cast("dict[str, Any]", values["source"]))
-        values["execution"] = ClassicalExecutionSpec(**cast("dict[str, Any]", values["execution"]))
+        execution = cast("dict[str, Any]", values["execution"])
+        execution["math_backend"] = CpuMathBackend(execution["math_backend"])
+        values["execution"] = ClassicalExecutionSpec(**execution)
         values["variants"] = tuple(cast("list[str]", values["variants"]))
         values["submitted_result_names"] = tuple(
             cast("list[str]", values["submitted_result_names"])
