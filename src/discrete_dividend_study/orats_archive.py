@@ -408,6 +408,14 @@ class OratsArchiveReceipt:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedOratsArchive:
+    """A local raw archive whose size and bytes match its immutable sidecar receipt."""
+
+    path: Path
+    receipt: OratsArchiveReceipt
+
+
 def orats_archive_name(trade_date: date) -> str:
     """Return the exact remote daily ZIP filename."""
     return f"ORATS_SMV_Strikes_{trade_date:%Y%m%d}.zip"
@@ -579,6 +587,30 @@ def read_orats_archive_inventory(path: str | Path) -> OratsArchiveInventory:
         msg = "archive inventory is unreadable"
         raise OratsArchiveIntegrityError(msg, str(source)) from error
     return OratsArchiveInventory.from_dict(raw)
+
+
+def load_verified_orats_archive(path: str | Path) -> VerifiedOratsArchive:
+    """Load and cryptographically verify one completed raw archive and sidecar receipt."""
+    archive = Path(path).expanduser()
+    if not archive.is_file() or archive.is_symlink():
+        msg = "raw archive must be an existing non-symlink file"
+        raise OratsArchiveIntegrityError(msg, str(archive))
+    receipt_path = archive.with_name(f"{archive.name}.receipt.json")
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        msg = "raw archive sidecar receipt must be an existing non-symlink file"
+        raise OratsArchiveIntegrityError(msg, str(receipt_path))
+    receipt = _read_orats_archive_receipt(receipt_path)
+    if receipt.local_name != archive.name:
+        msg = "raw archive filename disagrees with its sidecar receipt"
+        raise OratsArchiveIntegrityError(msg, str(archive))
+    if archive.stat().st_size != receipt.entry.size_bytes:
+        msg = "raw archive byte count disagrees with its sidecar receipt"
+        raise OratsArchiveIntegrityError(msg, str(archive))
+    actual_hash = _file_sha256(archive, ORATS_DEFAULT_TRANSFER_BLOCK_BYTES)
+    if actual_hash != receipt.sha256:
+        msg = "raw archive bytes disagree with its sidecar receipt SHA-256"
+        raise OratsArchiveIntegrityError(msg, str(archive))
+    return VerifiedOratsArchive(path=archive, receipt=receipt)
 
 
 class OratsFtpsClient:
@@ -871,7 +903,9 @@ __all__ = [
     "OratsFtpsClient",
     "OratsFtpsCredentials",
     "OratsFtpsSpec",
+    "VerifiedOratsArchive",
     "archive_entries_sha256",
+    "load_verified_orats_archive",
     "orats_archive_name",
     "orats_remote_directory",
     "read_orats_archive_inventory",

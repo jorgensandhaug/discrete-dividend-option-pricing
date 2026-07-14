@@ -46,8 +46,15 @@ from .orats_archive import (
     OratsFtpsClient,
     OratsFtpsCredentials,
     OratsFtpsSpec,
+    load_verified_orats_archive,
+    orats_archive_name,
     read_orats_archive_inventory,
     write_orats_archive_inventory,
+)
+from .orats_option_projection import (
+    OratsOptionProjectionSpec,
+    materialize_orats_option_projection,
+    orats_option_projection_spec_sha256,
 )
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
 
@@ -91,6 +98,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _inventory_orats_archives(arguments)
     if arguments.command == "download-orats-archives":
         return _download_orats_archives(arguments)
+    if arguments.command == "materialize-orats-options":
+        return _materialize_orats_options(arguments)
     if arguments.command == "render-classical-table":
         return _render_classical_table(arguments)
     feature_artifact = _required_path(arguments.features, field="features", kind="file")
@@ -160,6 +169,52 @@ def _download_orats_archives(arguments: argparse.Namespace) -> int:
         "entries": len(receipts),
         "entries_sha256": inventory.entries_sha256,
         "manifest": str(manifest),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _materialize_orats_options(arguments: argparse.Namespace) -> int:
+    manifest = _required_path(arguments.manifest, field="manifest", kind="file")
+    inventory = read_orats_archive_inventory(manifest)
+    if arguments.confirm_entry_count != len(inventory.entries):
+        raise StudyCliError(
+            reason="confirm-entry-count must exactly equal the immutable manifest entry count",
+        )
+    raw_directory = _required_path(arguments.raw_directory, field="raw-directory", kind="directory")
+    scratch = _required_path(arguments.scratch, field="scratch", kind="directory")
+    output_root = _destination_directory(arguments.output_root)
+    spec = OratsOptionProjectionSpec(tickers=tuple(arguments.ticker))
+    entries_completed = 0
+    output_bytes = 0
+    output_rows = 0
+    for entry in inventory.entries:
+        archive_path = raw_directory / orats_archive_name(entry.trade_date)
+        source = load_verified_orats_archive(archive_path)
+        if source.receipt.entry != entry:
+            raise StudyCliError(
+                reason="raw archive receipt disagrees with its immutable inventory entry",
+            )
+        output = materialize_orats_option_projection(source, spec, output_root, scratch)
+        entries_completed += 1
+        output_bytes += output.receipt.output_bytes
+        output_rows += output.receipt.output_rows
+        progress = {
+            "output": str(output.path),
+            "output_sha256": output.receipt.output_sha256,
+            "rows": output.receipt.output_rows,
+            "trade_date": entry.trade_date.isoformat(),
+        }
+        sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+    summary = {
+        "entries": entries_completed,
+        "entries_sha256": inventory.entries_sha256,
+        "output_bytes": output_bytes,
+        "output_root": str(output_root),
+        "projection_spec_sha256": orats_option_projection_spec_sha256(spec),
+        "rows": output_rows,
     }
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
@@ -315,6 +370,16 @@ def _parser() -> argparse.ArgumentParser:
     download.add_argument("--manifest", type=Path, required=True)
     download.add_argument("--destination", type=Path, required=True)
     download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    materialize = commands.add_parser(
+        "materialize-orats-options",
+        help="verify and project every inventoried option ZIP into immutable daily Parquet",
+    )
+    materialize.add_argument("--manifest", type=Path, required=True)
+    materialize.add_argument("--raw-directory", type=Path, required=True)
+    materialize.add_argument("--output-root", type=Path, required=True)
+    materialize.add_argument("--scratch", type=Path, required=True)
+    materialize.add_argument("--ticker", action="append", required=True)
+    materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",

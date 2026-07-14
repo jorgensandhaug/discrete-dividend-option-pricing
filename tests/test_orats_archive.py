@@ -20,6 +20,7 @@ from discrete_dividend_study import (
     OratsFtpsCredentials,
     OratsFtpsSpec,
     archive_entries_sha256,
+    load_verified_orats_archive,
     orats_archive_name,
     orats_remote_directory,
     read_orats_archive_inventory,
@@ -232,6 +233,9 @@ def test_download_resumes_hashes_and_reuses_only_verified_receipt(tmp_path: Path
     second = client.download(entry, tmp_path)
     assert second == first
     assert len(fake.retrievals) == 1
+    verified = load_verified_orats_archive(final)
+    assert verified.path == final
+    assert verified.receipt == first
 
     final.write_bytes(b"x" * entry.size_bytes)
     assert final.stat().st_size == entry.size_bytes

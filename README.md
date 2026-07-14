@@ -90,6 +90,25 @@ manifest is authoritative. Explicit FTPS, MLSD/MLST identity, pre/post-transfer 
 byte-exact resume, SHA-256 receipts, and refusal to overwrite are recorded in
 [ADR 0022](docs/adr/0022-manifest-first-orats-acquisition.md).
 
+Verified raw ZIPs are projected into small immutable daily Parquet files before any study cleaning.
+The ticker order and exact manifest count are deliberate confirmation inputs:
+
+```shell
+uv run --locked discrete-dividend-study materialize-orats-options \
+  --manifest /absolute/private/path/orats-options-inventory.json \
+  --raw-directory /absolute/private/path/orats-options-raw \
+  --output-root /absolute/private/path/orats-options-projected \
+  --scratch /absolute/private/path/temporary-extraction \
+  --ticker DUK --ticker EPD --ticker ETR --ticker MO --ticker SO --ticker VZ \
+  --confirm-entry-count 4913
+```
+
+The command verifies every raw receipt, requires one exact daily CSV member, pushes the declared
+ticker filter into a strict Polars scan, validates normalized schema and quote-date identity, and
+writes content-addressed Zstandard Parquet plus complete cryptographic receipts. The count remains
+illustrative; it must equal the supplied manifest. The bounded, restart-safe contract is recorded in
+[ADR 0023](docs/adr/0023-verified-orats-option-projection.md).
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.
