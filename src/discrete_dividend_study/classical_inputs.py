@@ -363,8 +363,48 @@ def _validate_financial_content(inputs: PreparedClassicalInputs) -> None:
         count = int(np.count_nonzero(np.signbit(array)))
         if count != 0:
             violations.append((f"negative_{field}", count))
+    violations.extend(_cash_event_violations(inputs))
     if violations:
         raise ClassicalInputContentError(violations=tuple(violations))
+
+
+def _cash_event_violations(inputs: PreparedClassicalInputs) -> list[tuple[str, int]]:
+    """Validate exact event domains in linear native-array operations before pricing."""
+    schedule = inputs.cash_dividends
+    times = schedule.times
+    amounts = schedule.amounts
+    violations: list[tuple[str, int]] = []
+    for field, array in (("cash_dividend_times", times), ("cash_dividend_amounts", amounts)):
+        count = int(np.count_nonzero(~np.isfinite(array)))
+        if count != 0:
+            violations.append((f"nonfinite_{field}", count))
+    nonpositive_times = int(np.count_nonzero(times <= 0.0))
+    if nonpositive_times != 0:
+        violations.append(("nonpositive_cash_dividend_times", nonpositive_times))
+    negative_amounts = int(np.count_nonzero(np.signbit(amounts)))
+    if negative_amounts != 0:
+        violations.append(("negative_cash_dividend_amounts", negative_amounts))
+
+    if times.size > 1:
+        nonincreasing = times[1:] <= times[:-1]
+        boundaries = schedule.offsets[1:-1]
+        internal_boundaries = boundaries[(boundaries > 0) & (boundaries < times.size)] - 1
+        nonincreasing[internal_boundaries] = False
+        nonincreasing_count = int(np.count_nonzero(nonincreasing))
+        if nonincreasing_count != 0:
+            violations.append(("nonincreasing_cash_dividend_times", nonincreasing_count))
+
+    nonempty_rows = schedule.offsets[1:] > schedule.offsets[:-1]
+    if np.any(nonempty_rows):
+        last_event_indices = schedule.offsets[1:][nonempty_rows] - 1
+        at_or_after_maturity = int(
+            np.count_nonzero(
+                times[last_event_indices] >= inputs.maturities[nonempty_rows],
+            )
+        )
+        if at_or_after_maturity != 0:
+            violations.append(("cash_dividend_rows_at_or_after_maturity", at_or_after_maturity))
+    return violations
 
 
 def _hash_text(hasher: _HashWriter, value: str) -> None:

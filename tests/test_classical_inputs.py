@@ -163,6 +163,32 @@ def test_schema_and_financial_content_fail_before_native_pricing() -> None:
         )
 
 
+def test_cash_events_must_be_strictly_ordered_inside_the_open_contract_horizon() -> None:
+    """Preparation rejects ambiguous terminal events and coalesced times without moving either."""
+    at_maturity = classical_frame().with_columns(
+        pl.Series(
+            "forecasted_years_to_discrete_ex_dates",
+            [[0.25, 1.0], [], [0.25]],
+            dtype=pl.List(pl.Float64),
+        ),
+    )
+    with pytest.raises(
+        ClassicalInputContentError,
+        match="cash_dividend_rows_at_or_after_maturity",
+    ):
+        prepare_project_classical_inputs(at_maturity)
+
+    coalesced = classical_frame().with_columns(
+        pl.Series(
+            "forecasted_years_to_discrete_ex_dates",
+            [[0.25, 0.25], [], [0.25]],
+            dtype=pl.List(pl.Float64),
+        ),
+    )
+    with pytest.raises(ClassicalInputContentError, match="nonincreasing_cash_dividend_times"):
+        prepare_project_classical_inputs(coalesced)
+
+
 def test_all_four_prepared_variants_execute_through_the_native_batch_contract() -> None:
     """Every typed reconstruction reaches the engine without a dataframe callback or fallback."""
     prepared = prepare_project_classical_inputs(classical_frame())
