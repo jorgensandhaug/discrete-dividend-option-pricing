@@ -87,4 +87,4 @@ def test_classical_command_emits_one_verified_complete_artifact(
     )
     rendered = capsys.readouterr().out
     assert rendered.startswith(f"<!-- source_artifact_sha256={loaded.artifact.sha256} -->\n")
-    assert "| exact_cash | IT_GBM_SPOT |" in rendered
+    assert "| Cash jump (liquidator) | IT_GBM_SPOT |" in rendered

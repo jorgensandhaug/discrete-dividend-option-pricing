@@ -115,11 +115,14 @@ def test_publication_renderers_are_deterministic_aggregate_only_fragments(tmp_pa
     assert markdown.startswith(f"<!-- {provenance} -->\n")
     assert latex.startswith(f"% {provenance}\n")
     assert (
-        f"| exact_cash | IT_GBM_SPOT | {first.observations} | {first.current.mape_percent:.6f} |"
+        f"| Cash jump (liquidator) | IT_GBM_SPOT | {first.observations} | "
+        f"{first.current.mape_percent:.6f} |"
     ) in markdown
-    assert r"exact\_cash & IT\_GBM\_SPOT" in latex
+    assert r"Cash jump (liquidator) & IT\_GBM\_SPOT" in latex
     assert latex.endswith("\\bottomrule\n\\end{tabular}\n")
     assert str(tmp_path) not in markdown
     assert str(tmp_path) not in latex
+    assert "Exact cash" not in markdown
+    assert "Cash jump (liquidator)" in markdown
     with pytest.raises(ClassicalComparisonError, match="RMSE difference is inconsistent"):
         replace(first, rmse_difference=first.rmse_difference + 1.0)

@@ -14,6 +14,12 @@ from .project_metrics import ProjectPricingMetrics
 
 _SHA256_HEX_LENGTH: Final = 64
 _LOWERCASE_HEXADECIMAL: Final = frozenset("0123456789abcdef")
+_PUBLICATION_LABELS: Final = {
+    ClassicalVariant.EXACT_CASH: "Cash jump (liquidator)",
+    ClassicalVariant.ESCROWED_CASH_SPOT_MATCHED: "Escrowed cash (spot matched)",
+    ClassicalVariant.FORECAST_YIELD: "Forecast continuous yield",
+    ClassicalVariant.HISTORICAL_YIELD: "Historical continuous yield",
+}
 _LATEX_ESCAPE_TABLE: Final = str.maketrans(
     {
         "\\": r"\textbackslash{}",
@@ -305,7 +311,7 @@ def classical_publication_markdown(comparison: ClassicalPublicationComparison) -
         "| "
         + " | ".join(
             (
-                row.variant.value,
+                _publication_label(row.variant),
                 row.submitted_result_name,
                 str(row.observations),
                 _metric(row.current.mape_percent),
@@ -338,7 +344,7 @@ def classical_publication_latex(comparison: ClassicalPublicationComparison) -> s
     lines.extend(
         " & ".join(
             (
-                _latex_escape(row.variant.value),
+                _latex_escape(_publication_label(row.variant)),
                 _latex_escape(row.submitted_result_name),
                 str(row.observations),
                 _metric(row.current.mape_percent),
@@ -367,6 +373,11 @@ def _metric(value: float) -> str:
 
 def _latex_escape(value: str) -> str:
     return value.translate(_LATEX_ESCAPE_TABLE)
+
+
+def _publication_label(variant: ClassicalVariant) -> str:
+    """Name the dividend representation without implying an exact option value."""
+    return _PUBLICATION_LABELS[variant]
 
 
 def _comparison_row(
