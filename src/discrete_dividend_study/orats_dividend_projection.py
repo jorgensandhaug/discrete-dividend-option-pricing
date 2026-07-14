@@ -601,6 +601,19 @@ def materialize_orats_dividend_projection(
         shutil.rmtree(scratch, ignore_errors=False)
 
 
+def load_verified_orats_dividend_projection(
+    path: str | Path,
+) -> MaterializedOratsDividendProjection:
+    """Load and verify one annual projected output without requiring the raw ZIP."""
+    output_path = Path(path).expanduser()
+    receipt_path = output_path.with_name(f"{output_path.name}.receipt.json")
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        msg = "annual dividend projection receipt must be a non-symlink file"
+        raise OratsDividendProjectionContentError(msg, str(receipt_path))
+    receipt = _read_receipt(receipt_path)
+    return _verify_materialized_output(output_path, receipt)
+
+
 def _extract_regular_snapshots(
     source: VerifiedOratsDividendArchive,
     spec: OratsDividendProjectionSpec,
@@ -949,14 +962,56 @@ def _load_existing(
     if receipt.source_archive_sha256 != source.receipt.sha256 or receipt.projection_spec != spec:
         msg = "existing dividend projection receipt disagrees with its source or specification"
         raise OratsDividendProjectionContentError(msg, str(receipt_path))
+    return _verify_materialized_output(output_path, receipt)
+
+
+def _verify_materialized_output(
+    output_path: Path,
+    receipt: OratsDividendProjectionReceipt,
+) -> MaterializedOratsDividendProjection:
+    if not output_path.is_file() or output_path.is_symlink():
+        msg = "annual dividend projection must be a non-symlink file"
+        raise OratsDividendProjectionContentError(msg, str(output_path))
     if (
         receipt.output_name != output_path.name
         or receipt.output_bytes != output_path.stat().st_size
     ):
-        msg = "existing dividend projection output name or size disagrees with its receipt"
+        msg = "annual dividend projection output name or size disagrees with its receipt"
         raise OratsDividendProjectionContentError(msg, str(output_path))
     if receipt.output_sha256 != _file_sha256(output_path):
-        msg = "existing dividend projection output bytes disagree with its receipt SHA-256"
+        msg = "annual dividend projection output bytes disagree with its receipt SHA-256"
+        raise OratsDividendProjectionContentError(msg, str(output_path))
+    try:
+        lazy = pl.scan_parquet(output_path, rechunk=False)
+        schema = lazy.collect_schema()
+        summary = lazy.select(
+            pl.len().alias("rows"),
+            pl.col("forecast_date").min().alias("forecast_date_min"),
+            pl.col("forecast_date").max().alias("forecast_date_max"),
+        ).collect()
+        observed_tickers = tuple(
+            lazy.select("ticker").unique().sort("ticker").collect().get_column("ticker").to_list(),
+        )
+    except pl.exceptions.PolarsError as error:
+        msg = "annual dividend projection is not readable Parquet"
+        raise OratsDividendProjectionContentError(msg, str(output_path)) from error
+    if schema != pl.Schema(ORATS_DIVIDEND_DTYPES):
+        msg = "annual dividend projection schema disagrees with its receipt contract"
+        raise OratsDividendProjectionContentError(msg, str(output_path))
+    row = summary.row(0, named=True)
+    selected_snapshot_dates = tuple(
+        snapshot.forecast_date for snapshot in receipt.snapshots if snapshot.selected_rows > 0
+    )
+    if not selected_snapshot_dates:
+        msg = "annual dividend projection receipt has no selected snapshot dates"
+        raise OratsDividendProjectionContentError(msg, str(output_path))
+    if (
+        row["rows"] != receipt.output_rows
+        or row["forecast_date_min"] != selected_snapshot_dates[0]
+        or row["forecast_date_max"] != selected_snapshot_dates[-1]
+        or observed_tickers != receipt.observed_tickers
+    ):
+        msg = "annual dividend projection content summary disagrees with its receipt"
         raise OratsDividendProjectionContentError(msg, str(output_path))
     return MaterializedOratsDividendProjection(path=output_path, receipt=receipt)
 
@@ -1092,6 +1147,7 @@ __all__ = [
     "OratsDividendProjectionSpecError",
     "OratsDividendSnapshotReceipt",
     "OratsDividendUnidentifiedRowPolicy",
+    "load_verified_orats_dividend_projection",
     "materialize_orats_dividend_projection",
     "orats_dividend_projection_spec_sha256",
     "orats_dividend_schema_sha256",

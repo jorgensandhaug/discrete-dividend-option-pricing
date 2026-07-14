@@ -66,10 +66,12 @@ from .orats_dividend_archive import (
     write_orats_dividend_archive_inventory,
 )
 from .orats_dividend_projection import (
+    MaterializedOratsDividendProjection,
     OratsDividendProjectionSpec,
     materialize_orats_dividend_projection,
     orats_dividend_projection_spec_sha256,
 )
+from .orats_dividend_set import write_orats_dividend_projection_set_manifest
 from .orats_option_projection import (
     MaterializedOratsOptionProjection,
     OratsOptionProjectionSpec,
@@ -353,6 +355,10 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
     raw_directory = _required_path(arguments.raw_directory, field="raw-directory", kind="directory")
     scratch = _required_path(arguments.scratch, field="scratch", kind="directory")
     output_root = _destination_directory(arguments.output_root)
+    projection_manifest = _reusable_output_path(
+        arguments.projection_manifest,
+        field="projection-manifest",
+    )
     spec = OratsDividendProjectionSpec(
         tickers=tuple(arguments.ticker),
         unidentified_row_policy=arguments.unidentified_row_policy,
@@ -363,6 +369,7 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
     output_rows = 0
     source_unidentified_rows = 0
     snapshots = 0
+    projections: list[MaterializedOratsDividendProjection] = []
     for entry in inventory.entries:
         source = load_verified_orats_dividend_archive(
             raw_directory / orats_dividend_archive_name(entry.year),
@@ -372,6 +379,7 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
                 reason="annual dividend archive receipt disagrees with its inventory entry",
             )
         output = materialize_orats_dividend_projection(source, spec, output_root, scratch)
+        projections.append(output)
         completed += 1
         output_bytes += output.receipt.output_bytes
         output_duplicate_rows += output.receipt.output_duplicate_rows
@@ -388,13 +396,22 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
             "year": entry.year,
         }
         sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+    verified_set = write_orats_dividend_projection_set_manifest(
+        projection_manifest,
+        manifest,
+        inventory,
+        output_root,
+        projections,
+    )
     summary = {
         "entries": completed,
         "entries_sha256": inventory.entries_sha256,
         "output_bytes": output_bytes,
         "output_duplicate_rows": output_duplicate_rows,
         "output_root": str(output_root),
+        "projection_manifest": str(projection_manifest),
         "projection_spec_sha256": orats_dividend_projection_spec_sha256(spec),
+        "projection_set_entries_sha256": verified_set.manifest.entries_sha256,
         "rows": output_rows,
         "snapshots": snapshots,
         "source_unidentified_rows": source_unidentified_rows,
@@ -653,6 +670,7 @@ def _add_dividend_data_commands(
     dividend_materialize.add_argument("--manifest", type=Path, required=True)
     dividend_materialize.add_argument("--raw-directory", type=Path, required=True)
     dividend_materialize.add_argument("--output-root", type=Path, required=True)
+    dividend_materialize.add_argument("--projection-manifest", type=Path, required=True)
     dividend_materialize.add_argument("--scratch", type=Path, required=True)
     dividend_materialize.add_argument("--ticker", action="append", required=True)
     dividend_materialize.add_argument(

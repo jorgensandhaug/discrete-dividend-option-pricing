@@ -19,6 +19,7 @@ from discrete_dividend_study.historical_dividend_projection import (
     HistoricalDividendProjectionSpec,
     HistoricalDividendProjectionSpecError,
     historical_dividend_projection_spec_sha256,
+    load_verified_historical_dividend_projection,
     materialize_historical_dividend_projection,
 )
 
@@ -120,6 +121,7 @@ def test_projection_is_pinned_filtered_receipted_and_exactly_reusable(tmp_path: 
         output_root=tmp_path / "projected",
     )
     assert second == first
+    assert load_verified_historical_dividend_projection(expected) == first
 
 
 def test_source_hash_schema_rows_and_selected_universe_are_never_inferred(tmp_path: Path) -> None:

@@ -143,6 +143,7 @@ uv run --locked discrete-dividend-study materialize-orats-dividends \
   --manifest /absolute/private/path/orats-dividend-inventory.json \
   --raw-directory /absolute/private/path/orats-dividend-raw \
   --output-root /absolute/private/path/orats-dividend-projected \
+  --projection-manifest /absolute/private/path/orats-dividend-projection-set.json \
   --scratch /absolute/private/path/temporary-dividend-extraction \
   --ticker DUK --ticker EPD --ticker ETR --ticker MO --ticker SO --ticker VZ \
   --confirm-entry-count 18
@@ -158,6 +159,11 @@ records the accepted historical ZIP layouts and artifact contract.
 Missing ticker keys fail by default. A fully receipted bounded projection may explicitly add
 `--unidentified-row-policy record-and-exclude`; the command still rejects missing financial fields
 or extra content, and the policy becomes part of the projection hash.
+
+Completion writes one compact annual projection-set manifest. It binds the exact HTTPS inventory,
+every full annual sidecar, every Parquet SHA-256, aggregate anomaly counts, and the complete snapshot
+count before exposing one ordered lazy scan. [ADR 0028](docs/adr/0028-aggregate-dividend-projection-identity.md)
+records this boundary.
 
 Historical realized cash dividends enter through a separate licensed Parquet boundary. The source
 hash and row count come from a private acquisition receipt; neither is inferred from a filename:
@@ -178,6 +184,14 @@ It preserves provider rows byte-for-byte upstream, records aggregate unused-fiel
 writes only the bounded three-column study history under source and specification hashes. No
 provider-wide anomaly is silently repaired or reinterpreted. [ADR 0026](docs/adr/0026-verified-historical-dividend-projection.md)
 records the boundary.
+
+Externally prepared support tables such as underlying history and fitted curve parameters enter
+through `verify_pinned_parquet`. The caller must provide the exact SHA-256 and row count; the
+ordered schema must match without casts or extra columns, and long-running consumers rehash the
+source after use. Paths are deliberately excluded from the relocatable identity. The complete
+feature schema and every frozen stage specification also contribute to one
+`project_feature_pipeline_sha256` identity. [ADR 0029](docs/adr/0029-pinned-support-parquet.md)
+records this small generic boundary.
 
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather

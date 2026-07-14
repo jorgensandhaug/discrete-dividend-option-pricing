@@ -19,6 +19,7 @@ from discrete_dividend_study import (
     build_project_as_submitted_features,
     project_feature_schema_sha256,
 )
+from discrete_dividend_study.project_pipeline import project_feature_pipeline_sha256
 
 HISTORY_ROWS = 430
 SHORTEST_RATE = 0.019
@@ -29,6 +30,14 @@ def test_project_feature_schema_has_one_stable_ordered_identity() -> None:
     """The manifest schema hash is lowercase SHA-256 over the ordered feature contract."""
     first = project_feature_schema_sha256()
     assert first == project_feature_schema_sha256()
+    assert len(first) == SHA256_HEX_LENGTH
+    assert first == first.lower()
+
+
+def test_project_feature_pipeline_has_one_complete_stable_identity() -> None:
+    """All frozen stage choices contribute to one lowercase SHA-256 identity."""
+    first = project_feature_pipeline_sha256()
+    assert first == project_feature_pipeline_sha256()
     assert len(first) == SHA256_HEX_LENGTH
     assert first == first.lower()
 

@@ -595,6 +595,26 @@ def materialize_historical_dividend_projection(
         temporary_receipt.unlink(missing_ok=True)
 
 
+def load_verified_historical_dividend_projection(
+    path: str | Path,
+) -> MaterializedHistoricalDividendProjection:
+    """Load and fully verify one projected output without requiring the licensed source."""
+    output_path = Path(path).expanduser()
+    receipt_path = output_path.with_name(f"{output_path.name}.receipt.json")
+    _regular_file_stat(output_path, "projected output")
+    _regular_file_stat(receipt_path, "projection receipt")
+    try:
+        raw = json.loads(receipt_path.read_bytes())
+    except (OSError, json.JSONDecodeError) as error:
+        msg = "projection receipt is unreadable"
+        raise HistoricalDividendProjectionContentError(msg, str(receipt_path)) from error
+    receipt = HistoricalDividendProjectionReceipt.from_dict(raw)
+    if output_path.name != receipt.output_name:
+        msg = "projected output name disagrees with its receipt"
+        raise HistoricalDividendProjectionContentError(msg, str(output_path))
+    return _verify_materialized(output_path, receipt_path, receipt)
+
+
 def _verify_source_path(
     source_path: str | Path,
     *,
@@ -1017,5 +1037,6 @@ __all__ = [
     "historical_dividend_projection_schema_sha256",
     "historical_dividend_projection_spec_sha256",
     "historical_dividend_source_schema_sha256",
+    "load_verified_historical_dividend_projection",
     "materialize_historical_dividend_projection",
 ]

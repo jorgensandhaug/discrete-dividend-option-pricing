@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Final
 
@@ -50,6 +51,7 @@ PROJECT_AS_SUBMITTED_FEATURE_DTYPES = {
 PROJECT_AS_SUBMITTED_FEATURE_COLUMNS = tuple(PROJECT_AS_SUBMITTED_FEATURE_DTYPES)
 PROJECT_AS_SUBMITTED_TICKERS: Final = ("DUK", "EPD", "ETR", "MO", "SO", "VZ")
 _PROJECT_FEATURE_SCHEMA_HASH_FORMAT: Final = "project-as-submitted-feature-schema-v1"
+_PROJECT_FEATURE_PIPELINE_HASH_FORMAT: Final = "project-as-submitted-feature-pipeline-v1"
 
 
 class ProjectFeatureError(ValueError):
@@ -89,6 +91,78 @@ def project_feature_schema_sha256() -> str:
         hasher.update(len(encoded).to_bytes(8, byteorder="little", signed=False))
         hasher.update(encoded)
     return hasher.hexdigest()
+
+
+def project_feature_pipeline_sha256() -> str:
+    """Hash every immutable transformation choice in the complete project pipeline."""
+    quote_filter = PROJECT_AS_SUBMITTED_FILTER
+    volatility = PROJECT_HISTORICAL_VOLATILITY_SPEC
+    underlying_join = PROJECT_AS_SUBMITTED_UNDERLYING_JOIN_SPEC
+    forecast = PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC
+    historical = PROJECT_AS_SUBMITTED_HISTORICAL_DIVIDEND_SPEC
+    nss = PROJECT_AS_SUBMITTED_NSS_RATE_SPEC
+    payload = {
+        "feature_schema_sha256": project_feature_schema_sha256(),
+        "forecast_dividends": {
+            "aggregate_same_date_components": forecast.aggregate_same_date_components,
+            "include_expiry_date": forecast.include_expiry_date,
+            "retain_zero_amount_events": forecast.retain_zero_amount_events,
+            "year_basis_days": forecast.year_basis_days,
+        },
+        "format": _PROJECT_FEATURE_PIPELINE_HASH_FORMAT,
+        "historical_dividends": {
+            "include_lookback_boundary": historical.include_lookback_boundary,
+            "include_quote_date": historical.include_quote_date,
+            "lookback_weeks": historical.lookback_weeks,
+            "require_ticker_history": historical.require_ticker_history,
+            "weeks_per_year": historical.weeks_per_year,
+        },
+        "historical_volatility": {
+            "annualization_periods_per_year": volatility.annualization_periods_per_year,
+            "degrees_of_freedom": volatility.degrees_of_freedom,
+            "windows": list(volatility.windows),
+        },
+        "nss_rate": {
+            "minimum_nss_maturity": nss.minimum_nss_maturity,
+            "use_observed_shortest_rate": nss.use_observed_shortest_rate,
+        },
+        "quote_filter": {
+            "drop_nulls": quote_filter.drop_nulls,
+            "intrinsic_ask_multiplier": quote_filter.intrinsic_ask_multiplier,
+            "max_call_moneyness": quote_filter.max_call_moneyness,
+            "max_days_to_expiry": quote_filter.max_days_to_expiry,
+            "max_project_call_spread": quote_filter.max_project_call_spread,
+            "max_put_moneyness": quote_filter.max_put_moneyness,
+            "max_quote_date": (
+                None
+                if quote_filter.max_quote_date is None
+                else quote_filter.max_quote_date.isoformat()
+            ),
+            "min_call_moneyness": quote_filter.min_call_moneyness,
+            "min_call_price": quote_filter.min_call_price,
+            "min_days_to_expiry": quote_filter.min_days_to_expiry,
+            "min_put_moneyness": quote_filter.min_put_moneyness,
+            "min_put_price": quote_filter.min_put_price,
+            "min_quote_date": (
+                None
+                if quote_filter.min_quote_date is None
+                else quote_filter.min_quote_date.isoformat()
+            ),
+        },
+        "tickers": list(PROJECT_AS_SUBMITTED_TICKERS),
+        "underlying_join": {
+            "allow_exact_matches": underlying_join.allow_exact_matches,
+            "maximum_calendar_lag_days": underlying_join.maximum_calendar_lag_days,
+        },
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _select_project_as_submitted_universe(frame: pl.LazyFrame) -> pl.LazyFrame:
@@ -206,6 +280,7 @@ __all__ = [
     "ProjectFeatureSchemaError",
     "ProjectFeatureUniverseError",
     "build_project_as_submitted_features",
+    "project_feature_pipeline_sha256",
     "project_feature_schema_sha256",
     "select_project_as_submitted_features",
 ]

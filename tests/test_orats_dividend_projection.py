@@ -7,7 +7,7 @@ import json
 import stat
 import zipfile
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pytest
@@ -18,11 +18,15 @@ from discrete_dividend_study import (
     OratsDividendArchiveEntry,
     OratsDividendArchiveInventory,
     OratsDividendArchiveReceipt,
+    OratsDividendProjectionSetContentError,
+    OratsDividendProjectionSetManifest,
     VerifiedOratsDividendArchive,
+    load_verified_orats_dividend_projection_set,
     orats_dividend_archive_entries_sha256,
     orats_dividend_archive_name,
     orats_dividend_archive_url,
     write_orats_dividend_archive_inventory,
+    write_orats_dividend_projection_set_manifest,
 )
 from discrete_dividend_study.cli import StudyCliError, main
 from discrete_dividend_study.orats_dividend_projection import (
@@ -30,6 +34,7 @@ from discrete_dividend_study.orats_dividend_projection import (
     OratsDividendProjectionReceipt,
     OratsDividendProjectionSpec,
     OratsDividendProjectionSpecError,
+    load_verified_orats_dividend_projection,
     materialize_orats_dividend_projection,
     orats_dividend_projection_spec_sha256,
 )
@@ -116,6 +121,7 @@ def test_projection_tracks_every_snapshot_and_is_exactly_reusable(tmp_path: Path
     assert json.loads(receipt_path.read_bytes()) == first.receipt.as_dict()
     assert OratsDividendProjectionReceipt.from_dict(first.receipt.as_dict()) == first.receipt
     assert materialize_orats_dividend_projection(source, _spec(), output_root, tmp_path) == first
+    assert load_verified_orats_dividend_projection(expected) == first
 
 
 def test_projection_never_reuses_same_size_corrupted_output(tmp_path: Path) -> None:
@@ -134,6 +140,90 @@ def test_projection_never_reuses_same_size_corrupted_output(tmp_path: Path) -> N
             _spec(),
             tmp_path / "projected",
             tmp_path,
+        )
+
+
+def test_projection_loader_uses_only_snapshots_with_selected_rows_for_date_bounds(
+    tmp_path: Path,
+) -> None:
+    """Provider snapshots outside the requested universe do not define output bounds."""
+    source = _verified_archive(
+        tmp_path,
+        first_rows="AAPL 2024-02-09 0.24 4\n",
+    )
+    projected = materialize_orats_dividend_projection(
+        source,
+        OratsDividendProjectionSpec(tickers=("DUK",)),
+        tmp_path / "projected",
+        tmp_path,
+    )
+    assert tuple(snapshot.selected_rows for snapshot in projected.receipt.snapshots) == (0, 1)
+    assert load_verified_orats_dividend_projection(projected.path) == projected
+
+
+def test_complete_dividend_projection_set_binds_inventory_receipts_and_outputs(
+    tmp_path: Path,
+) -> None:
+    """One manifest binds the annual inventory, full sidecars, and projected bytes."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    source = _verified_archive(raw)
+    source.path.with_name(f"{source.path.name}.receipt.json").write_text(
+        json.dumps(source.receipt.as_dict()),
+    )
+    inventory = OratsDividendArchiveInventory(
+        base_url=ORATS_DIVIDEND_ARCHIVE_BASE_URL,
+        start_year=YEAR,
+        end_year=YEAR,
+        observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
+        entries=(source.receipt.entry,),
+        entries_sha256=orats_dividend_archive_entries_sha256((source.receipt.entry,)),
+    )
+    inventory_path = tmp_path / "inventory.json"
+    write_orats_dividend_archive_inventory(inventory_path, inventory)
+    output_root = tmp_path / "projected"
+    projection = materialize_orats_dividend_projection(source, _spec(), output_root, tmp_path)
+    manifest_path = tmp_path / "projection-set.json"
+
+    first = write_orats_dividend_projection_set_manifest(
+        manifest_path,
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
+    second = write_orats_dividend_projection_set_manifest(
+        manifest_path,
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
+    assert first == second
+    assert first.manifest.total_snapshots == len((FIRST_NAME, SECOND_NAME))
+    assert first.scan().collect().height == PROJECTED_ROW_COUNT
+    assert json.loads(manifest_path.read_bytes()) == first.manifest.as_dict()
+    assert (
+        load_verified_orats_dividend_projection_set(
+            manifest_path,
+            inventory_path,
+            output_root,
+        )
+        == first
+    )
+
+    unsafe = first.manifest.as_dict()
+    unsafe_entries = cast("list[dict[str, object]]", unsafe["entries"])
+    unsafe_entries[0]["receipt_relative_path"] = "../outside.json"
+    with pytest.raises(OratsDividendProjectionSetContentError, match="canonical and relative"):
+        OratsDividendProjectionSetManifest.from_dict(unsafe)
+
+    projection.path.write_bytes(b"x" * projection.path.stat().st_size)
+    with pytest.raises(OratsDividendProjectionSetContentError, match="receipt SHA-256"):
+        load_verified_orats_dividend_projection_set(
+            manifest_path,
+            inventory_path,
+            output_root,
         )
 
 
@@ -275,6 +365,8 @@ def test_cli_binds_complete_inventory_raw_receipts_and_projection(
         str(raw),
         "--output-root",
         str(tmp_path / "projected"),
+        "--projection-manifest",
+        str(tmp_path / "projection-set.json"),
         "--scratch",
         str(tmp_path),
         "--ticker",
