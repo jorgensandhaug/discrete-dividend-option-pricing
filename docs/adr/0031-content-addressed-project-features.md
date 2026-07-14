@@ -18,7 +18,9 @@ Feature materialization accepts only five loader-produced verified handles: deta
 compaction, the complete dividend-forecast projection set, the bounded historical-dividend
 projection, and exact pinned underlying and NSS Parquets. One pre-run request hash covers the
 relocatable identities of every source file, the complete feature-pipeline and ordered-schema
-hashes, and the exact durable streaming Parquet writer. The request hash names the output directory.
+hashes, and the exact durable streaming Parquet writer, including the active Polars thread-pool
+size because parallel reductions can change floating-point output bytes. The request hash names the
+output directory.
 The option compaction must declare exactly the submitted six tickers and half-open quote horizon
 `[2011-01-01, 2024-09-28)`, and historical dividends use the matching inclusive 2024-09-27 cap; a
 benchmark subset or broader projection fails before any sink runs.
@@ -36,6 +38,13 @@ or duplicated NSS rows are still rejected. The output is written once through a 
 sources are reverified after use, and the final receipt records exact bytes, rows, date bounds,
 schema, and the submitted six-ticker universe. The detached loader needs only the feature Parquet
 and its receipt.
+
+The quote-only predicates and NSS date intersection are materialized once as a temporary,
+uncompressed Parquet stage before the four support enrichments. This prevents Polars from executing
+the same licensed quote lineage through multiple validation and join branches, reduces peak live
+state, and trades a bounded sequential local write for faster downstream scans. The temporary
+writer settings are part of the request identity, the stage is never exposed as an artifact, and it
+is deleted on both success and handled failure.
 
 ## Consequences
 

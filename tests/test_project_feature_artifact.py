@@ -36,6 +36,7 @@ from discrete_dividend_study import (
     VerifiedOratsDividendProjectionSet,
     VerifiedPinnedParquet,
     archive_entries_sha256,
+    build_project_as_submitted_features,
     materialize_historical_dividend_projection,
     materialize_orats_dividend_projection,
     materialize_orats_option_projection,
@@ -314,6 +315,15 @@ def test_feature_artifact_binds_all_sources_and_is_exactly_reusable(tmp_path: Pa
     )
     assert ProjectFeatureArtifactManifest.from_dict(first.manifest.as_dict()) == first.manifest
     assert json.loads(first.receipt_path.read_bytes()) == first.manifest.as_dict()
+    assert set(first.path.parent.iterdir()) == {first.path, first.receipt_path}
+    direct = build_project_as_submitted_features(
+        sources.options.scan(),
+        sources.underlying_history.scan(),
+        sources.forecast_dividends.scan(),
+        pl.scan_parquet(sources.historical_dividends.path, rechunk=False),
+        sources.nss_parameters.scan(),
+    ).collect()
+    assert first.scan().collect().equals(direct)
 
     upstream_paths = (
         *sources.options.paths,
@@ -345,6 +355,14 @@ def test_feature_materialization_rejects_runtime_and_source_drift(tmp_path: Path
             sources,
             tmp_path / "wrong-runtime",
             writer=ProjectFeatureWriteSpec(polars_version="0.0.0"),
+        )
+    with pytest.raises(ProjectFeatureArtifactSpecError, match="thread-pool size"):
+        materialize_project_feature_artifact(
+            sources,
+            tmp_path / "wrong-thread-pool",
+            writer=ProjectFeatureWriteSpec(
+                polars_thread_pool_size=pl.thread_pool_size() + 1,
+            ),
         )
 
     sources.underlying_history.path.write_bytes(

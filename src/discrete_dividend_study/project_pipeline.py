@@ -51,6 +51,10 @@ PROJECT_AS_SUBMITTED_FEATURE_DTYPES = {
 }
 PROJECT_AS_SUBMITTED_FEATURE_COLUMNS = tuple(PROJECT_AS_SUBMITTED_FEATURE_DTYPES)
 PROJECT_AS_SUBMITTED_TICKERS: Final = ("DUK", "EPD", "ETR", "MO", "SO", "VZ")
+_PROJECT_QUOTE_COHORT_DTYPES: Final = {
+    **ORATS_NORMALIZED_OPTION_DTYPES,
+    **QUOTE_FEATURE_DTYPES,
+}
 _PROJECT_FEATURE_SCHEMA_HASH_FORMAT: Final = "project-as-submitted-feature-schema-v1"
 _PROJECT_FEATURE_PIPELINE_HASH_FORMAT: Final = "project-as-submitted-feature-pipeline-v1"
 
@@ -222,26 +226,11 @@ def select_project_as_submitted_features(frame: pl.LazyFrame) -> pl.LazyFrame:
     return projected
 
 
-def build_project_as_submitted_features(
+def build_project_quote_cohort(
     normalized_options: pl.LazyFrame,
-    underlying_history: pl.LazyFrame,
-    future_dividend_forecasts: pl.LazyFrame,
-    historical_dividends: pl.LazyFrame,
     nss_parameters: pl.LazyFrame,
 ) -> pl.LazyFrame:
-    """Compose the immutable project as-submitted data transformation.
-
-    Quote-only predicates execute before support joins for predicate pushdown and reduced work. The
-    declared complete-row null policy executes only after every support feature is present. Because
-    every join independently validates coverage and preserves quote identity, this staging is
-    cohort-equivalent to the submitted final cleaner while avoiding expensive work on rejected
-    quotes. The returned lazy frame has one exact 42-column ordered schema and no provider-specific
-    helper columns.
-
-    All inputs are canonical typed frames; acquisition, licensed storage, and future-event
-    selection remain explicit upstream stages.
-
-    """
+    """Build the exact quote-only cohort before all expensive support joins."""
     selected_options = _select_project_as_submitted_universe(normalized_options)
     quotes = apply_quote_predicates(
         add_quote_features(selected_options),
@@ -252,6 +241,26 @@ def build_project_as_submitted_features(
         on="quote_date",
         how="semi",
     )
+    projected = quotes.select(tuple(_PROJECT_QUOTE_COHORT_DTYPES))
+    schema = projected.collect_schema()
+    mismatches = tuple(
+        (name, str(dtype), str(schema[name]))
+        for name, dtype in _PROJECT_QUOTE_COHORT_DTYPES.items()
+        if schema[name] != dtype
+    )
+    if mismatches:
+        raise ProjectFeatureSchemaError(mismatches=mismatches)
+    return projected
+
+
+def enrich_project_quote_cohort(
+    quotes: pl.LazyFrame,
+    underlying_history: pl.LazyFrame,
+    future_dividend_forecasts: pl.LazyFrame,
+    historical_dividends: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+) -> pl.LazyFrame:
+    """Validate support sources and enrich one already-filtered quote cohort."""
     relevant_forecast_dates = quotes.select(
         pl.col("quote_date").alias("forecast_date"),
     ).unique()
@@ -291,6 +300,36 @@ def build_project_as_submitted_features(
     return select_project_as_submitted_features(complete)
 
 
+def build_project_as_submitted_features(
+    normalized_options: pl.LazyFrame,
+    underlying_history: pl.LazyFrame,
+    future_dividend_forecasts: pl.LazyFrame,
+    historical_dividends: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+) -> pl.LazyFrame:
+    """Compose the immutable project as-submitted data transformation.
+
+    Quote-only predicates and the submitted NSS date intersection execute before support joins.
+    The declared complete-row null policy executes only after every support feature is present.
+    Because every join independently validates coverage and preserves quote identity, the result is
+    cohort-equivalent to the submitted final cleaner while avoiding expensive work on rejected
+    quotes. The returned lazy frame has one exact 42-column ordered schema and no provider-specific
+    helper columns.
+
+    All inputs are canonical typed frames; acquisition and licensed storage remain explicit
+    upstream stages.
+
+    """
+    quotes = build_project_quote_cohort(normalized_options, nss_parameters)
+    return enrich_project_quote_cohort(
+        quotes,
+        underlying_history,
+        future_dividend_forecasts,
+        historical_dividends,
+        nss_parameters,
+    )
+
+
 __all__ = [
     "PROJECT_AS_SUBMITTED_FEATURE_COLUMNS",
     "PROJECT_AS_SUBMITTED_FEATURE_DTYPES",
@@ -299,6 +338,8 @@ __all__ = [
     "ProjectFeatureSchemaError",
     "ProjectFeatureUniverseError",
     "build_project_as_submitted_features",
+    "build_project_quote_cohort",
+    "enrich_project_quote_cohort",
     "project_feature_pipeline_sha256",
     "project_feature_schema_sha256",
     "select_project_as_submitted_features",

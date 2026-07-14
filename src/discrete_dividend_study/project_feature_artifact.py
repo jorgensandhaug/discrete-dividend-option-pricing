@@ -35,14 +35,15 @@ from .pinned_parquet import (
 from .project_pipeline import (
     PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
     PROJECT_AS_SUBMITTED_TICKERS,
-    build_project_as_submitted_features,
+    build_project_quote_cohort,
+    enrich_project_quote_cohort,
     project_feature_pipeline_sha256,
     project_feature_schema_sha256,
 )
 from .underlying_history import UNDERLYING_HISTORY_DTYPES
 
-PROJECT_FEATURE_ARTIFACT_VERSION: Final = 1
-PROJECT_FEATURE_ARTIFACT_RECEIPT_VERSION: Final = 1
+PROJECT_FEATURE_ARTIFACT_VERSION: Final = 2
+PROJECT_FEATURE_ARTIFACT_RECEIPT_VERSION: Final = 2
 PROJECT_FEATURE_ARTIFACT_COMPRESSION: Final = "zstd"
 PROJECT_FEATURE_ARTIFACT_COMPRESSION_LEVEL: Final = 3
 PROJECT_FEATURE_ARTIFACT_ROW_GROUP_SIZE: Final = 131_072
@@ -51,6 +52,8 @@ PROJECT_FEATURE_ARTIFACT_NAME: Final = "project_features.parquet"
 PROJECT_FEATURE_OPTION_START_DATE: Final = date(2011, 1, 1)
 PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE: Final = date(2024, 9, 28)
 _SHA256_LENGTH: Final = 64
+_QUOTE_STAGE_COMPRESSION: Final = "uncompressed"
+_QUOTE_STAGE_ROW_GROUP_SIZE: Final = 131_072
 
 
 class ProjectFeatureArtifactError(RuntimeError):
@@ -220,6 +223,7 @@ class ProjectFeatureWriteSpec:
     """Exact physical identity of the feature Parquet sink."""
 
     polars_version: str = pl.__version__
+    polars_thread_pool_size: int = pl.thread_pool_size()
     compression: Literal["zstd"] = PROJECT_FEATURE_ARTIFACT_COMPRESSION
     compression_level: int = PROJECT_FEATURE_ARTIFACT_COMPRESSION_LEVEL
     row_group_size: int = PROJECT_FEATURE_ARTIFACT_ROW_GROUP_SIZE
@@ -227,6 +231,10 @@ class ProjectFeatureWriteSpec:
     maintain_order: bool = True
     sync_on_close: Literal["all"] = "all"
     engine: Literal["streaming"] = "streaming"
+    quote_stage_compression: Literal["uncompressed"] = _QUOTE_STAGE_COMPRESSION
+    quote_stage_row_group_size: int = _QUOTE_STAGE_ROW_GROUP_SIZE
+    quote_stage_statistics: bool = False
+    quote_stage_maintain_order: bool = True
     schema_version: int = PROJECT_FEATURE_ARTIFACT_VERSION
 
     def __post_init__(self) -> None:
@@ -235,6 +243,7 @@ class ProjectFeatureWriteSpec:
             type(self.schema_version) is int
             and self.schema_version == PROJECT_FEATURE_ARTIFACT_VERSION,
             type(self.polars_version) is str and bool(self.polars_version),
+            type(self.polars_thread_pool_size) is int and self.polars_thread_pool_size > 0,
             self.compression == PROJECT_FEATURE_ARTIFACT_COMPRESSION,
             type(self.compression_level) is int
             and self.compression_level == PROJECT_FEATURE_ARTIFACT_COMPRESSION_LEVEL,
@@ -244,6 +253,11 @@ class ProjectFeatureWriteSpec:
             type(self.maintain_order) is bool and self.maintain_order,
             self.sync_on_close == "all",
             self.engine == "streaming",
+            self.quote_stage_compression == _QUOTE_STAGE_COMPRESSION,
+            type(self.quote_stage_row_group_size) is int
+            and self.quote_stage_row_group_size == _QUOTE_STAGE_ROW_GROUP_SIZE,
+            type(self.quote_stage_statistics) is bool and not self.quote_stage_statistics,
+            type(self.quote_stage_maintain_order) is bool and self.quote_stage_maintain_order,
         )
         if not all(expected):
             msg = "feature writer must use the frozen durable streaming Parquet contract"
@@ -257,6 +271,11 @@ class ProjectFeatureWriteSpec:
             "engine": self.engine,
             "maintain_order": self.maintain_order,
             "polars_version": self.polars_version,
+            "polars_thread_pool_size": self.polars_thread_pool_size,
+            "quote_stage_compression": self.quote_stage_compression,
+            "quote_stage_maintain_order": self.quote_stage_maintain_order,
+            "quote_stage_row_group_size": self.quote_stage_row_group_size,
+            "quote_stage_statistics": self.quote_stage_statistics,
             "row_group_size": self.row_group_size,
             "schema_version": self.schema_version,
             "statistics": self.statistics,
@@ -274,6 +293,11 @@ class ProjectFeatureWriteSpec:
                 "engine",
                 "maintain_order",
                 "polars_version",
+                "polars_thread_pool_size",
+                "quote_stage_compression",
+                "quote_stage_maintain_order",
+                "quote_stage_row_group_size",
+                "quote_stage_statistics",
                 "row_group_size",
                 "schema_version",
                 "statistics",
@@ -283,8 +307,15 @@ class ProjectFeatureWriteSpec:
         )
         return cls(
             polars_version=cast("str", mapping["polars_version"]),
+            polars_thread_pool_size=cast("int", mapping["polars_thread_pool_size"]),
             compression=cast("Literal['zstd']", mapping["compression"]),
             compression_level=cast("int", mapping["compression_level"]),
+            quote_stage_compression=cast(
+                "Literal['uncompressed']", mapping["quote_stage_compression"]
+            ),
+            quote_stage_row_group_size=cast("int", mapping["quote_stage_row_group_size"]),
+            quote_stage_statistics=cast("bool", mapping["quote_stage_statistics"]),
+            quote_stage_maintain_order=cast("bool", mapping["quote_stage_maintain_order"]),
             row_group_size=cast("int", mapping["row_group_size"]),
             statistics=cast("bool", mapping["statistics"]),
             maintain_order=cast("bool", mapping["maintain_order"]),
@@ -531,8 +562,25 @@ def materialize_project_feature_artifact(
         raise ProjectFeatureArtifactContentError(msg, str(output_directory))
     partial = output.with_name(f".{output.name}.part")
     partial_receipt = receipt_path.with_name(f".{receipt_path.name}.part")
+    quote_stage = output.with_name(".project_quote_cohort.parquet.part")
     try:
-        feature_frame = _feature_frame(verified)
+        build_project_quote_cohort(
+            verified.options.scan(),
+            verified.nss_parameters.scan(),
+        ).sink_parquet(
+            quote_stage,
+            compression=writer.quote_stage_compression,
+            statistics=writer.quote_stage_statistics,
+            row_group_size=writer.quote_stage_row_group_size,
+            maintain_order=writer.quote_stage_maintain_order,
+            sync_on_close=None,
+            mkdir=False,
+            engine=writer.engine,
+        )
+        feature_frame = _feature_frame(
+            verified,
+            pl.scan_parquet(quote_stage, rechunk=False),
+        )
         feature_frame.sink_parquet(
             partial,
             compression=writer.compression,
@@ -574,6 +622,7 @@ def materialize_project_feature_artifact(
     finally:
         partial.unlink(missing_ok=True)
         partial_receipt.unlink(missing_ok=True)
+        quote_stage.unlink(missing_ok=True)
         if output_directory.is_dir() and not any(output_directory.iterdir()):
             output_directory.rmdir()
     return load_verified_project_feature_artifact(output)
@@ -706,9 +755,12 @@ def _source_identity(sources: ProjectFeatureSources) -> ProjectFeatureSourceIden
     )
 
 
-def _feature_frame(sources: ProjectFeatureSources) -> pl.LazyFrame:
-    return build_project_as_submitted_features(
-        sources.options.scan(),
+def _feature_frame(
+    sources: ProjectFeatureSources,
+    quote_cohort: pl.LazyFrame,
+) -> pl.LazyFrame:
+    return enrich_project_quote_cohort(
+        quote_cohort,
         sources.underlying_history.scan(),
         sources.forecast_dividends.scan(),
         pl.scan_parquet(sources.historical_dividends.path, rechunk=False),
@@ -793,6 +845,12 @@ def _require_writer_runtime(writer: ProjectFeatureWriteSpec) -> None:
         msg = (
             "feature writer Polars version disagrees with the active runtime: "
             f"requested {writer.polars_version}, active {pl.__version__}"
+        )
+        raise ProjectFeatureArtifactSpecError(msg)
+    if writer.polars_thread_pool_size != pl.thread_pool_size():
+        msg = (
+            "feature writer Polars thread-pool size disagrees with the active runtime: "
+            f"requested {writer.polars_thread_pool_size}, active {pl.thread_pool_size()}"
         )
         raise ProjectFeatureArtifactSpecError(msg)
 
