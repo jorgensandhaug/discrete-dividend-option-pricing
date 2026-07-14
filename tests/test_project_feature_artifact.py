@@ -17,6 +17,8 @@ from discrete_dividend_study import (
     ORATS_DIVIDEND_ARCHIVE_BASE_URL,
     PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
     PROJECT_AS_SUBMITTED_TICKERS,
+    PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE,
+    PROJECT_FEATURE_OPTION_START_DATE,
     UNDERLYING_HISTORY_DTYPES,
     HistoricalDividendProjectionSpec,
     MaterializedHistoricalDividendProjection,
@@ -67,7 +69,8 @@ from discrete_dividend_study.project_feature_artifact import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-QUOTE_DATE = date(2024, 10, 1)
+INVENTORY_FIRST_DATE = date(2010, 12, 31)
+QUOTE_DATE = date(2024, 9, 27)
 EXPIRY_DATE = date(2024, 11, 1)
 FORECAST_EX_DATE = date(2024, 10, 15)
 HISTORICAL_EX_DATE = date(2024, 9, 1)
@@ -78,59 +81,78 @@ OPTION_HEADER = (
 )
 
 
-def _option_compaction(tmp_path: Path) -> VerifiedOratsOptionCompaction:
+def _option_compaction(
+    tmp_path: Path,
+    *,
+    start_date: date = PROJECT_FEATURE_OPTION_START_DATE,
+    end_date_exclusive: date = PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE,
+) -> VerifiedOratsOptionCompaction:
     raw = tmp_path / "option-raw"
     raw.mkdir()
-    archive_path = raw / orats_archive_name(QUOTE_DATE)
-    rows = "".join(
-        f"{ticker},10/1/2024,11/1/2024,80,21,20.5,1,0.9,100,10,5,100,50,"
-        "20.8,0.95,0.2,0.21,0.0849,0.04\n"
-        for ticker in PROJECT_AS_SUBMITTED_TICKERS
-    )
-    with zipfile.ZipFile(archive_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("ORATS_SMV_Strikes_20241001.csv", OPTION_HEADER + rows)
-    payload = archive_path.read_bytes()
-    entry = OratsArchiveEntry(
-        trade_date=QUOTE_DATE,
-        remote_path=f"{orats_remote_directory(QUOTE_DATE.year)}/{archive_path.name}",
-        size_bytes=len(payload),
-        modified_at_utc=datetime(2026, 7, 14, 12, 0, tzinfo=UTC),
-    )
-    source = VerifiedOratsArchive(
-        path=archive_path,
-        receipt=OratsArchiveReceipt(
-            entry=entry,
-            local_name=archive_path.name,
-            sha256=hashlib.sha256(payload).hexdigest(),
-        ),
-    )
+    entries: list[OratsArchiveEntry] = []
+    sources: list[VerifiedOratsArchive] = []
+    for trade_date in (INVENTORY_FIRST_DATE, QUOTE_DATE):
+        archive_path = raw / orats_archive_name(trade_date)
+        expiry_date = EXPIRY_DATE if trade_date == QUOTE_DATE else date(2011, 1, 31)
+        rows = "".join(
+            f"{ticker},{trade_date:%m/%d/%Y},{expiry_date:%m/%d/%Y},"
+            "80,21,20.5,1,0.9,100,10,5,100,50,20.8,0.95,0.2,0.21,0.0849,0.04\n"
+            for ticker in PROJECT_AS_SUBMITTED_TICKERS
+        )
+        with zipfile.ZipFile(
+            archive_path,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            archive.writestr(
+                f"ORATS_SMV_Strikes_{trade_date:%Y%m%d}.csv",
+                OPTION_HEADER + rows,
+            )
+        payload = archive_path.read_bytes()
+        entry = OratsArchiveEntry(
+            trade_date=trade_date,
+            remote_path=f"{orats_remote_directory(trade_date.year)}/{archive_path.name}",
+            size_bytes=len(payload),
+            modified_at_utc=datetime(2026, 7, 14, 12, 0, tzinfo=UTC),
+        )
+        entries.append(entry)
+        sources.append(
+            VerifiedOratsArchive(
+                path=archive_path,
+                receipt=OratsArchiveReceipt(
+                    entry=entry,
+                    local_name=archive_path.name,
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                ),
+            ),
+        )
+    frozen_entries = tuple(entries)
     inventory = OratsArchiveInventory(
         host="de1.hostedftp.com",
-        start_date=QUOTE_DATE,
+        start_date=INVENTORY_FIRST_DATE,
         end_date=QUOTE_DATE,
         observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
-        entries=(entry,),
-        entries_sha256=archive_entries_sha256((entry,)),
+        entries=frozen_entries,
+        entries_sha256=archive_entries_sha256(frozen_entries),
     )
     inventory_path = tmp_path / "option-inventory.json"
     write_orats_archive_inventory(inventory_path, inventory)
     daily_root = tmp_path / "option-daily"
-    projection = materialize_orats_option_projection(
-        source,
-        OratsOptionProjectionSpec(tickers=PROJECT_AS_SUBMITTED_TICKERS),
-        daily_root,
-        tmp_path,
+    projection_spec = OratsOptionProjectionSpec(tickers=PROJECT_AS_SUBMITTED_TICKERS)
+    projections = tuple(
+        materialize_orats_option_projection(source, projection_spec, daily_root, tmp_path)
+        for source in sources
     )
     daily_set = write_orats_option_projection_set_manifest(
         tmp_path / "option-daily-set.json",
         inventory_path,
         inventory,
         daily_root,
-        (projection,),
+        projections,
     )
     return materialize_orats_option_compaction(
         daily_set,
-        OratsOptionCompactionSpec(QUOTE_DATE, QUOTE_DATE + timedelta(days=1)),
+        OratsOptionCompactionSpec(start_date, end_date_exclusive),
         tmp_path / "option-annual",
         tmp_path / "option-annual-set.json",
     )
@@ -147,7 +169,7 @@ def _forecast_dividends(tmp_path: Path) -> VerifiedOratsDividendProjectionSet:
     )
     with zipfile.ZipFile(archive_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
-            f"{year_directory}/20241001ORATSStockDivForecasts.txt",
+            f"{year_directory}/{QUOTE_DATE:%Y%m%d}ORATSStockDivForecasts.txt",
             rows,
         )
     payload = archive_path.read_bytes()
@@ -330,6 +352,27 @@ def test_feature_materialization_rejects_runtime_and_source_drift(tmp_path: Path
     )
     with pytest.raises(PinnedParquetContentError, match="SHA-256"):
         materialize_project_feature_artifact(sources, tmp_path / "changed-source")
+
+
+def test_feature_materialization_rejects_a_benchmark_option_horizon(tmp_path: Path) -> None:
+    """A valid benchmark subset cannot masquerade as the complete paper feature source."""
+    sources = _sources(tmp_path)
+    benchmark_root = tmp_path / "benchmark"
+    benchmark_root.mkdir()
+    benchmark_options = _option_compaction(
+        benchmark_root,
+        start_date=QUOTE_DATE,
+        end_date_exclusive=QUOTE_DATE + timedelta(days=1),
+    )
+    benchmark_sources = ProjectFeatureSources(
+        benchmark_options,
+        sources.forecast_dividends,
+        sources.historical_dividends,
+        sources.underlying_history,
+        sources.nss_parameters,
+    )
+    with pytest.raises(ProjectFeatureArtifactContentError, match="exact project quote horizon"):
+        materialize_project_feature_artifact(benchmark_sources, tmp_path / "benchmark-features")
 
 
 def test_feature_cli_requires_every_explicit_verified_source_identity(

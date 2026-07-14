@@ -48,6 +48,8 @@ PROJECT_FEATURE_ARTIFACT_COMPRESSION_LEVEL: Final = 3
 PROJECT_FEATURE_ARTIFACT_ROW_GROUP_SIZE: Final = 131_072
 PROJECT_FEATURE_ARTIFACT_BLOCK_BYTES: Final = 8 * 1024 * 1024
 PROJECT_FEATURE_ARTIFACT_NAME: Final = "project_features.parquet"
+PROJECT_FEATURE_OPTION_START_DATE: Final = date(2011, 1, 1)
+PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE: Final = date(2024, 9, 28)
 _SHA256_LENGTH: Final = 64
 
 
@@ -369,6 +371,12 @@ class ProjectFeatureArtifactManifest:
         ):
             msg = "project feature quote-date bounds are malformed"
             raise ProjectFeatureArtifactContentError(msg)
+        if (
+            self.quote_date_min < PROJECT_FEATURE_OPTION_START_DATE
+            or self.quote_date_max >= PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE
+        ):
+            msg = "project feature quote dates exceed the exact project horizon"
+            raise ProjectFeatureArtifactContentError(msg)
         if self.observed_tickers != PROJECT_AS_SUBMITTED_TICKERS:
             msg = "project feature output must contain the exact submitted ticker universe"
             raise ProjectFeatureArtifactContentError(msg)
@@ -649,12 +657,20 @@ def _require_verified_sources(sources: ProjectFeatureSources) -> ProjectFeatureS
 
 
 def _validate_source_universes(sources: ProjectFeatureSources) -> None:
-    required = set(PROJECT_AS_SUBMITTED_TICKERS)
-    if not required.issubset(sources.options.manifest.projected_tickers):
-        msg = "option compaction source does not declare every project ticker"
+    if sources.options.manifest.projected_tickers != PROJECT_AS_SUBMITTED_TICKERS:
+        msg = "option compaction source must declare the exact project ticker universe"
         raise ProjectFeatureArtifactContentError(msg, str(sources.options.manifest_path))
-    if not required.issubset(sources.forecast_dividends.manifest.projection_spec.tickers):
-        msg = "forecast-dividend source does not declare every project ticker"
+    option_spec = sources.options.manifest.compaction_spec
+    if (
+        option_spec.start_date != PROJECT_FEATURE_OPTION_START_DATE
+        or option_spec.end_date_exclusive != PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE
+    ):
+        msg = "option compaction source must cover the exact project quote horizon"
+        raise ProjectFeatureArtifactContentError(msg, str(sources.options.manifest_path))
+    if sources.forecast_dividends.manifest.projection_spec.tickers != (
+        PROJECT_AS_SUBMITTED_TICKERS
+    ):
+        msg = "forecast-dividend source must declare the exact project ticker universe"
         raise ProjectFeatureArtifactContentError(
             msg,
             str(sources.forecast_dividends.manifest_path),
@@ -667,6 +683,11 @@ def _validate_source_universes(sources: ProjectFeatureSources) -> None:
             msg,
             str(sources.historical_dividends.path),
         )
+    if sources.historical_dividends.receipt.projection_spec.maximum_ex_date != (
+        PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE - date.resolution
+    ):
+        msg = "historical-dividend source must use the exact project ex-date horizon"
+        raise ProjectFeatureArtifactContentError(msg, str(sources.historical_dividends.path))
 
 
 def _source_identity(sources: ProjectFeatureSources) -> ProjectFeatureSourceIdentity:
@@ -864,6 +885,8 @@ __all__ = [
     "PROJECT_FEATURE_ARTIFACT_RECEIPT_VERSION",
     "PROJECT_FEATURE_ARTIFACT_ROW_GROUP_SIZE",
     "PROJECT_FEATURE_ARTIFACT_VERSION",
+    "PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE",
+    "PROJECT_FEATURE_OPTION_START_DATE",
     "PROJECT_FEATURE_WRITE_SPEC",
     "ArtifactFileIdentity",
     "MaterializedProjectFeatureArtifact",

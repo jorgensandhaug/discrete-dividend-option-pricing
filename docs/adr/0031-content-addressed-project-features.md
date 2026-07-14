@@ -19,6 +19,9 @@ compaction, the complete dividend-forecast projection set, the bounded historica
 projection, and exact pinned underlying and NSS Parquets. One pre-run request hash covers the
 relocatable identities of every source file, the complete feature-pipeline and ordered-schema
 hashes, and the exact durable streaming Parquet writer. The request hash names the output directory.
+The option compaction must declare exactly the submitted six tickers and half-open quote horizon
+`[2011-01-01, 2024-09-28)`, and historical dividends use the matching inclusive 2024-09-27 cap; a
+benchmark subset or broader projection fails before any sink runs.
 
 The pipeline selects forecast snapshots by the exact ticker and quote-date keys that survive the
 quote-only predicates. Therefore malformed or duplicated provider history that cannot enter the

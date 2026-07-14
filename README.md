@@ -235,7 +235,9 @@ uv run --locked discrete-dividend-study materialize-project-features \
 The request hash binds every source, every transformation choice, the exact 42-column schema, and
 the byte-producing Polars runtime before a streaming sink runs. Only forecast snapshots matching
 consumed project ticker/date keys are relevant; each consumed snapshot remains strict. Sources are
-reverified after the sink, and the result can then be loaded from its Parquet and receipt alone.
+reverified after the sink, and the result can then be loaded from its Parquet and receipt alone. A
+benchmark subset cannot be passed accidentally: the option source must declare the exact six
+tickers and half-open `[2011-01-01, 2024-09-28)` project horizon.
 [ADR 0031](docs/adr/0031-content-addressed-project-features.md) records this boundary.
 
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
