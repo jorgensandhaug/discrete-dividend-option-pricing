@@ -55,3 +55,10 @@ pressure; an explicit chunk-size override did not improve this workload and is t
 frozen. See the official [thread-pool](https://docs.pola.rs/api/python/dev/reference/api/polars.thread_pool_size.html)
 and [streaming sink](https://docs.pola.rs/api/python/dev/reference/api/polars.LazyFrame.sink_parquet.html)
 documentation. This prefix remains performance evidence, not a final-paper runtime claim.
+
+A subsequent scale-up gate used 2,538,710 compacted option rows through 2019-11-07, the pinned
+Federal Reserve Svensson source, and the exact dividend and underlying projections. It produced
+523,551 complete rows for all six tickers. Staged and original one-plan execution emitted the exact
+same 21,135,022 bytes and SHA-256. The quote-stage write plus enrichment sink took 0.4823 seconds;
+the direct sink took 0.7563 seconds in the same warm-cache process, a 36.2% reduction. The temporary
+uncompressed cohort occupied 53,130,876 bytes and was deleted after use.
