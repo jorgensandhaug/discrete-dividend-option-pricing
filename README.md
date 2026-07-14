@@ -154,6 +154,26 @@ Missing ticker keys fail by default. A fully receipted bounded projection may ex
 `--unidentified-row-policy record-and-exclude`; the command still rejects missing financial fields
 or extra content, and the policy becomes part of the projection hash.
 
+Historical realized cash dividends enter through a separate licensed Parquet boundary. The source
+hash and row count come from a private acquisition receipt; neither is inferred from a filename:
+
+```shell
+uv run --locked discrete-dividend-study materialize-historical-dividends \
+  --source /absolute/private/path/all_hist_div.parquet \
+  --expected-source-sha256 "$SOURCE_SHA256" \
+  --expected-source-rows "$SOURCE_ROWS" \
+  --maximum-ex-date 2024-09-27 \
+  --output-root /absolute/private/path/historical-dividend-projected \
+  --ticker DUK --ticker EPD --ticker ETR --ticker MO --ticker SO --ticker VZ
+```
+
+The command requires the exact five-column source schema, rejects null keys, nonfinite cash, source
+duplicates, missing declared tickers, negative selected cash, and duplicates created by projection.
+It preserves provider rows byte-for-byte upstream, records aggregate unused-field diagnostics, and
+writes only the bounded three-column study history under source and specification hashes. No
+provider-wide anomaly is silently repaired or reinterpreted. [ADR 0026](docs/adr/0026-verified-historical-dividend-projection.md)
+records the boundary.
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.

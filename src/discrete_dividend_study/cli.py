@@ -28,6 +28,11 @@ from .classical_spec import (
     ClassicalExecutionSpec,
 )
 from .event_buffers import EventBufferPolicy
+from .historical_dividend_projection import (
+    HistoricalDividendProjectionSpec,
+    historical_dividend_projection_spec_sha256,
+    materialize_historical_dividend_projection,
+)
 from .neural_execution import (
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
     PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
@@ -146,6 +151,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "inventory-orats-dividend-archives": _inventory_orats_dividend_archives,
         "materialize-orats-options": _materialize_orats_options,
         "materialize-orats-dividends": _materialize_orats_dividends,
+        "materialize-historical-dividends": _materialize_historical_dividends,
         "render-classical-table": _render_classical_table,
     }
     handler = handlers.get(arguments.command)
@@ -382,6 +388,35 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _materialize_historical_dividends(arguments: argparse.Namespace) -> int:
+    source = _required_path(arguments.source, field="source", kind="file")
+    output_root = _destination_directory(arguments.output_root)
+    spec = HistoricalDividendProjectionSpec(
+        tickers=tuple(arguments.ticker),
+        maximum_ex_date=arguments.maximum_ex_date,
+    )
+    output = materialize_historical_dividend_projection(
+        source,
+        expected_source_sha256=arguments.expected_source_sha256,
+        expected_source_rows=arguments.expected_source_rows,
+        spec=spec,
+        output_root=output_root,
+    )
+    summary = {
+        "observed_tickers": output.receipt.observed_tickers,
+        "output": str(output.path),
+        "output_bytes": output.receipt.output_bytes,
+        "output_sha256": output.receipt.output_sha256,
+        "projection_spec_sha256": historical_dividend_projection_spec_sha256(spec),
+        "rows": output.receipt.output_rows,
+        "source_sha256": output.receipt.source.sha256,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
 def _run_neural_study(
     arguments: argparse.Namespace,
     context: _StudyCliContext,
@@ -608,6 +643,20 @@ def _add_dividend_data_commands(
         default="reject",
     )
     dividend_materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    historical_materialize = commands.add_parser(
+        "materialize-historical-dividends",
+        help="pin and project one licensed historical-dividend Parquet into a study artifact",
+    )
+    historical_materialize.add_argument("--source", type=Path, required=True)
+    historical_materialize.add_argument("--expected-source-sha256", required=True)
+    historical_materialize.add_argument(
+        "--expected-source-rows",
+        type=_positive_int,
+        required=True,
+    )
+    historical_materialize.add_argument("--maximum-ex-date", type=_iso_date, required=True)
+    historical_materialize.add_argument("--output-root", type=Path, required=True)
+    historical_materialize.add_argument("--ticker", action="append", required=True)
 
 
 def _execution_profile(value: str) -> NeuralExecutionProfile:
