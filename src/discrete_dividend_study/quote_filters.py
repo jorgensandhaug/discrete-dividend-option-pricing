@@ -34,7 +34,7 @@ class QuoteFilterError(ValueError):
     """Base class for invalid feature or filter specifications."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class QuoteSchemaError(QuoteFilterError):
     """Normalized or derived quote columns have incorrect runtime dtypes."""
 
@@ -45,7 +45,7 @@ class QuoteSchemaError(QuoteFilterError):
         return f"option quote column dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class QuoteFilterSpecError(QuoteFilterError):
     """An immutable quote-filter value is outside its declared domain."""
 

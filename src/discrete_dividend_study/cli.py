@@ -87,7 +87,7 @@ _MINIMUM_ARCHIVE_YEAR: Final = 2007
 _MAXIMUM_ARCHIVE_YEAR: Final = 9999
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class StudyCliError(RuntimeError):
     """A local publication-run precondition is not satisfied."""
 

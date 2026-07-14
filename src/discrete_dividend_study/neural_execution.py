@@ -42,7 +42,7 @@ class NeuralExecutionError(RuntimeError):
     """Base class for invalid or unavailable neural execution."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralExecutionSpecError(NeuralExecutionError):
     """A backend/device specification is internally inconsistent."""
 
@@ -53,7 +53,7 @@ class NeuralExecutionSpecError(NeuralExecutionError):
         return f"invalid neural execution specification: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralRuntimeUnavailableError(NeuralExecutionError):
     """The exact requested backend, version, or device is unavailable."""
 

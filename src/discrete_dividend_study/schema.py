@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MissingColumnsError(ValueError):
     """Required source columns are absent from a lazy input schema."""
 
@@ -23,7 +23,7 @@ class MissingColumnsError(ValueError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateColumnsError(ValueError):
     """A schema declaration repeats one or more required names."""
 
@@ -34,7 +34,7 @@ class DuplicateColumnsError(ValueError):
         return f"required column names must be unique; observed {self.required!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ConflictingColumnsError(ValueError):
     """A lazy input already contains columns owned by a downstream stage."""
 

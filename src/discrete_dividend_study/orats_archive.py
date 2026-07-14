@@ -41,7 +41,7 @@ class OratsArchiveError(RuntimeError):
     """Base class for an invalid archive request, transport, or artifact."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsArchiveConfigurationError(OratsArchiveError):
     """Static archive settings violate the explicit transport contract."""
 
@@ -52,7 +52,7 @@ class OratsArchiveConfigurationError(OratsArchiveError):
         return self.reason
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsArchiveTransportError(OratsArchiveError):
     """An encrypted remote operation failed."""
 
@@ -66,7 +66,7 @@ class OratsArchiveTransportError(OratsArchiveError):
         return f"ORATS FTPS {self.operation} failed{location}: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsArchiveIntegrityError(OratsArchiveError):
     """A listing, manifest, or downloaded artifact violates its identity."""
 

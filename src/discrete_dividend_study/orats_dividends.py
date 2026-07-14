@@ -41,7 +41,7 @@ class OratsDividendError(ValueError):
     """Base class for invalid ORATS dividend-forecast inputs."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendSourceError(OratsDividendError):
     """A local dividend delivery is absent or has an unsupported identity."""
 
@@ -53,7 +53,7 @@ class OratsDividendSourceError(OratsDividendError):
         return f"invalid ORATS dividend source {self.source}: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendSchemaError(OratsDividendError):
     """Required raw or canonical dividend columns have incorrect runtime dtypes."""
 
@@ -64,7 +64,7 @@ class OratsDividendSchemaError(OratsDividendError):
         return f"ORATS dividend column dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendContentError(OratsDividendError):
     """Dividend rows violate the strict regular-forecast contract."""
 

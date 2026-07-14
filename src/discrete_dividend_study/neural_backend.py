@@ -17,7 +17,7 @@ from .neural_parameters import NeuralParameterSet
 from .neural_spec import NeuralModelSpec, NeuralStudySpec
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralBackendContractError(NeuralExecutionError):
     """A model, parameter set, batch, and backend request do not share one identity."""
 

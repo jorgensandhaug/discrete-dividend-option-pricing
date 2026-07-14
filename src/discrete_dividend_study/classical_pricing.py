@@ -22,7 +22,7 @@ from .project_metrics import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalPricingContractError(RuntimeError):
     """A pricing request or result violates the complete-study contract."""
 
@@ -33,7 +33,7 @@ class ClassicalPricingContractError(RuntimeError):
         return f"invalid classical pricing contract: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalPricingError(RuntimeError):
     """One named variant failed without selecting another method or returning partial output."""
 

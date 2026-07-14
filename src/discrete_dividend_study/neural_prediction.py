@@ -44,7 +44,7 @@ class _HashWriter(Protocol):
         """Append bytes to the digest state."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralPredictionError(RuntimeError):
     """A prediction violates numerical, identity, or immutable-storage contracts."""
 

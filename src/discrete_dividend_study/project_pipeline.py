@@ -56,7 +56,7 @@ class ProjectFeatureError(ValueError):
     """Base class for an invalid resolved project feature artifact."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ProjectFeatureSchemaError(ProjectFeatureError):
     """A project input or the composed artifact has incorrect dtypes."""
 
@@ -67,7 +67,7 @@ class ProjectFeatureSchemaError(ProjectFeatureError):
         return f"project feature dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ProjectFeatureUniverseError(ProjectFeatureError):
     """The normalized source lacks one or more frozen study tickers."""
 

@@ -48,7 +48,7 @@ _MAX_SEED: Final = (2**64) - 1
 _VARIANT_VALUES: Final = frozenset(variant.value for variant in NeuralVariant)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralStudyRunError(RuntimeError):
     """A complete neural-study request, result, or artifact violates its contract."""
 

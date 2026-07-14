@@ -16,7 +16,7 @@ BoolMatrix = npt.NDArray[np.bool_]
 _MAX_SEED: Final = (2**64) - 1
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralBatchPlanError(ValueError):
     """A fixed-batch identity or generated epoch layout is invalid."""
 

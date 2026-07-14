@@ -26,7 +26,7 @@ class UnderlyingHistoryError(ValueError):
     """Base class for invalid underlying history or estimator specifications."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnderlyingHistorySchemaError(UnderlyingHistoryError):
     """Required underlying-history columns have incorrect runtime dtypes."""
 
@@ -37,7 +37,7 @@ class UnderlyingHistorySchemaError(UnderlyingHistoryError):
         return f"underlying-history column dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnderlyingHistoryContentError(UnderlyingHistoryError):
     """Underlying-history rows violate the canonical daily-series contract."""
 
@@ -48,7 +48,7 @@ class UnderlyingHistoryContentError(UnderlyingHistoryError):
         return f"invalid underlying-history content: {self.violations!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HistoricalVolatilitySpecError(UnderlyingHistoryError):
     """A historical-volatility specification is outside its declared domain."""
 
@@ -61,7 +61,7 @@ class HistoricalVolatilitySpecError(UnderlyingHistoryError):
         return f"{self.field} must be {self.requirement}; observed {self.observed!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnderlyingHistoryJoinSchemaError(UnderlyingHistoryError):
     """Quote or prepared-history join columns have incorrect runtime dtypes."""
 
@@ -72,7 +72,7 @@ class UnderlyingHistoryJoinSchemaError(UnderlyingHistoryError):
         return f"underlying-history join dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnderlyingHistoryJoinError(UnderlyingHistoryError):
     """A backward underlying-history join violates its declared content contract."""
 
@@ -83,7 +83,7 @@ class UnderlyingHistoryJoinError(UnderlyingHistoryError):
         return f"invalid underlying-history join: {self.violations!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnderlyingHistoryJoinSpecError(UnderlyingHistoryError):
     """An underlying-history as-of join value is outside its declared domain."""
 

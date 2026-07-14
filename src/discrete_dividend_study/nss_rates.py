@@ -35,7 +35,7 @@ class NssRateError(ValueError):
     """Base class for invalid NSS rate inputs or specifications."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NssRateSchemaError(NssRateError):
     """Quote or parameter inputs have incorrect runtime dtypes."""
 
@@ -46,7 +46,7 @@ class NssRateSchemaError(NssRateError):
         return f"NSS rate input dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NssRateContentError(NssRateError):
     """Quote or NSS parameter rows violate their declared contract."""
 
@@ -57,7 +57,7 @@ class NssRateContentError(NssRateError):
         return f"invalid NSS rate content: {self.violations!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NssRateSpecError(NssRateError):
     """An NSS evaluation specification is outside its declared domain."""
 

@@ -36,7 +36,7 @@ _LATEX_ESCAPE_TABLE: Final = str.maketrans(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalComparisonError(ValueError):
     """An aggregate publication comparison violates its explicit contract."""
 

@@ -62,7 +62,7 @@ class ClassicalInputError(ValueError):
     """A materialized classical-pricing boundary violates its declared contract."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalInputTypeError(TypeError):
     """The caller supplied an unsupported runtime boundary type."""
 
@@ -75,7 +75,7 @@ class ClassicalInputTypeError(TypeError):
         return f"{self.field} must be {self.expected}; observed {self.observed}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalInputSchemaError(ClassicalInputError):
     """Required pricing columns are missing or use the wrong source dtype."""
 
@@ -90,7 +90,7 @@ class ClassicalInputSchemaError(ClassicalInputError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalInputContentError(ClassicalInputError):
     """Materialized pricing columns violate a financial or buffer invariant."""
 

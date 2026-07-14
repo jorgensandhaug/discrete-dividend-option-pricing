@@ -69,7 +69,7 @@ _PHASE_COUNT: Final = 3
 _VARIANT_VALUES: Final = frozenset(variant.value for variant in NeuralVariant)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralRunError(RuntimeError):
     """A run request, referenced artifact, or manifest violates its identity contract."""
 

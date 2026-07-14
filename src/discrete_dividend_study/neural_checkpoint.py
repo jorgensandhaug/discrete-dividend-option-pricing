@@ -49,7 +49,7 @@ _PRECISION_VALUES: Final = frozenset(precision.value for precision in ModelPreci
 _COMPILATION_VALUES: Final = frozenset(mode.value for mode in CompilationMode)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralCheckpointError(RuntimeError):
     """A checkpoint violates safe storage or immutable identity contracts."""
 

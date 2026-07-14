@@ -41,7 +41,7 @@ class OratsOptionProjectionError(RuntimeError):
     """Base class for an invalid ZIP projection request or artifact."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsOptionProjectionSpecError(OratsOptionProjectionError):
     """Projection settings are incomplete, ambiguous, or unsupported."""
 
@@ -52,7 +52,7 @@ class OratsOptionProjectionSpecError(OratsOptionProjectionError):
         return self.reason
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsOptionProjectionContentError(OratsOptionProjectionError):
     """A verified ZIP, CSV member, or projected frame violates its identity."""
 

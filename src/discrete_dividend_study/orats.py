@@ -33,7 +33,7 @@ class OratsCurveError(ValueError):
     """Base class for an invalid canonical ORATS curve input."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsCurveSchemaError(OratsCurveError):
     """Canonical ORATS curve columns have incorrect runtime dtypes."""
 
@@ -44,7 +44,7 @@ class OratsCurveSchemaError(OratsCurveError):
         return f"ORATS curve column dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsCurveContentError(OratsCurveError):
     """Canonical ORATS maturity groups violate source consistency."""
 
@@ -58,7 +58,7 @@ class OratsCurveContentError(OratsCurveError):
         return f"{self.reason}; maturity={self.maturity!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsCurveDomainError(OratsCurveError):
     """The requested event grid lies outside the observed curve domain."""
 

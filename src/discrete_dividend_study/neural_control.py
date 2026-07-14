@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from .neural_spec import TrainingSpec
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralControlError(ValueError):
     """A training-control transition has an invalid identity or metric."""
 

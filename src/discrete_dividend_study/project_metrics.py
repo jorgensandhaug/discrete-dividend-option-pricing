@@ -19,7 +19,7 @@ _METRIC_CHUNK_ROWS: Final = 1 << 20
 _PERCENT_SCALE: Final = 100.0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ProjectMetricError(ValueError):
     """Targets, predictions, or pooled metric state violate the study contract."""
 

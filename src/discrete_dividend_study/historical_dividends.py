@@ -33,7 +33,7 @@ class HistoricalDividendError(ValueError):
     """Base class for invalid historical-dividend feature inputs."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HistoricalDividendSchemaError(HistoricalDividendError):
     """Quote or dividend-history inputs have incorrect runtime dtypes."""
 
@@ -44,7 +44,7 @@ class HistoricalDividendSchemaError(HistoricalDividendError):
         return f"historical-dividend input dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HistoricalDividendContentError(HistoricalDividendError):
     """Quote or dividend-history rows violate their declared contract."""
 
@@ -55,7 +55,7 @@ class HistoricalDividendContentError(HistoricalDividendError):
         return f"invalid historical-dividend content: {self.violations!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HistoricalDividendSpecError(HistoricalDividendError):
     """A historical-dividend specification is outside its declared domain."""
 

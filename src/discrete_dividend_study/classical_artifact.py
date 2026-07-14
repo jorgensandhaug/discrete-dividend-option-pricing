@@ -85,7 +85,7 @@ class _HashWriter(Protocol):
         """Append bytes to the digest state."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalArtifactError(RuntimeError):
     """A classical result artifact violates identity, storage, or numerical contracts."""
 

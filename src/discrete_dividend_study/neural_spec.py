@@ -22,7 +22,7 @@ class NeuralSpecError(ValueError):
     """Base class for an invalid neural-study identity."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralSpecValueError(NeuralSpecError):
     """A neural-study value is outside its declared domain."""
 

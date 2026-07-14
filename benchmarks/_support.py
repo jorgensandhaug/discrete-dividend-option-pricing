@@ -11,7 +11,7 @@ _RSS_DOMAIN_ERROR: Final = "ru_maxrss must be a nonnegative plain int or float"
 _OPERATING_SYSTEM_TYPE_ERROR: Final = "operating_system must be a plain str"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkPlatformError(RuntimeError):
     """A benchmark metric has no declared interpretation on this platform."""
 

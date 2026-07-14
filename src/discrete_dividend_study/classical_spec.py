@@ -32,7 +32,7 @@ class ClassicalSpecError(ValueError):
     """A classical study or execution identity is incomplete or unsupported."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ClassicalSpecValueError(ClassicalSpecError):
     """One named specification value violates its closed domain."""
 

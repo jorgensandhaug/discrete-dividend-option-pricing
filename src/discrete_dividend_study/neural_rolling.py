@@ -42,7 +42,7 @@ PROJECT_NEURAL_ROLLING_PREPARATION_SPEC: Final = NeuralWindowPreparationSpec(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralRollingPreparationError(RuntimeError):
     """A complete rolling source violates its typed preparation contract."""
 

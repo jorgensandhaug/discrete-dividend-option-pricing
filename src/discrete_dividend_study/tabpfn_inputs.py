@@ -34,7 +34,7 @@ class _HashWriter(Protocol):
         """Append bytes to the digest state."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class TabPfnInputError(ValueError):
     """A future TabPFN input violates the closed project boundary."""
 

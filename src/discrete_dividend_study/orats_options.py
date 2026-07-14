@@ -77,7 +77,7 @@ class OratsOptionError(ValueError):
     """Base class for an invalid ORATS option source or schema."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsOptionSourceError(OratsOptionError):
     """A local licensed delivery is absent or is not a supported CSV source."""
 
@@ -89,7 +89,7 @@ class OratsOptionSourceError(OratsOptionError):
         return f"invalid ORATS CSV source {self.source}: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsOptionSchemaError(OratsOptionError):
     """Required raw option columns have incorrect runtime dtypes."""
 

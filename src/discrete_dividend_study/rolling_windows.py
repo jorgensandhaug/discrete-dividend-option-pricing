@@ -17,7 +17,7 @@ class RollingWindowError(ValueError):
     """Base class for invalid rolling specifications, inputs, or coverage."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RollingWindowPhaseError(TypeError):
     """A phase selector is not a member of the closed phase enum."""
 
@@ -28,7 +28,7 @@ class RollingWindowPhaseError(TypeError):
         return f"phase must be a RollingPhase; observed {self.observed!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RollingWindowSpecError(RollingWindowError):
     """A rolling-window specification is outside its declared domain."""
 
@@ -41,7 +41,7 @@ class RollingWindowSpecError(RollingWindowError):
         return f"{self.field} must be {self.requirement}; observed {self.observed!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RollingWindowSchemaError(RollingWindowError):
     """The rolling source has an incorrect quote-date dtype."""
 
@@ -52,7 +52,7 @@ class RollingWindowSchemaError(RollingWindowError):
         return f"quote_date must have dtype Date; observed {self.observed}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RollingWindowContentError(RollingWindowError):
     """The rolling source contains invalid dates or empty required partitions."""
 

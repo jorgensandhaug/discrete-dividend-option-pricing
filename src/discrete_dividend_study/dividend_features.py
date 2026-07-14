@@ -34,7 +34,7 @@ class DividendFeatureError(ValueError):
     """Base class for invalid dividend-feature specifications or inputs."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DividendFeatureSchemaError(DividendFeatureError):
     """Quote or forecast feature inputs have incorrect runtime dtypes."""
 
@@ -45,7 +45,7 @@ class DividendFeatureSchemaError(DividendFeatureError):
         return f"dividend-feature input dtype mismatches: {self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DividendFeatureContentError(DividendFeatureError):
     """Quote or forecast rows violate the dividend-feature contract."""
 
@@ -56,7 +56,7 @@ class DividendFeatureContentError(DividendFeatureError):
         return f"invalid dividend-feature content: {self.violations!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DividendFeatureSpecError(DividendFeatureError):
     """A dividend-feature specification is outside its declared domain."""
 

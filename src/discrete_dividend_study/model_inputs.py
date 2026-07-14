@@ -56,7 +56,7 @@ class ModelInputError(ValueError):
     """Base class for an invalid materialized neural-model boundary."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ModelInputTypeError(TypeError):
     """The caller passed the wrong runtime boundary type."""
 
@@ -69,7 +69,7 @@ class ModelInputTypeError(TypeError):
         return f"{self.field} must be {self.expected}; observed {self.observed}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ModelInputSchemaError(ModelInputError):
     """Required model columns are missing or have incorrect dtypes."""
 
@@ -81,7 +81,7 @@ class ModelInputSchemaError(ModelInputError):
         return f"model input schema error: missing={self.missing!r}, mismatches={self.mismatches!r}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ModelInputContentError(ModelInputError):
     """Materialized model rows violate numeric or paired-list contracts."""
 

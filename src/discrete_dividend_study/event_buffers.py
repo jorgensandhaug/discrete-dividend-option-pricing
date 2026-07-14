@@ -24,7 +24,7 @@ class EventBufferPolicy(StrEnum):
     ALLOW_RECHUNK = "allow_rechunk"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EventBufferError(ValueError):
     """A list child buffer cannot satisfy the declared copy policy."""
 
@@ -37,7 +37,7 @@ class EventBufferError(ValueError):
         return f"event column {self.column!r} violates {self.policy.value}: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EventBufferTypeError(TypeError):
     """The extractor received an unsupported runtime boundary value."""
 
@@ -50,7 +50,7 @@ class EventBufferTypeError(TypeError):
         return f"{self.field} must be {self.expected}; observed {self.observed}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EventBufferContentError(ValueError):
     """Paired event lists cannot form one exact Arrow-compatible ragged view."""
 

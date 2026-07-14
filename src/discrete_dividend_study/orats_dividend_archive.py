@@ -40,7 +40,7 @@ class OratsDividendArchiveError(RuntimeError):
     """Base class for invalid annual dividend archive operations."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendArchiveConfigurationError(OratsDividendArchiveError):
     """Static HTTPS archive settings violate the explicit contract."""
 
@@ -51,7 +51,7 @@ class OratsDividendArchiveConfigurationError(OratsDividendArchiveError):
         return self.reason
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendArchiveTransportError(OratsDividendArchiveError):
     """An authenticated HTTPS request failed."""
 
@@ -64,7 +64,7 @@ class OratsDividendArchiveTransportError(OratsDividendArchiveError):
         return f"ORATS dividend HTTPS {self.method} failed for {self.url}: {self.reason}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OratsDividendArchiveIntegrityError(OratsDividendArchiveError):
     """A remote identity, manifest, transfer, or receipt is invalid."""
 

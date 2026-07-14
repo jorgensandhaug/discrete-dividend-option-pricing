@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from .neural_spec import NeuralModelSpec
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralWindowPreparationError(RuntimeError):
     """Polars failed to resolve the complete declared phase request."""
 

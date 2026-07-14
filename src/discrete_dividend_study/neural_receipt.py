@@ -14,7 +14,7 @@ _FORMAT: Final = "discrete-dividend-neural-run-receipt-v1"
 _SHA256_HEX_LENGTH: Final = 64
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralRunReceiptError(RuntimeError):
     """A request receipt violates canonical storage or cross-reference contracts."""
 

@@ -18,7 +18,7 @@ from .neural_spec import NeuralStudySpec, TrainingSpec
 _SHA256_HEX_LENGTH = 64
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class NeuralTrainingError(RuntimeError):
     """A training backend encountered invalid numerical or run state."""
 
