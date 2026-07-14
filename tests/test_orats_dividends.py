@@ -22,6 +22,7 @@ from discrete_dividend_study import (
 )
 
 RAW_ROW_COUNT = 5
+DUPLICATE_ROW_COUNT = 2
 
 
 def write_forecast(path: Path, rows: str) -> Path:
@@ -111,6 +112,23 @@ def test_invalid_financial_rows_fail_before_future_selection(
     )
     with pytest.raises(OratsDividendContentError, match=violation):
         canonicalize_raw_orats_dividend_forecast(scan_raw_orats_dividend_forecast(source))
+
+
+def test_provenance_layer_may_preserve_duplicates_but_study_selection_rejects_them(
+    tmp_path: Path,
+) -> None:
+    """Source multiplicity can be retained without becoming an implicit financial policy."""
+    source = write_forecast(
+        tmp_path / "20240102ORATSStockDivForecasts.txt",
+        "AAA 2024-02-01 0.25 4\nAAA 2024-02-01 0.25 4\n",
+    )
+    canonical = canonicalize_raw_orats_dividend_forecast(
+        scan_raw_orats_dividend_forecast(source),
+        duplicate_policy="preserve",
+    )
+    assert canonical.collect().height == DUPLICATE_ROW_COUNT
+    with pytest.raises(OratsDividendContentError, match="duplicate_rows"):
+        select_future_orats_dividend_forecasts(canonical)
 
 
 def test_canonical_precision_is_not_coerced() -> None:

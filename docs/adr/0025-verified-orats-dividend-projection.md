@@ -21,12 +21,21 @@ streaming aggregate proves that every snapshot is nonempty and every row has exa
 provider fields, including the historically optional terminal delimiter. A second streaming scan
 pushes down the declared ticker set. Only that bounded materialization is canonicalized into exact
 date, Float64 cash amount, and UInt8 frequency types, financially validated, and deterministically
-sorted. This artifact preserves past, same-day, future, zero-amount, and distinct same-date provider
-rows; the submitted `ex_date > forecast_date` study rule remains a separate explicit transformation.
+sorted. This provenance artifact preserves past, same-day, future, zero-amount, distinct same-date,
+and exact duplicate provider rows. Duplicate counts are explicit receipt data and remain invalid
+study inputs until a separate declared policy resolves them; the submitted `ex_date > forecast_date`
+study rule is likewise a separate explicit transformation.
+
+Missing or blank ticker keys fail by default. The projection identity may instead declare
+`record-and-exclude`: only rows with a missing ticker and otherwise complete typed financial fields
+are excluded from a ticker projection, and their count is bound to the affected snapshot and annual
+receipt. Missing financial fields and extra fields always fail. This is an explicit key-domain
+decision, not a parser fallback.
 
 Annual Zstandard Parquet lives at `<root>/<projection-spec-sha256>/<year>.parquet`. Its receipt binds
 the annual remote object and raw ZIP SHA-256, complete ticker/resource/physical specification,
 canonical schema hash, every snapshot's member path, date, CRC32, byte counts, SHA-256, full raw row
-count and selected row count, plus output rows, bytes, observed tickers, and SHA-256. Existing output
-is reusable only after exact receipt, size, and fresh hash validation. Scratch is removed after
-success or failure; no malformed or partial artifact is repaired, overwritten, or silently skipped.
+count, selected row count, and selected canonical duplicate count, plus output rows, duplicate rows,
+unidentified source rows, bytes, observed tickers, and SHA-256. Existing output is reusable only
+after exact receipt, size, and fresh hash validation. Scratch is removed after success or failure;
+no malformed or partial artifact is repaired, overwritten, or silently skipped.

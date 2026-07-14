@@ -144,10 +144,15 @@ uv run --locked discrete-dividend-study materialize-orats-dividends \
 ```
 
 Every regular snapshot is CRC-checked and hashed, all rows receive a strict structural preflight,
-and each annual receipt records raw and selected row counts for every forecast date—including dates
-with zero selected rows. The canonical output deliberately precedes the separate future-event rule.
-[ADR 0025](docs/adr/0025-verified-orats-dividend-projection.md) records the accepted historical ZIP
-layouts and artifact contract.
+and each annual receipt records raw, selected, and exact canonical duplicate row counts for every
+forecast date—including dates with zero selected rows. The provenance output preserves duplicates;
+they remain invalid study inputs until an explicit downstream policy resolves them. The output also
+deliberately precedes the separate future-event rule. [ADR 0025](docs/adr/0025-verified-orats-dividend-projection.md)
+records the accepted historical ZIP layouts and artifact contract.
+
+Missing ticker keys fail by default. A fully receipted bounded projection may explicitly add
+`--unidentified-row-policy record-and-exclude`; the command still rejects missing financial fields
+or extra content, and the policy becomes part of the projection hash.
 
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather

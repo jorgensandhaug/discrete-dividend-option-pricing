@@ -330,10 +330,15 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
     raw_directory = _required_path(arguments.raw_directory, field="raw-directory", kind="directory")
     scratch = _required_path(arguments.scratch, field="scratch", kind="directory")
     output_root = _destination_directory(arguments.output_root)
-    spec = OratsDividendProjectionSpec(tickers=tuple(arguments.ticker))
+    spec = OratsDividendProjectionSpec(
+        tickers=tuple(arguments.ticker),
+        unidentified_row_policy=arguments.unidentified_row_policy,
+    )
     completed = 0
     output_bytes = 0
+    output_duplicate_rows = 0
     output_rows = 0
+    source_unidentified_rows = 0
     snapshots = 0
     for entry in inventory.entries:
         source = load_verified_orats_dividend_archive(
@@ -346,12 +351,16 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
         output = materialize_orats_dividend_projection(source, spec, output_root, scratch)
         completed += 1
         output_bytes += output.receipt.output_bytes
+        output_duplicate_rows += output.receipt.output_duplicate_rows
         output_rows += output.receipt.output_rows
+        source_unidentified_rows += output.receipt.source_unidentified_rows
         snapshots += len(output.receipt.snapshots)
         progress = {
             "output": str(output.path),
             "output_sha256": output.receipt.output_sha256,
+            "duplicate_rows": output.receipt.output_duplicate_rows,
             "rows": output.receipt.output_rows,
+            "source_unidentified_rows": output.receipt.source_unidentified_rows,
             "snapshots": len(output.receipt.snapshots),
             "year": entry.year,
         }
@@ -360,10 +369,12 @@ def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
         "entries": completed,
         "entries_sha256": inventory.entries_sha256,
         "output_bytes": output_bytes,
+        "output_duplicate_rows": output_duplicate_rows,
         "output_root": str(output_root),
         "projection_spec_sha256": orats_dividend_projection_spec_sha256(spec),
         "rows": output_rows,
         "snapshots": snapshots,
+        "source_unidentified_rows": source_unidentified_rows,
     }
     sys.stdout.write(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
@@ -591,6 +602,11 @@ def _add_dividend_data_commands(
     dividend_materialize.add_argument("--output-root", type=Path, required=True)
     dividend_materialize.add_argument("--scratch", type=Path, required=True)
     dividend_materialize.add_argument("--ticker", action="append", required=True)
+    dividend_materialize.add_argument(
+        "--unidentified-row-policy",
+        choices=("reject", "record-and-exclude"),
+        default="reject",
+    )
     dividend_materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
 
 

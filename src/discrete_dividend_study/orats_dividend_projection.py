@@ -25,8 +25,8 @@ from .orats_dividends import (
     canonicalize_raw_orats_dividend_forecast,
 )
 
-ORATS_DIVIDEND_PROJECTION_VERSION: Final = 1
-ORATS_DIVIDEND_PROJECTION_RECEIPT_VERSION: Final = 1
+ORATS_DIVIDEND_PROJECTION_VERSION: Final = 3
+ORATS_DIVIDEND_PROJECTION_RECEIPT_VERSION: Final = 3
 ORATS_DIVIDEND_PROJECTION_COMPRESSION: Final = "zstd"
 ORATS_DIVIDEND_PROJECTION_COMPRESSION_LEVEL: Final = 3
 ORATS_DIVIDEND_PROJECTION_ROW_GROUP_SIZE: Final = 65_536
@@ -53,6 +53,7 @@ _SCAN_DTYPES = {
     "frequency_per_year": pl.UInt8,
     _SCAN_TERMINAL_COLUMN: pl.String,
 }
+OratsDividendUnidentifiedRowPolicy = Literal["reject", "record-and-exclude"]
 
 
 class OratsDividendProjectionError(RuntimeError):
@@ -88,6 +89,7 @@ class OratsDividendProjectionSpec:
     """Exact ticker, resource, and physical Parquet identity."""
 
     tickers: tuple[str, ...]
+    unidentified_row_policy: OratsDividendUnidentifiedRowPolicy = "reject"
     compression: Literal["zstd"] = ORATS_DIVIDEND_PROJECTION_COMPRESSION
     compression_level: int = ORATS_DIVIDEND_PROJECTION_COMPRESSION_LEVEL
     row_group_size: int = ORATS_DIVIDEND_PROJECTION_ROW_GROUP_SIZE
@@ -109,6 +111,9 @@ class OratsDividendProjectionSpec:
             raise OratsDividendProjectionSpecError(msg)
         if any(_TICKER_PATTERN.fullmatch(ticker) is None for ticker in self.tickers):
             msg = "ORATS dividend projection tickers must use canonical uppercase symbols"
+            raise OratsDividendProjectionSpecError(msg)
+        if self.unidentified_row_policy not in ("reject", "record-and-exclude"):
+            msg = "unsupported unidentified-row policy"
             raise OratsDividendProjectionSpecError(msg)
         if self.compression != ORATS_DIVIDEND_PROJECTION_COMPRESSION:
             msg = "ORATS dividend projection compression must be zstd"
@@ -146,6 +151,7 @@ class OratsDividendProjectionSpec:
             "row_group_size": self.row_group_size,
             "schema_version": self.schema_version,
             "tickers": list(self.tickers),
+            "unidentified_row_policy": self.unidentified_row_policy,
         }
 
     @classmethod
@@ -160,10 +166,12 @@ class OratsDividendProjectionSpec:
             "row_group_size",
             "schema_version",
             "tickers",
+            "unidentified_row_policy",
         }
         mapping = _exact_mapping(raw, expected, "dividend projection spec")
         compression = mapping["compression"]
         tickers_raw = mapping["tickers"]
+        unidentified_row_policy = mapping["unidentified_row_policy"]
         integer_names = (
             "compression_level",
             "max_member_bytes",
@@ -172,7 +180,11 @@ class OratsDividendProjectionSpec:
             "row_group_size",
             "schema_version",
         )
-        if type(compression) is not str or type(tickers_raw) is not list:
+        if (
+            type(compression) is not str
+            or type(tickers_raw) is not list
+            or type(unidentified_row_policy) is not str
+        ):
             msg = "dividend projection spec fields are malformed"
             raise OratsDividendProjectionContentError(msg)
         if any(type(mapping[name]) is not int for name in integer_names):
@@ -183,6 +195,10 @@ class OratsDividendProjectionSpec:
             raise OratsDividendProjectionContentError(msg)
         return cls(
             tickers=tuple(cast("list[str]", tickers_raw)),
+            unidentified_row_policy=cast(
+                "OratsDividendUnidentifiedRowPolicy",
+                unidentified_row_policy,
+            ),
             compression=cast("Literal['zstd']", compression),
             compression_level=cast("int", mapping["compression_level"]),
             row_group_size=cast("int", mapping["row_group_size"]),
@@ -215,7 +231,9 @@ class OratsDividendSnapshotReceipt:
     member_uncompressed_bytes: int
     member_uncompressed_sha256: str
     raw_rows: int
+    unidentified_rows: int
     selected_rows: int
+    selected_duplicate_rows: int
 
     def __post_init__(self) -> None:
         """Validate member/date/hash/count identities."""
@@ -235,8 +253,18 @@ class OratsDividendSnapshotReceipt:
         if not _is_sha256(self.member_uncompressed_sha256):
             msg = "snapshot member SHA-256 is malformed"
             raise OratsDividendProjectionContentError(msg, self.member_name)
-        if self.raw_rows <= 0 or not 0 <= self.selected_rows <= self.raw_rows:
+        if (
+            self.raw_rows <= 0
+            or not 0 <= self.unidentified_rows <= self.raw_rows
+            or not 0 <= self.selected_rows <= self.raw_rows - self.unidentified_rows
+        ):
             msg = "snapshot raw/selected row counts are invalid"
+            raise OratsDividendProjectionContentError(msg, self.member_name)
+        if (
+            not 0 <= self.selected_duplicate_rows <= self.selected_rows
+            or self.selected_duplicate_rows == 1
+        ):
+            msg = "snapshot selected duplicate-row count is invalid"
             raise OratsDividendProjectionContentError(msg, self.member_name)
 
     def as_dict(self) -> dict[str, object]:
@@ -249,7 +277,9 @@ class OratsDividendSnapshotReceipt:
             "member_uncompressed_bytes": self.member_uncompressed_bytes,
             "member_uncompressed_sha256": self.member_uncompressed_sha256,
             "raw_rows": self.raw_rows,
+            "selected_duplicate_rows": self.selected_duplicate_rows,
             "selected_rows": self.selected_rows,
+            "unidentified_rows": self.unidentified_rows,
         }
 
     @classmethod
@@ -263,7 +293,9 @@ class OratsDividendSnapshotReceipt:
             "member_uncompressed_bytes",
             "member_uncompressed_sha256",
             "raw_rows",
+            "selected_duplicate_rows",
             "selected_rows",
+            "unidentified_rows",
         }
         mapping = _exact_mapping(raw, expected, "dividend snapshot receipt")
         forecast_raw = mapping["forecast_date"]
@@ -272,7 +304,9 @@ class OratsDividendSnapshotReceipt:
             "member_compressed_bytes",
             "member_uncompressed_bytes",
             "raw_rows",
+            "selected_duplicate_rows",
             "selected_rows",
+            "unidentified_rows",
         )
         if type(forecast_raw) is not str or any(
             type(mapping[name]) is not str for name in string_names
@@ -295,7 +329,9 @@ class OratsDividendSnapshotReceipt:
             member_uncompressed_bytes=cast("int", mapping["member_uncompressed_bytes"]),
             member_uncompressed_sha256=cast("str", mapping["member_uncompressed_sha256"]),
             raw_rows=cast("int", mapping["raw_rows"]),
+            selected_duplicate_rows=cast("int", mapping["selected_duplicate_rows"]),
             selected_rows=cast("int", mapping["selected_rows"]),
+            unidentified_rows=cast("int", mapping["unidentified_rows"]),
         )
 
 
@@ -311,9 +347,11 @@ class OratsDividendProjectionReceipt:
     snapshots: tuple[OratsDividendSnapshotReceipt, ...]
     output_name: str
     output_rows: int
+    output_duplicate_rows: int
     output_bytes: int
     output_sha256: str
     observed_tickers: tuple[str, ...]
+    source_unidentified_rows: int
     schema_version: int = ORATS_DIVIDEND_PROJECTION_RECEIPT_VERSION
 
     def __post_init__(self) -> None:
@@ -367,10 +405,34 @@ class OratsDividendProjectionReceipt:
         if sum(snapshot.selected_rows for snapshot in self.snapshots) != self.output_rows:
             msg = "dividend projection snapshot rows disagree with output rows"
             raise OratsDividendProjectionContentError(msg)
+        if (
+            sum(snapshot.selected_duplicate_rows for snapshot in self.snapshots)
+            != self.output_duplicate_rows
+        ):
+            msg = "dividend projection snapshot duplicates disagree with output duplicates"
+            raise OratsDividendProjectionContentError(msg)
+        if sum(snapshot.unidentified_rows for snapshot in self.snapshots) != (
+            self.source_unidentified_rows
+        ):
+            msg = "dividend projection snapshot unidentified rows disagree with their total"
+            raise OratsDividendProjectionContentError(msg)
+        if (
+            self.projection_spec.unidentified_row_policy == "reject"
+            and self.source_unidentified_rows != 0
+        ):
+            msg = "reject policy cannot receipt unidentified source rows"
+            raise OratsDividendProjectionContentError(msg)
         if self.output_name != f"{self.source_entry.year}.parquet":
             msg = "dividend projection output name disagrees with its archive year"
             raise OratsDividendProjectionContentError(msg)
-        if self.output_rows <= 0 or self.output_bytes <= 0 or not _is_sha256(self.output_sha256):
+        if (
+            self.output_rows <= 0
+            or not 0 <= self.output_duplicate_rows <= self.output_rows
+            or self.output_duplicate_rows == 1
+            or self.source_unidentified_rows < 0
+            or self.output_bytes <= 0
+            or not _is_sha256(self.output_sha256)
+        ):
             msg = "dividend projection output identity is malformed"
             raise OratsDividendProjectionContentError(msg)
         if self.observed_tickers != tuple(sorted(set(self.observed_tickers))):
@@ -388,6 +450,7 @@ class OratsDividendProjectionReceipt:
             "canonical_schema_sha256": self.canonical_schema_sha256,
             "observed_tickers": list(self.observed_tickers),
             "output_bytes": self.output_bytes,
+            "output_duplicate_rows": self.output_duplicate_rows,
             "output_name": self.output_name,
             "output_rows": self.output_rows,
             "output_sha256": self.output_sha256,
@@ -397,6 +460,7 @@ class OratsDividendProjectionReceipt:
             "snapshots": [snapshot.as_dict() for snapshot in self.snapshots],
             "source_archive_sha256": self.source_archive_sha256,
             "source_entry": self.source_entry.as_dict(),
+            "source_unidentified_rows": self.source_unidentified_rows,
         }
 
     @classmethod
@@ -406,6 +470,7 @@ class OratsDividendProjectionReceipt:
             "canonical_schema_sha256",
             "observed_tickers",
             "output_bytes",
+            "output_duplicate_rows",
             "output_name",
             "output_rows",
             "output_sha256",
@@ -415,6 +480,7 @@ class OratsDividendProjectionReceipt:
             "snapshots",
             "source_archive_sha256",
             "source_entry",
+            "source_unidentified_rows",
         }
         mapping = _exact_mapping(raw, expected, "dividend projection receipt")
         string_names = (
@@ -424,7 +490,13 @@ class OratsDividendProjectionReceipt:
             "projection_spec_sha256",
             "source_archive_sha256",
         )
-        integer_names = ("output_bytes", "output_rows", "schema_version")
+        integer_names = (
+            "output_bytes",
+            "output_duplicate_rows",
+            "output_rows",
+            "schema_version",
+            "source_unidentified_rows",
+        )
         if any(type(mapping[name]) is not str for name in string_names):
             msg = "dividend projection receipt fields are malformed"
             raise OratsDividendProjectionContentError(msg)
@@ -451,9 +523,11 @@ class OratsDividendProjectionReceipt:
             ),
             output_name=cast("str", mapping["output_name"]),
             output_rows=cast("int", mapping["output_rows"]),
+            output_duplicate_rows=cast("int", mapping["output_duplicate_rows"]),
             output_bytes=cast("int", mapping["output_bytes"]),
             output_sha256=cast("str", mapping["output_sha256"]),
             observed_tickers=tuple(cast("list[str]", tickers_raw)),
+            source_unidentified_rows=cast("int", mapping["source_unidentified_rows"]),
             schema_version=cast("int", mapping["schema_version"]),
         )
 
@@ -475,6 +549,12 @@ class _ExtractedSnapshot:
     compressed_bytes: int
     uncompressed_bytes: int
     uncompressed_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceRowCounts:
+    raw_rows: int
+    unidentified_rows: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -669,26 +749,31 @@ def _scan_extracted_snapshots(extracted: tuple[_ExtractedSnapshot, ...]) -> pl.L
 def _collect_projection(
     extracted: tuple[_ExtractedSnapshot, ...],
     spec: OratsDividendProjectionSpec,
-) -> tuple[pl.DataFrame, dict[Path, int]]:
+) -> tuple[pl.DataFrame, dict[Path, _SourceRowCounts]]:
     scan = _scan_extracted_snapshots(extracted)
     try:
         structure = (
             scan.group_by(_SCAN_SOURCE_COLUMN)
             .agg(
                 pl.len().alias("raw_rows"),
+                (
+                    pl.col("ticker").is_null()
+                    | pl.col("ticker").str.strip_chars().eq("").fill_null(value=False)
+                )
+                .sum()
+                .alias("unidentified_rows"),
                 pl.any_horizontal(
-                    pl.col("ticker").is_null(),
                     pl.col("ex_date_raw").is_null(),
                     pl.col("amount").is_null(),
                     pl.col("frequency_per_year").is_null(),
                 )
                 .sum()
-                .alias("rows_with_missing_fields"),
+                .alias("rows_with_missing_financial_fields"),
                 pl.col(_SCAN_TERMINAL_COLUMN).is_not_null().sum().alias("rows_with_extra_fields"),
             )
             .collect(engine="streaming")
         )
-        raw_rows = _validate_structure(structure, extracted)
+        raw_rows = _validate_structure(structure, extracted, spec)
         selected = (
             scan.filter(pl.col("ticker").is_in(spec.tickers))
             .select(
@@ -709,7 +794,10 @@ def _collect_projection(
     if selected.is_empty():
         msg = "annual dividend archive contains no rows for the declared ticker projection"
         raise OratsDividendProjectionContentError(msg)
-    canonical = canonicalize_raw_orats_dividend_forecast(selected.lazy()).collect()
+    canonical = canonicalize_raw_orats_dividend_forecast(
+        selected.lazy(),
+        duplicate_policy="preserve",
+    ).collect()
     if canonical.schema != pl.Schema(ORATS_DIVIDEND_DTYPES):
         msg = "annual dividend projection materialized an unsupported schema"
         raise OratsDividendProjectionContentError(msg)
@@ -728,31 +816,50 @@ def _collect_projection(
 def _validate_structure(
     structure: pl.DataFrame,
     extracted: tuple[_ExtractedSnapshot, ...],
-) -> dict[Path, int]:
+    spec: OratsDividendProjectionSpec,
+) -> dict[Path, _SourceRowCounts]:
     expected = {item.path for item in extracted}
     observed = {Path(value) for value in structure.get_column(_SCAN_SOURCE_COLUMN).to_list()}
     if observed != expected:
         msg = "one or more regular dividend snapshots contain no parseable rows"
         raise OratsDividendProjectionContentError(msg)
-    missing = structure.get_column("rows_with_missing_fields").sum()
+    missing = structure.get_column("rows_with_missing_financial_fields").sum()
     extra = structure.get_column("rows_with_extra_fields").sum()
     if missing != 0 or extra != 0:
         msg = "regular dividend snapshots are not exactly four space-delimited fields"
         raise OratsDividendProjectionContentError(msg)
+    unidentified = structure.get_column("unidentified_rows").sum()
+    if unidentified != 0 and spec.unidentified_row_policy == "reject":
+        msg = "regular dividend snapshots contain unidentified rows under the reject policy"
+        raise OratsDividendProjectionContentError(msg)
     return {
-        Path(path): rows
-        for path, rows in structure.select(_SCAN_SOURCE_COLUMN, "raw_rows").iter_rows()
+        Path(path): _SourceRowCounts(raw_rows=rows, unidentified_rows=unidentified_rows)
+        for path, rows, unidentified_rows in structure.select(
+            _SCAN_SOURCE_COLUMN,
+            "raw_rows",
+            "unidentified_rows",
+        ).iter_rows()
     }
 
 
 def _snapshot_receipts(
     extracted: tuple[_ExtractedSnapshot, ...],
     frame: pl.DataFrame,
-    raw_rows: dict[Path, int],
+    raw_rows: dict[Path, _SourceRowCounts],
 ) -> tuple[OratsDividendSnapshotReceipt, ...]:
-    selected_counts = {
-        value[0]: value[1]
-        for value in frame.group_by("forecast_date").len(name="selected_rows").iter_rows()
+    selected_diagnostics = {
+        forecast_date: (selected_rows, selected_duplicate_rows)
+        for forecast_date, selected_rows, selected_duplicate_rows in (
+            frame.group_by("forecast_date")
+            .agg(
+                pl.len().alias("selected_rows"),
+                pl.struct(tuple(ORATS_DIVIDEND_DTYPES))
+                .is_duplicated()
+                .sum()
+                .alias("selected_duplicate_rows"),
+            )
+            .iter_rows()
+        )
     }
     return tuple(
         OratsDividendSnapshotReceipt(
@@ -762,8 +869,10 @@ def _snapshot_receipts(
             member_compressed_bytes=item.compressed_bytes,
             member_uncompressed_bytes=item.uncompressed_bytes,
             member_uncompressed_sha256=item.uncompressed_sha256,
-            raw_rows=raw_rows[item.path],
-            selected_rows=selected_counts.get(item.forecast_date, 0),
+            raw_rows=raw_rows[item.path].raw_rows,
+            unidentified_rows=raw_rows[item.path].unidentified_rows,
+            selected_rows=selected_diagnostics.get(item.forecast_date, (0, 0))[0],
+            selected_duplicate_rows=selected_diagnostics.get(item.forecast_date, (0, 0))[1],
         )
         for item in extracted
     )
@@ -801,9 +910,11 @@ def _write_projection(
             snapshots=snapshots,
             output_name=output_path.name,
             output_rows=frame.height,
+            output_duplicate_rows=sum(snapshot.selected_duplicate_rows for snapshot in snapshots),
             output_bytes=partial.stat().st_size,
             output_sha256=_file_sha256(partial),
             observed_tickers=tuple(sorted(frame.get_column("ticker").unique().to_list())),
+            source_unidentified_rows=sum(snapshot.unidentified_rows for snapshot in snapshots),
         )
         partial.replace(output_path)
         try:
@@ -980,6 +1091,7 @@ __all__ = [
     "OratsDividendProjectionSpec",
     "OratsDividendProjectionSpecError",
     "OratsDividendSnapshotReceipt",
+    "OratsDividendUnidentifiedRowPolicy",
     "materialize_orats_dividend_projection",
     "orats_dividend_projection_spec_sha256",
     "orats_dividend_schema_sha256",

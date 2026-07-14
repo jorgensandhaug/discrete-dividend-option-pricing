@@ -46,6 +46,7 @@ SECOND_NAME = "20240103ORATSStockDivForecasts.txt"
 FIRST_ROWS = "DUK 2024-02-01 0.25 4\nVZ 2024-03-01 0.66 4 \nAAPL 2024-02-09 0.24 4\n"
 SECOND_ROWS = "DUK 2024-05-01 0.27 4\nAAPL 2024-05-10 0.25 4\n"
 PROJECTED_ROW_COUNT = 3
+DUPLICATE_ROW_COUNT = 2
 
 
 def _verified_archive(
@@ -134,6 +135,51 @@ def test_projection_never_reuses_same_size_corrupted_output(tmp_path: Path) -> N
             tmp_path / "projected",
             tmp_path,
         )
+
+
+def test_projection_preserves_and_receipts_source_duplicate_rows(tmp_path: Path) -> None:
+    """Immutable provenance retains multiplicity without silently choosing a study policy."""
+    source = _verified_archive(
+        tmp_path,
+        first_rows="DUK 2024-02-01 0.25 4\nDUK 2024-02-01 0.25 4\n",
+    )
+    projected = materialize_orats_dividend_projection(
+        source,
+        _spec(),
+        tmp_path / "projected",
+        tmp_path,
+    )
+    assert projected.receipt.output_duplicate_rows == DUPLICATE_ROW_COUNT
+    assert projected.receipt.snapshots[0].selected_duplicate_rows == DUPLICATE_ROW_COUNT
+    assert pl.read_parquet(projected.path).height == PROJECTED_ROW_COUNT
+
+
+def test_projection_requires_explicit_policy_for_unidentified_source_rows(tmp_path: Path) -> None:
+    """A missing source key is rejected unless the projection identity records its exclusion."""
+    source = _verified_archive(
+        tmp_path,
+        first_rows=" 2024-02-01 0.25 4\n",
+    )
+    with pytest.raises(OratsDividendProjectionContentError, match="unidentified rows"):
+        materialize_orats_dividend_projection(
+            source,
+            _spec(),
+            tmp_path / "rejected",
+            tmp_path,
+        )
+
+    projected = materialize_orats_dividend_projection(
+        source,
+        OratsDividendProjectionSpec(
+            tickers=("DUK", "VZ"),
+            unidentified_row_policy="record-and-exclude",
+        ),
+        tmp_path / "recorded",
+        tmp_path,
+    )
+    assert projected.receipt.source_unidentified_rows == 1
+    assert projected.receipt.snapshots[0].unidentified_rows == 1
+    assert pl.read_parquet(projected.path).height == 1
 
 
 @pytest.mark.parametrize(
@@ -242,8 +288,10 @@ def test_cli_binds_complete_inventory_raw_receipts_and_projection(
     captured = capsys.readouterr()
     summary = json.loads(captured.out)
     assert summary["entries"] == len(inventory.entries)
+    assert summary["output_duplicate_rows"] == 0
     assert summary["rows"] == PROJECTED_ROW_COUNT
     assert summary["snapshots"] == len((FIRST_NAME, SECOND_NAME))
+    assert summary["source_unidentified_rows"] == 0
     assert str(YEAR) in captured.err
     assert main(arguments) == 0
 

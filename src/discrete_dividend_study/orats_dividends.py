@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import polars as pl
 
@@ -34,6 +34,7 @@ _ORATS_DIVIDEND_FILENAME = re.compile(
     r"^(?P<forecast_date>\d{8})(?:\d{4})?ORATSStockDivForecasts?\.txt$",
 )
 _RAW_FIELD_COUNT = 4
+OratsDividendDuplicatePolicy = Literal["reject", "preserve"]
 
 
 class OratsDividendError(ValueError):
@@ -169,7 +170,11 @@ def _validate_dtypes(
     return validated
 
 
-def _raw_content_violations(frame: pl.LazyFrame) -> tuple[tuple[str, int], ...]:
+def _raw_content_violations(
+    frame: pl.LazyFrame,
+    *,
+    duplicate_policy: OratsDividendDuplicatePolicy,
+) -> tuple[tuple[str, int], ...]:
     diagnostics = (
         frame.select(
             pl.len().alias("rows"),
@@ -211,20 +216,30 @@ def _raw_content_violations(frame: pl.LazyFrame) -> tuple[tuple[str, int], ...]:
     )
     if diagnostics["rows"] == 0:
         return (("empty_input", 1),)
+    ignored = {"rows"}
+    if duplicate_policy == "preserve":
+        ignored.add("duplicate_rows")
     return tuple(
         (name, value)
         for name, value in diagnostics.items()
-        if name != "rows" and type(value) is int and value != 0
+        if name not in ignored and type(value) is int and value != 0
     )
 
 
-def canonicalize_raw_orats_dividend_forecast(frame: pl.LazyFrame) -> pl.LazyFrame:
+def canonicalize_raw_orats_dividend_forecast(
+    frame: pl.LazyFrame,
+    *,
+    duplicate_policy: OratsDividendDuplicatePolicy = "reject",
+) -> pl.LazyFrame:
     """Project raw fields into typed forecast-date, ex-date, amount, and frequency rows.
 
     This stage preserves vendor row order, zero-amount placeholders, past/same-day records, and
-    distinct same-date cash components. Amounts are parsed directly as `Float64`, matching the
-    submitted loader and the engine's durable cash-event precision. Ex-dates use strict ISO
-    `YYYY-MM-DD` parsing. The future-event selection is intentionally a separate operation.
+    distinct same-date cash components. Exact duplicates are rejected by default. A provenance
+    layer may explicitly request ``duplicate_policy="preserve"`` to retain source multiplicity;
+    such rows remain invalid study inputs until a separate declared policy resolves them. Amounts
+    are parsed directly as `Float64`, matching the submitted loader and the engine's durable cash-
+    event precision. Ex-dates use strict ISO `YYYY-MM-DD` parsing. The future-event selection is
+    intentionally a separate operation.
 
     Raises:
         MissingColumnsError: If a required raw field is absent.
@@ -233,8 +248,10 @@ def canonicalize_raw_orats_dividend_forecast(frame: pl.LazyFrame) -> pl.LazyFram
             frequency/amount domain.
 
     """
+    if duplicate_policy not in ("reject", "preserve"):
+        raise OratsDividendContentError(violations=(("unsupported_duplicate_policy", 1),))
     validated = _validate_dtypes(frame, ORATS_RAW_DIVIDEND_DTYPES)
-    violations = _raw_content_violations(validated)
+    violations = _raw_content_violations(validated, duplicate_policy=duplicate_policy)
     if violations:
         raise OratsDividendContentError(violations=violations)
     canonical = validated.select(
@@ -320,6 +337,7 @@ __all__ = [
     "ORATS_DIVIDEND_FREQUENCIES",
     "ORATS_RAW_DIVIDEND_DTYPES",
     "OratsDividendContentError",
+    "OratsDividendDuplicatePolicy",
     "OratsDividendError",
     "OratsDividendSchemaError",
     "OratsDividendSourceError",
