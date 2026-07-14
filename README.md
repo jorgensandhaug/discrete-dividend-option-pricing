@@ -353,13 +353,17 @@ uv run --locked discrete-dividend-study run-classical-study \
   --training-domain-start 0 \
   --evaluation-seed 2026071402 \
   --evaluation-domain-start 1000000000 \
+  --population-addressing natural_strike_groups \
   --event-buffer-policy allow_rechunk
 ```
 
-The command projects and materializes only the ten classical input columns, verifies that the
-feature artifact and dependency lock did not change during preparation, and prints only aggregate
-metrics plus the verified content-addressed artifact identity. `require_zero_copy` is available
-when the Parquet list buffers are already contiguous; rechunking is never implicit.
+The command lazily projects and orders only the required classical columns, then proves that every
+`(ticker, quote_date, expiry_date)` group has one exact simulated state and unique strikes before
+entering the native engine. It verifies that the feature artifact and dependency lock did not
+change during preparation, and prints only aggregate metrics plus the verified content-addressed
+artifact identity. Use the explicit `contract_rows` addressing only for the independent-path audit
+comparator; execution topology is never inferred or silently changed. `require_zero_copy` is
+available when the Parquet list buffers are already contiguous; rechunking is never implicit.
 Use `rust_std_f64` instead on non-macOS systems; backend identity is mandatory and embedded in the
 artifact rather than selected from the host automatically.
 

@@ -58,8 +58,9 @@ regression change, or fallback is permitted.
   data.
 - Polars remains the lazy preparation engine, while Rust owns the stateful numerical kernel. There
   is no opaque row callback or Polars plugin dependency in the financial engine.
-- The row-addressed path remains available as an audit comparator. Grouped pricing is selected by a
-  separately named runner rather than an automatic optimization.
+- The row-addressed path remains available as an audit comparator. The command requires an explicit
+  `--population-addressing` value and dispatches to the corresponding separately typed runner; it
+  never changes topology automatically.
 - Classical artifact format version three records `natural_strike_groups` population addressing
   and the simulation-unit count separately from output observations. The loader remains compatible
   with version-two row-addressed artifacts.

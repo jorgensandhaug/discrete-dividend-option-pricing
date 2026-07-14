@@ -17,6 +17,7 @@ from discrete_dividend_study.classical_artifact import (
 from discrete_dividend_study.classical_inputs import prepare_project_classical_inputs
 from discrete_dividend_study.classical_spec import (
     ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
     ClassicalVariant,
     classical_execution_sha256,
     classical_study_sha256,
@@ -27,6 +28,7 @@ from tests.test_classical_inputs import classical_frame
 if TYPE_CHECKING:
     from pathlib import Path
 
+_ARTIFACT_FORMAT_VERSION = 3
 _SOURCE = StudySourceIdentity(
     feature_artifact_sha256="1" * 64,
     feature_schema_sha256="2" * 64,
@@ -58,6 +60,13 @@ def test_complete_artifact_round_trip_is_exact_relocatable_and_idempotent(tmp_pa
     assert first.manifest.source == _SOURCE
     assert first.manifest.study_sha256 == classical_study_sha256(inputs.study)
     assert first.manifest.execution_sha256 == classical_execution_sha256(execution)
+    assert first.manifest.format_version == _ARTIFACT_FORMAT_VERSION
+    assert first.manifest.observations == inputs.rows
+    assert first.manifest.simulation_units == inputs.rows
+    assert (
+        first.manifest.execution.population_addressing
+        is ClassicalPopulationAddressing.CONTRACT_ROWS
+    )
     assert first.manifest.execution.math_backend is CpuMathBackend.RUST_STD_F64
     assert tuple(first.manifest.variants) == tuple(variant.value for variant in ClassicalVariant)
     assert str(tmp_path).encode() not in first.path.read_bytes()
@@ -76,6 +85,11 @@ def test_complete_artifact_round_trip_is_exact_relocatable_and_idempotent(tmp_pa
         math_backend=CpuMathBackend.APPLE_ACCELERATE_VFORCE,
     )
     assert classical_execution_sha256(apple_execution) != classical_execution_sha256(execution)
+    grouped_execution = replace(
+        execution,
+        population_addressing=ClassicalPopulationAddressing.NATURAL_STRIKE_GROUPS,
+    )
+    assert classical_execution_sha256(grouped_execution) != classical_execution_sha256(execution)
 
 
 def test_artifact_filename_and_bytes_must_share_one_content_hash(tmp_path: Path) -> None:
