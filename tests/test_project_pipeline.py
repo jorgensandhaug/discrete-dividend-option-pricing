@@ -69,6 +69,15 @@ def normalized_options() -> pl.LazyFrame:
     )
 
 
+def normalized_options_with_unavailable_nss_date() -> pl.LazyFrame:
+    """Append otherwise valid quotes on a date absent from the submitted NSS artifact."""
+    unavailable = normalized_options().with_columns(
+        pl.lit(date(2024, 10, 2)).alias("quote_date"),
+        pl.lit(date(2024, 11, 2)).alias("expiry_date"),
+    )
+    return pl.concat((normalized_options(), unavailable))
+
+
 def underlying_history() -> pl.LazyFrame:
     """Return enough adjusted observations for every submitted volatility window."""
     origin = date(2023, 8, 1)
@@ -119,6 +128,21 @@ def future_forecasts_with_irrelevant_duplicate_snapshot() -> pl.LazyFrame:
         schema=ORATS_DIVIDEND_DTYPES,
     )
     return pl.concat((future_forecasts(), old))
+
+
+def future_forecasts_with_consumed_nonfuture_rows() -> pl.LazyFrame:
+    """Append same-day rows that the submitted source producer explicitly removed."""
+    same_day = pl.LazyFrame(
+        {
+            "ticker": list(PROJECT_AS_SUBMITTED_TICKERS),
+            "forecast_date": [date(2024, 10, 1)] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "ex_date": [date(2024, 10, 1)] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "amount": [999.0] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "frequency_per_year": [4] * len(PROJECT_AS_SUBMITTED_TICKERS),
+        },
+        schema=ORATS_DIVIDEND_DTYPES,
+    )
+    return pl.concat((future_forecasts(), same_day))
 
 
 def historical_dividends() -> pl.LazyFrame:
@@ -176,7 +200,7 @@ def test_project_pipeline_has_one_ordered_typed_complete_feature_contract() -> N
 
 
 def test_project_pipeline_validates_only_forecast_snapshots_consumed_by_quotes() -> None:
-    """Provider history outside exact quote keys cannot reject or alter the project cohort."""
+    """Provider history outside exact quote dates cannot reject or alter the project cohort."""
     baseline = build_project_as_submitted_features(
         normalized_options(),
         underlying_history(),
@@ -192,6 +216,44 @@ def test_project_pipeline_validates_only_forecast_snapshots_consumed_by_quotes()
         nss_parameters(),
     ).collect()
     assert with_irrelevant_history.equals(baseline)
+
+
+def test_project_pipeline_reproduces_submitted_strict_future_source_selection() -> None:
+    """Consumed past or same-day vendor rows are validated, then explicitly excluded."""
+    baseline = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    with_nonfuture_rows = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts_with_consumed_nonfuture_rows(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    assert with_nonfuture_rows.equals(baseline)
+
+
+def test_project_pipeline_reproduces_submitted_nss_inner_date_intersection() -> None:
+    """Quotes without a fitted NSS date are explicitly removed before support feature joins."""
+    baseline = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    with_unavailable_date = build_project_as_submitted_features(
+        normalized_options_with_unavailable_nss_date(),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    assert with_unavailable_date.equals(baseline)
 
 
 def test_project_pipeline_rejects_an_incomplete_frozen_universe() -> None:

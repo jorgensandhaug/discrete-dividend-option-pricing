@@ -23,12 +23,19 @@ The option compaction must declare exactly the submitted six tickers and half-op
 `[2011-01-01, 2024-09-28)`, and historical dividends use the matching inclusive 2024-09-27 cap; a
 benchmark subset or broader projection fails before any sink runs.
 
-The pipeline selects forecast snapshots by the exact ticker and quote-date keys that survive the
-quote-only predicates. Therefore malformed or duplicated provider history that cannot enter the
-study neither changes nor rejects the cohort, while every consumed snapshot is still validated
-strictly. The output is written once through a streaming sink, sources are reverified after use,
-and the final receipt records exact bytes, rows, date bounds, schema, and the submitted six-ticker
-universe. The detached loader needs only the feature Parquet and its receipt.
+The pipeline restricts forecast data to the exact quote dates that survive quote-only predicates,
+validates those snapshots, and applies the submitted strict `ex_date > forecast_date` event
+selection. ORATS is treated as a sparse event feed: the forecast date itself must exist, while an
+absent ticker inside that verified snapshot is an explicit empty event schedule. Thus malformed or
+duplicated provider history outside consumed dates cannot reject the cohort, a missing consumed
+snapshot date remains fatal, and sparse ticker absence is never an implicit fallback.
+
+The recovered NSS producer has no parameters on some equity-trading dates. The submitted inner
+join is reproduced as an explicit quote-date intersection before expensive support joins; malformed
+or duplicated NSS rows are still rejected. The output is written once through a streaming sink,
+sources are reverified after use, and the final receipt records exact bytes, rows, date bounds,
+schema, and the submitted six-ticker universe. The detached loader needs only the feature Parquet
+and its receipt.
 
 ## Consequences
 

@@ -98,6 +98,7 @@ def test_submitted_schedule_preserves_components_zero_events_and_quote_order() -
 def test_alternative_event_policies_have_distinct_results() -> None:
     """Zero removal, same-date aggregation, and exclusive expiry are explicit identities."""
     alternative = ForecastDividendFeatureSpec(
+        snapshot_coverage="ticker-date",
         include_expiry_date=False,
         retain_zero_amount_events=False,
         aggregate_same_date_components=True,
@@ -141,12 +142,33 @@ def test_missing_snapshot_and_nonfuture_rows_are_not_zero_filled() -> None:
         add_forecast_dividend_features(
             quote_rows().with_columns(pl.lit("MISSING").alias("ticker")),
             forecast_rows(),
-            PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
+            replace(
+                PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
+                snapshot_coverage="ticker-date",
+            ),
         )
     with pytest.raises(DividendFeatureContentError, match="nonfuture_forecast_rows"):
         add_forecast_dividend_features(
             quote_rows(),
             forecast_rows().with_columns(pl.col("forecast_date").alias("ex_date")),
+            PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
+        )
+
+
+def test_sparse_snapshot_policy_distinguishes_empty_ticker_from_missing_date() -> None:
+    """A verified sparse snapshot may omit a ticker, but the snapshot date itself is mandatory."""
+    absent_ticker = quote_rows().with_columns(pl.lit("MISSING").alias("ticker"))
+    observed = add_forecast_dividend_features(
+        absent_ticker,
+        forecast_rows(),
+        PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
+    ).collect()
+    assert observed["forecasted_dividend_count"].to_list() == [0, 0, 0]
+    assert observed["forecasted_discrete_amounts"].to_list() == [[], [], []]
+    with pytest.raises(DividendFeatureContentError, match="missing_forecast_dates"):
+        add_forecast_dividend_features(
+            quote_rows().with_columns(pl.lit(date(2024, 1, 3)).alias("quote_date")),
+            forecast_rows(),
             PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
         )
 

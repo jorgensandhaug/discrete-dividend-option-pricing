@@ -20,6 +20,7 @@ from .historical_dividends import (
     add_historical_dividend_features,
 )
 from .nss_rates import PROJECT_AS_SUBMITTED_NSS_RATE_SPEC, add_nss_rate_feature
+from .orats_dividends import select_future_orats_dividend_forecasts
 from .orats_options import ORATS_NORMALIZED_OPTION_DTYPES
 from .quote_filters import (
     PROJECT_AS_SUBMITTED_FILTER,
@@ -107,10 +108,11 @@ def project_feature_pipeline_sha256() -> str:
             "aggregate_same_date_components": forecast.aggregate_same_date_components,
             "include_expiry_date": forecast.include_expiry_date,
             "retain_zero_amount_events": forecast.retain_zero_amount_events,
+            "snapshot_coverage": forecast.snapshot_coverage,
             "year_basis_days": forecast.year_basis_days,
         },
         "format": _PROJECT_FEATURE_PIPELINE_HASH_FORMAT,
-        "forecast_source_selection": "exact-project-quote-ticker-dates-v1",
+        "forecast_source_selection": "exact-project-quote-dates-then-strict-future-v1",
         "historical_dividends": {
             "include_lookback_boundary": historical.include_lookback_boundary,
             "include_quote_date": historical.include_quote_date,
@@ -127,6 +129,7 @@ def project_feature_pipeline_sha256() -> str:
             "minimum_nss_maturity": nss.minimum_nss_maturity,
             "use_observed_shortest_rate": nss.use_observed_shortest_rate,
         },
+        "nss_source_selection": "submitted-inner-quote-date-intersection-v1",
         "quote_filter": {
             "drop_nulls": quote_filter.drop_nulls,
             "intrinsic_ask_multiplier": quote_filter.intrinsic_ask_multiplier,
@@ -244,14 +247,20 @@ def build_project_as_submitted_features(
         add_quote_features(selected_options),
         PROJECT_AS_SUBMITTED_FILTER,
     )
-    relevant_forecast_keys = quotes.select(
-        "ticker",
+    quotes = quotes.join(
+        nss_parameters.select(pl.col("date").alias("quote_date")).unique(),
+        on="quote_date",
+        how="semi",
+    )
+    relevant_forecast_dates = quotes.select(
         pl.col("quote_date").alias("forecast_date"),
     ).unique()
-    relevant_forecasts = future_dividend_forecasts.join(
-        relevant_forecast_keys,
-        on=("ticker", "forecast_date"),
-        how="semi",
+    relevant_forecasts = select_future_orats_dividend_forecasts(
+        future_dividend_forecasts.join(
+            relevant_forecast_dates,
+            on="forecast_date",
+            how="semi",
+        )
     )
     prepared_underlying = prepare_underlying_history(
         underlying_history,

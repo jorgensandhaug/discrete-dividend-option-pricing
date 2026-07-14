@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import polars as pl
 
@@ -73,6 +73,7 @@ class DividendFeatureSpecError(DividendFeatureError):
 class ForecastDividendFeatureSpec:
     """Identity of forecast-event selection and the submitted scalar-yield proxy."""
 
+    snapshot_coverage: Literal["forecast-date", "ticker-date"]
     include_expiry_date: bool
     retain_zero_amount_events: bool
     aggregate_same_date_components: bool
@@ -80,6 +81,12 @@ class ForecastDividendFeatureSpec:
 
     def __post_init__(self) -> None:
         """Reject coerced policy flags and undefined year bases."""
+        if self.snapshot_coverage not in ("forecast-date", "ticker-date"):
+            raise DividendFeatureSpecError(
+                field="snapshot_coverage",
+                observed=self.snapshot_coverage,
+                requirement="'forecast-date' or 'ticker-date'",
+            )
         for field in (
             "include_expiry_date",
             "retain_zero_amount_events",
@@ -105,6 +112,7 @@ class ForecastDividendFeatureSpec:
 
 
 PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC: Final = ForecastDividendFeatureSpec(
+    snapshot_coverage="forecast-date",
     include_expiry_date=True,
     retain_zero_amount_events=True,
     aggregate_same_date_components=False,
@@ -215,21 +223,29 @@ def _input_violations(
     return tuple(violations)
 
 
-def _validate_snapshot_coverage(quotes: pl.LazyFrame, forecasts: pl.LazyFrame) -> None:
-    available = forecasts.select(
-        "ticker",
-        pl.col("forecast_date").alias("quote_date"),
-    ).unique()
-    missing = (
-        quotes.select("ticker", "quote_date")
-        .unique()
-        .join(available, on=("ticker", "quote_date"), how="anti")
-        .select(pl.len())
-        .collect()
-        .item()
-    )
+def _validate_snapshot_coverage(
+    quotes: pl.LazyFrame,
+    forecasts: pl.LazyFrame,
+    spec: ForecastDividendFeatureSpec,
+) -> None:
+    if spec.snapshot_coverage == "ticker-date":
+        keys = ("ticker", "quote_date")
+        required = quotes.select(*keys).unique()
+        available = forecasts.select(
+            "ticker",
+            pl.col("forecast_date").alias("quote_date"),
+        ).unique()
+        violation = "missing_ticker_date_forecasts"
+    else:
+        keys = ("quote_date",)
+        required = quotes.select(*keys).unique()
+        available = forecasts.select(
+            pl.col("forecast_date").alias("quote_date"),
+        ).unique()
+        violation = "missing_forecast_dates"
+    missing = required.join(available, on=keys, how="anti").select(pl.len()).collect().item()
     if type(missing) is int and missing != 0:
-        raise DividendFeatureContentError(violations=(("missing_ticker_date_forecasts", missing),))
+        raise DividendFeatureContentError(violations=((violation, missing),))
 
 
 def _cash_components(
@@ -290,10 +306,11 @@ def add_forecast_dividend_features(
     """Attach point-in-time forecast schedules and the submitted scalar-yield proxy.
 
     Quotes must already have positive horizons and positive finite ORATS spot prices. Forecast rows
-    must already be the strict future set; every distinct quote ticker/date must be present in that
-    snapshot, so absence is never interpreted as a zero-dividend forecast. Schedules are computed
-    once per unique ticker/quote/expiry horizon and joined many-to-one back to quotes. Output order
-    follows quote order.
+    must already be the strict future set. Snapshot coverage follows the explicit specification:
+    either every quote ticker/date is required, or every quote date is required while ticker
+    absence inside that verified sparse event snapshot denotes an empty schedule. Schedules are
+    computed once per unique ticker/quote/expiry horizon and joined many-to-one back to quotes.
+    Output order follows quote order.
 
     The scalar `forecasted_dividend_yield` is named as the submitted feature and is exactly
     `log(1 + total undiscounted forecast cash / spot) / (calendar DTE / year_basis_days)`. It is not
@@ -323,7 +340,7 @@ def add_forecast_dividend_features(
     violations = _input_violations(validated_quotes, validated_forecasts)
     if violations:
         raise DividendFeatureContentError(violations=violations)
-    _validate_snapshot_coverage(validated_quotes, validated_forecasts)
+    _validate_snapshot_coverage(validated_quotes, validated_forecasts, spec)
 
     schedules = _event_schedules(validated_quotes, validated_forecasts, spec)
     joined = validated_quotes.join(
