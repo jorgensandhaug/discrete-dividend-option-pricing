@@ -132,6 +132,12 @@ artifact reference and observation-pooled metrics for each model separately; it 
 window RMSE or combines metrics across different models. The full contract is recorded in
 [ADR 0019](docs/adr/0019-one-pass-neural-study-and-exact-resume.md).
 
+`prepare_project_tabpfn_binned_batch` is a deliberately narrower future-benchmark boundary. It
+copies the existing six scalar features and twelve project cash bins once into one immutable
+row-major float32 table, retains the positive target without transformation, and exposes zero-copy
+rolling slices. It does not install or execute TabPFN, acquire weights, or reinterpret the result as
+a financial pricer. [ADR 0021](docs/adr/0021-bounded-tabpfn-input.md) records that limit.
+
 From clean paper and engine checkouts at the pinned engine revision, the complete private-data
 classical comparison has one explicit entry point:
 
