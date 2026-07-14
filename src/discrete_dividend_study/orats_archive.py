@@ -852,7 +852,6 @@ class OratsFtpsClient:
         exact byte count. If the server rejects REST, the operation fails and preserves the partial
         file; it never restarts or overwrites silently.
         """
-        self._verify_remote_entry(entry)
         directory = Path(destination_directory).expanduser()
         directory.mkdir(parents=True, exist_ok=True)
         final_path = directory / orats_archive_name(entry.trade_date)
@@ -866,6 +865,7 @@ class OratsFtpsClient:
         )
         if existing is not None:
             return existing
+        self._verify_remote_entry(entry)
         offset = self._partial_offset(partial_path, entry)
         self._transfer_partial(entry=entry, partial_path=partial_path, offset=offset)
         self._verify_remote_entry(entry)

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 OBSERVED = datetime(2026, 7, 14, 12, 30, tzinfo=UTC)
 MODIFIED = datetime(2024, 9, 28, 3, 21, 0, 333_000, tzinfo=UTC)
 PAYLOAD = b"licensed-archive-bytes"
+NEW_TRANSFER_MLST_CHECKS = 2
 
 
 def archive_entry(*, size_bytes: int = len(PAYLOAD)) -> OratsArchiveEntry:
@@ -54,6 +55,7 @@ class _FakeFtps:
         self.payload = payload
         self.modified = modified
         self.retrievals: list[tuple[str, int, int | None]] = []
+        self.mlst_commands: list[str] = []
 
     def mlsd(
         self,
@@ -85,6 +87,7 @@ class _FakeFtps:
         return "226 transfer complete"
 
     def sendcmd(self, command: str) -> str:
+        self.mlst_commands.append(command)
         assert command == "MLST /smvstrikes/2024/ORATS_SMV_Strikes_20240927.zip"
         return (
             "250-\n"
@@ -233,6 +236,9 @@ def test_download_resumes_hashes_and_reuses_only_verified_receipt(tmp_path: Path
     second = client.download(entry, tmp_path)
     assert second == first
     assert len(fake.retrievals) == 1
+    assert len(fake.mlst_commands) == NEW_TRANSFER_MLST_CHECKS
+    client._ftp = None  # noqa: SLF001 - prove completed receipts are server-detached
+    assert client.download(entry, tmp_path) == first
     verified = load_verified_orats_archive(final)
     assert verified.path == final
     assert verified.receipt == first
