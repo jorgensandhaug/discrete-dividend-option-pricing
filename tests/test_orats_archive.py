@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 OBSERVED = datetime(2026, 7, 14, 12, 30, tzinfo=UTC)
-MODIFIED = datetime(2024, 9, 28, 3, 21, tzinfo=UTC)
+MODIFIED = datetime(2024, 9, 28, 3, 21, 0, 333_000, tzinfo=UTC)
 PAYLOAD = b"licensed-archive-bytes"
 
 
@@ -49,7 +49,7 @@ def archive_entry(*, size_bytes: int = len(PAYLOAD)) -> OratsArchiveEntry:
 
 
 class _FakeFtps:
-    def __init__(self, *, payload: bytes = PAYLOAD, modified: str = "20240928032100") -> None:
+    def __init__(self, *, payload: bytes = PAYLOAD, modified: str = "20240928032100.333") -> None:
         self.payload = payload
         self.modified = modified
         self.retrievals: list[tuple[str, int, int | None]] = []

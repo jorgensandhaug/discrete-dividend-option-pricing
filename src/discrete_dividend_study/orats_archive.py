@@ -27,7 +27,7 @@ ORATS_FTPS_USER_ENV = "ORATS_FTP_USER"
 ORATS_FTPS_PASSWORD_ENV = "ORATS_FTP_PASSWORD"  # noqa: S105 - environment-variable name
 
 _ARCHIVE_NAME_PATTERN = re.compile(r"ORATS_SMV_Strikes_(?P<date>[0-9]{8})[.]zip")
-_MLSD_MODIFY_PATTERN = re.compile(r"[0-9]{14}")
+_MLSD_MODIFY_PATTERN = re.compile(r"[0-9]{14}(?:[.][0-9]{1,6})?")
 _FIRST_ARCHIVE_YEAR = 2007
 _LAST_LEGACY_ARCHIVE_YEAR = 2012
 _MAXIMUM_ARCHIVE_YEAR = 9999
