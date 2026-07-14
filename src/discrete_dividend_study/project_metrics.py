@@ -10,8 +10,11 @@ import numpy as np
 import numpy.typing as npt
 
 Float32Vector = npt.NDArray[np.float32]
+Float64Vector = npt.NDArray[np.float64]
+type PricingVector = Float32Vector | Float64Vector
 
 _FLOAT32_DTYPE: Final = np.dtype(np.float32)
+_FLOAT64_DTYPE: Final = np.dtype(np.float64)
 _METRIC_CHUNK_ROWS: Final = 1 << 20
 _PERCENT_SCALE: Final = 100.0
 
@@ -75,7 +78,27 @@ def evaluate_project_pricing(
     nonnegative. Invalid model output fails instead of reproducing the legacy notebook's implicit
     clipping operation.
     """
-    _validate_pricing_vectors(target, prediction)
+    _validate_pricing_vectors(target, prediction, dtype=_FLOAT32_DTYPE)
+    return _evaluate_project_pricing(target, prediction)
+
+
+def evaluate_project_pricing_f64(
+    target: Float64Vector,
+    prediction: Float64Vector,
+) -> ProjectPricingMetrics:
+    """Evaluate classical Float64 predictions without a lossy precision conversion.
+
+    The formulas and bounded Float64 accumulation are identical to ``evaluate_project_pricing``;
+    only the strict input precision differs. Targets must be positive and predictions nonnegative.
+    """
+    _validate_pricing_vectors(target, prediction, dtype=_FLOAT64_DTYPE)
+    return _evaluate_project_pricing(target, prediction)
+
+
+def _evaluate_project_pricing(
+    target: PricingVector,
+    prediction: PricingVector,
+) -> ProjectPricingMetrics:
     rows = int(target.size)
     absolute_error_sum = 0.0
     absolute_percentage_error_sum = 0.0
@@ -151,15 +174,20 @@ def aggregate_project_pricing_metrics(
     )
 
 
-def _validate_pricing_vectors(target: object, prediction: object) -> None:
+def _validate_pricing_vectors(
+    target: object,
+    prediction: object,
+    *,
+    dtype: np.dtype[np.generic],
+) -> None:
     for field, value in (("target", target), ("prediction", prediction)):
         if type(value) is not np.ndarray:
             raise ProjectMetricError(reason=f"{field} must be a plain numpy.ndarray")
         array = cast("npt.NDArray[np.generic]", value)
-        if array.dtype != _FLOAT32_DTYPE or array.ndim != 1 or not array.flags.c_contiguous:
-            raise ProjectMetricError(reason=f"{field} must be a C-contiguous float32 vector")
-    target_array = cast("Float32Vector", target)
-    prediction_array = cast("Float32Vector", prediction)
+        if array.dtype != dtype or array.ndim != 1 or not array.flags.c_contiguous:
+            raise ProjectMetricError(reason=f"{field} must be a C-contiguous {dtype} vector")
+    target_array = cast("PricingVector", target)
+    prediction_array = cast("PricingVector", prediction)
     if target_array.size == 0 or prediction_array.shape != target_array.shape:
         raise ProjectMetricError(reason="target and prediction must share one nonempty shape")
     if not np.isfinite(target_array).all() or not np.isfinite(prediction_array).all():
@@ -175,4 +203,5 @@ __all__ = [
     "ProjectPricingMetrics",
     "aggregate_project_pricing_metrics",
     "evaluate_project_pricing",
+    "evaluate_project_pricing_f64",
 ]

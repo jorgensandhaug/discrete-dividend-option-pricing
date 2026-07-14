@@ -96,6 +96,13 @@ contract.
 identity into a typed 117-window manifest. Phase bounds are half-open, and a one-scan coverage
 preflight fails before training if any required partition is empty.
 
+`PROJECT_CLASSICAL_RECONSTRUCTION_SPEC` freezes the four submitted classical comparison names and
+their distinct exact-cash, escrowed-cash, forecast-yield, and historical-yield semantics. One
+materialized boundary prepares shared immutable Float64 columns and zero-copy ragged cash children;
+stateful contract-parallel pricing stays outside Polars and receives a separate explicit CPU/random
+execution specification. The contract is recorded in
+[ADR 0020](docs/adr/0020-explicit-classical-reconstruction.md).
+
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared
 float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars

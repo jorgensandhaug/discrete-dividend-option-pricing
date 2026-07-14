@@ -6,6 +6,35 @@ from typing import Final
 
 from finoptions import BuildInfo, build_info
 
+from .classical_inputs import (
+    ClassicalInputContentError,
+    ClassicalInputError,
+    ClassicalInputSchemaError,
+    ClassicalInputTypeError,
+    PreparedClassicalInputs,
+    prepare_project_classical_inputs,
+    prepared_classical_inputs_sha256,
+)
+from .classical_pricing import (
+    ClassicalPricingContractError,
+    ClassicalPricingError,
+    ClassicalStudyPricingResult,
+    ClassicalVariantPricingResult,
+    run_project_classical_study,
+)
+from .classical_spec import (
+    PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
+    ClassicalDividendRepresentation,
+    ClassicalEstimatorSpec,
+    ClassicalExecutionSpec,
+    ClassicalSpecError,
+    ClassicalSpecValueError,
+    ClassicalStudySpec,
+    ClassicalVariant,
+    ClassicalVariantSpec,
+    classical_execution_sha256,
+    classical_study_sha256,
+)
 from .dividend_features import (
     DIVIDEND_FEATURE_DTYPES,
     PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC,
@@ -16,6 +45,7 @@ from .dividend_features import (
     ForecastDividendFeatureSpec,
     add_forecast_dividend_features,
 )
+from .event_buffers import EventBufferError, EventBufferPolicy
 from .historical_dividends import (
     HISTORICAL_DIVIDEND_DTYPES,
     HISTORICAL_DIVIDEND_FEATURE_DTYPES,
@@ -28,8 +58,6 @@ from .historical_dividends import (
     add_historical_dividend_features,
 )
 from .model_inputs import (
-    EventBufferError,
-    EventBufferPolicy,
     ModelInputContentError,
     ModelInputError,
     ModelInputSchemaError,
@@ -219,6 +247,7 @@ from .project_metrics import (
     ProjectPricingMetrics,
     aggregate_project_pricing_metrics,
     evaluate_project_pricing,
+    evaluate_project_pricing_f64,
 )
 from .project_pipeline import (
     PROJECT_AS_SUBMITTED_FEATURE_COLUMNS,
@@ -314,6 +343,7 @@ __all__ = [
     "PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC",
     "PROJECT_AS_SUBMITTED_TICKERS",
     "PROJECT_AS_SUBMITTED_UNDERLYING_JOIN_SPEC",
+    "PROJECT_CLASSICAL_RECONSTRUCTION_SPEC",
     "PROJECT_HISTORICAL_VOLATILITY_SPEC",
     "PROJECT_NEURAL_ROLLING_PREPARATION_SPEC",
     "PROJECT_NEURAL_STUDY_SPEC",
@@ -323,6 +353,22 @@ __all__ = [
     "QUOTE_FEATURE_DTYPES",
     "UNDERLYING_HISTORY_DTYPES",
     "AdaptedOratsCurve",
+    "ClassicalDividendRepresentation",
+    "ClassicalEstimatorSpec",
+    "ClassicalExecutionSpec",
+    "ClassicalInputContentError",
+    "ClassicalInputError",
+    "ClassicalInputSchemaError",
+    "ClassicalInputTypeError",
+    "ClassicalPricingContractError",
+    "ClassicalPricingError",
+    "ClassicalSpecError",
+    "ClassicalSpecValueError",
+    "ClassicalStudyPricingResult",
+    "ClassicalStudySpec",
+    "ClassicalVariant",
+    "ClassicalVariantPricingResult",
+    "ClassicalVariantSpec",
     "CompilationMode",
     "ConflictingColumnsError",
     "DividendFeatureContentError",
@@ -425,6 +471,7 @@ __all__ = [
     "OratsOptionSchemaError",
     "OratsOptionSourceError",
     "ParameterInitialization",
+    "PreparedClassicalInputs",
     "PreparedNeuralBatch",
     "PreparedNeuralRollingSource",
     "PreparedNeuralWindow",
@@ -473,9 +520,12 @@ __all__ = [
     "canonicalize_orats_curve_frame",
     "canonicalize_raw_orats_dividend_forecast",
     "canonicalize_raw_orats_options",
+    "classical_execution_sha256",
+    "classical_study_sha256",
     "derive_neural_window_seed",
     "engine_build_info",
     "evaluate_project_pricing",
+    "evaluate_project_pricing_f64",
     "forbid_columns",
     "generate_rolling_windows",
     "initial_neural_control_state",
@@ -489,11 +539,13 @@ __all__ = [
     "neural_study_sha256",
     "neural_window_request_sha256",
     "nss_rate_expression",
+    "prepare_project_classical_inputs",
     "prepare_project_neural_batch",
     "prepare_project_neural_batches",
     "prepare_project_neural_rolling_source",
     "prepare_project_neural_window",
     "prepare_underlying_history",
+    "prepared_classical_inputs_sha256",
     "prepared_neural_batch_sha256",
     "project_feature_schema_sha256",
     "project_neural_input_columns",
@@ -503,6 +555,7 @@ __all__ = [
     "resolve_study_source_identity",
     "rolling_window_manifest",
     "run_neural_window",
+    "run_project_classical_study",
     "run_project_neural_rolling_study",
     "scan_raw_orats_csv",
     "scan_raw_orats_dividend_forecast",

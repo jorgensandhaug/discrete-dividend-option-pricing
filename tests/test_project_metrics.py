@@ -13,6 +13,7 @@ from discrete_dividend_study.project_metrics import (
     ProjectMetricError,
     aggregate_project_pricing_metrics,
     evaluate_project_pricing,
+    evaluate_project_pricing_f64,
 )
 
 PERCENT_SCALE = 100.0
@@ -57,6 +58,22 @@ def test_partition_pooling_matches_direct_row_level_evaluation() -> None:
         )
         / 2.0,
     )
+
+
+def test_float64_classical_metrics_preserve_values_beyond_float32_precision() -> None:
+    """Classical evaluation uses the same formulas without downcasting native Float64 prices."""
+    target = np.array([10.0, 20.0], dtype=np.float64)
+    prediction = np.array([10.0 + 1.0e-8, 20.0 - 2.0e-8], dtype=np.float64)
+    observed = evaluate_project_pricing_f64(target, prediction)
+    error = prediction - target
+    assert observed.mae == pytest.approx(float(np.mean(np.abs(error))), rel=0.0, abs=1.0e-20)
+    assert observed.rmse == pytest.approx(
+        math.sqrt(float(np.mean(error**2))),
+        rel=0.0,
+        abs=1.0e-20,
+    )
+    with pytest.raises(ProjectMetricError, match="float64"):
+        evaluate_project_pricing_f64(target.astype(np.float32), prediction)
 
 
 @pytest.mark.parametrize(
