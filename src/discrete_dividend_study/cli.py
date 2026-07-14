@@ -55,8 +55,15 @@ from .orats_dividend_archive import (
     OratsDividendArchiveInventory,
     OratsDividendHttpsClient,
     OratsDividendHttpsSpec,
+    load_verified_orats_dividend_archive,
+    orats_dividend_archive_name,
     read_orats_dividend_archive_inventory,
     write_orats_dividend_archive_inventory,
+)
+from .orats_dividend_projection import (
+    OratsDividendProjectionSpec,
+    materialize_orats_dividend_projection,
+    orats_dividend_projection_spec_sha256,
 )
 from .orats_option_projection import (
     OratsOptionProjectionSpec,
@@ -138,6 +145,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "inventory-orats-archives": _inventory_orats_archives,
         "inventory-orats-dividend-archives": _inventory_orats_dividend_archives,
         "materialize-orats-options": _materialize_orats_options,
+        "materialize-orats-dividends": _materialize_orats_dividends,
         "render-classical-table": _render_classical_table,
     }
     handler = handlers.get(arguments.command)
@@ -312,6 +320,57 @@ def _write_dividend_inventory_summary(
     )
 
 
+def _materialize_orats_dividends(arguments: argparse.Namespace) -> int:
+    manifest = _required_path(arguments.manifest, field="manifest", kind="file")
+    inventory = read_orats_dividend_archive_inventory(manifest)
+    if arguments.confirm_entry_count != len(inventory.entries):
+        raise StudyCliError(
+            reason="confirm-entry-count must exactly equal the immutable manifest entry count",
+        )
+    raw_directory = _required_path(arguments.raw_directory, field="raw-directory", kind="directory")
+    scratch = _required_path(arguments.scratch, field="scratch", kind="directory")
+    output_root = _destination_directory(arguments.output_root)
+    spec = OratsDividendProjectionSpec(tickers=tuple(arguments.ticker))
+    completed = 0
+    output_bytes = 0
+    output_rows = 0
+    snapshots = 0
+    for entry in inventory.entries:
+        source = load_verified_orats_dividend_archive(
+            raw_directory / orats_dividend_archive_name(entry.year),
+        )
+        if source.receipt.entry != entry:
+            raise StudyCliError(
+                reason="annual dividend archive receipt disagrees with its inventory entry",
+            )
+        output = materialize_orats_dividend_projection(source, spec, output_root, scratch)
+        completed += 1
+        output_bytes += output.receipt.output_bytes
+        output_rows += output.receipt.output_rows
+        snapshots += len(output.receipt.snapshots)
+        progress = {
+            "output": str(output.path),
+            "output_sha256": output.receipt.output_sha256,
+            "rows": output.receipt.output_rows,
+            "snapshots": len(output.receipt.snapshots),
+            "year": entry.year,
+        }
+        sys.stderr.write(json.dumps(progress, sort_keys=True, separators=(",", ":")) + "\n")
+    summary = {
+        "entries": completed,
+        "entries_sha256": inventory.entries_sha256,
+        "output_bytes": output_bytes,
+        "output_root": str(output_root),
+        "projection_spec_sha256": orats_dividend_projection_spec_sha256(spec),
+        "rows": output_rows,
+        "snapshots": snapshots,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
 def _run_neural_study(
     arguments: argparse.Namespace,
     context: _StudyCliContext,
@@ -430,45 +489,8 @@ def _parser() -> argparse.ArgumentParser:
         description="Run immutable discrete-dividend option-pricing studies.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    inventory = commands.add_parser(
-        "inventory-orats-archives",
-        help="write an immutable MLSD inventory over explicit TLS without downloading archives",
-    )
-    inventory.add_argument("--start-date", type=_iso_date, required=True)
-    inventory.add_argument("--end-date", type=_iso_date, required=True)
-    inventory.add_argument("--manifest", type=Path, required=True)
-    inventory.add_argument("--host", default=ORATS_DEFAULT_FTPS_HOST)
-    download = commands.add_parser(
-        "download-orats-archives",
-        help="resume every archive in a verified inventory under cryptographic receipts",
-    )
-    download.add_argument("--manifest", type=Path, required=True)
-    download.add_argument("--destination", type=Path, required=True)
-    download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    materialize = commands.add_parser(
-        "materialize-orats-options",
-        help="verify and project every inventoried option ZIP into immutable daily Parquet",
-    )
-    materialize.add_argument("--manifest", type=Path, required=True)
-    materialize.add_argument("--raw-directory", type=Path, required=True)
-    materialize.add_argument("--output-root", type=Path, required=True)
-    materialize.add_argument("--scratch", type=Path, required=True)
-    materialize.add_argument("--ticker", action="append", required=True)
-    materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    dividend_inventory = commands.add_parser(
-        "inventory-orats-dividend-archives",
-        help="freeze annual ORATS dividend archive identities through strict HTTPS HEAD",
-    )
-    dividend_inventory.add_argument("--start-year", type=_archive_year, required=True)
-    dividend_inventory.add_argument("--end-year", type=_archive_year, required=True)
-    dividend_inventory.add_argument("--manifest", type=Path, required=True)
-    dividend_download = commands.add_parser(
-        "download-orats-dividend-archives",
-        help="resume every inventoried annual ORATS dividend archive with SHA-256 receipts",
-    )
-    dividend_download.add_argument("--manifest", type=Path, required=True)
-    dividend_download.add_argument("--destination", type=Path, required=True)
-    dividend_download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    _add_option_data_commands(commands)
+    _add_dividend_data_commands(commands)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",
@@ -511,6 +533,65 @@ def _parser() -> argparse.ArgumentParser:
     table.add_argument("--artifact", type=Path, required=True)
     table.add_argument("--format", choices=("latex", "markdown"), required=True)
     return parser
+
+
+def _add_option_data_commands(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    inventory = commands.add_parser(
+        "inventory-orats-archives",
+        help="write an immutable MLSD inventory over explicit TLS without downloading archives",
+    )
+    inventory.add_argument("--start-date", type=_iso_date, required=True)
+    inventory.add_argument("--end-date", type=_iso_date, required=True)
+    inventory.add_argument("--manifest", type=Path, required=True)
+    inventory.add_argument("--host", default=ORATS_DEFAULT_FTPS_HOST)
+    download = commands.add_parser(
+        "download-orats-archives",
+        help="resume every archive in a verified inventory under cryptographic receipts",
+    )
+    download.add_argument("--manifest", type=Path, required=True)
+    download.add_argument("--destination", type=Path, required=True)
+    download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    materialize = commands.add_parser(
+        "materialize-orats-options",
+        help="verify and project every inventoried option ZIP into immutable daily Parquet",
+    )
+    materialize.add_argument("--manifest", type=Path, required=True)
+    materialize.add_argument("--raw-directory", type=Path, required=True)
+    materialize.add_argument("--output-root", type=Path, required=True)
+    materialize.add_argument("--scratch", type=Path, required=True)
+    materialize.add_argument("--ticker", action="append", required=True)
+    materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+
+
+def _add_dividend_data_commands(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    dividend_inventory = commands.add_parser(
+        "inventory-orats-dividend-archives",
+        help="freeze annual ORATS dividend archive identities through strict HTTPS HEAD",
+    )
+    dividend_inventory.add_argument("--start-year", type=_archive_year, required=True)
+    dividend_inventory.add_argument("--end-year", type=_archive_year, required=True)
+    dividend_inventory.add_argument("--manifest", type=Path, required=True)
+    dividend_download = commands.add_parser(
+        "download-orats-dividend-archives",
+        help="resume every inventoried annual ORATS dividend archive with SHA-256 receipts",
+    )
+    dividend_download.add_argument("--manifest", type=Path, required=True)
+    dividend_download.add_argument("--destination", type=Path, required=True)
+    dividend_download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
+    dividend_materialize = commands.add_parser(
+        "materialize-orats-dividends",
+        help="verify and project annual ORATS dividend ZIPs into immutable ticker Parquet",
+    )
+    dividend_materialize.add_argument("--manifest", type=Path, required=True)
+    dividend_materialize.add_argument("--raw-directory", type=Path, required=True)
+    dividend_materialize.add_argument("--output-root", type=Path, required=True)
+    dividend_materialize.add_argument("--scratch", type=Path, required=True)
+    dividend_materialize.add_argument("--ticker", action="append", required=True)
+    dividend_materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
 
 
 def _execution_profile(value: str) -> NeuralExecutionProfile:

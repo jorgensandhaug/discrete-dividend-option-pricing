@@ -130,6 +130,25 @@ equal the supplied manifest, and the transport never follows redirects or substi
 for a rejected range. [ADR 0024](docs/adr/0024-manifest-first-orats-dividend-archives.md) records the
 contract.
 
+Project the verified annual ZIPs into the same bounded study universe while retaining complete
+snapshot coverage:
+
+```shell
+uv run --locked discrete-dividend-study materialize-orats-dividends \
+  --manifest /absolute/private/path/orats-dividend-inventory.json \
+  --raw-directory /absolute/private/path/orats-dividend-raw \
+  --output-root /absolute/private/path/orats-dividend-projected \
+  --scratch /absolute/private/path/temporary-dividend-extraction \
+  --ticker DUK --ticker EPD --ticker ETR --ticker MO --ticker SO --ticker VZ \
+  --confirm-entry-count 18
+```
+
+Every regular snapshot is CRC-checked and hashed, all rows receive a strict structural preflight,
+and each annual receipt records raw and selected row counts for every forecast date—including dates
+with zero selected rows. The canonical output deliberately precedes the separate future-event rule.
+[ADR 0025](docs/adr/0025-verified-orats-dividend-projection.md) records the accepted historical ZIP
+layouts and artifact contract.
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.
