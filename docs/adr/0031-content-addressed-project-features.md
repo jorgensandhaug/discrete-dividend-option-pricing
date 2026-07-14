@@ -30,7 +30,7 @@ absent ticker inside that verified snapshot is an explicit empty event schedule.
 duplicated provider history outside consumed dates cannot reject the cohort, a missing consumed
 snapshot date remains fatal, and sparse ticker absence is never an implicit fallback.
 
-The recovered NSS producer has no parameters on some equity-trading dates. The submitted inner
+The Federal Reserve NSS source has no parameters on some equity-trading dates. The submitted inner
 join is reproduced as an explicit quote-date intersection before expensive support joins; malformed
 or duplicated NSS rows are still rejected. The output is written once through a streaming sink,
 sources are reverified after use, and the final receipt records exact bytes, rows, date bounds,

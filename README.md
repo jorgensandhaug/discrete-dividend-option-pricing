@@ -207,13 +207,34 @@ writes only the bounded three-column study history under source and specificatio
 provider-wide anomaly is silently repaired or reinterpreted. [ADR 0026](docs/adr/0026-verified-historical-dividend-projection.md)
 records the boundary.
 
-Externally prepared support tables such as underlying history and fitted curve parameters enter
-through `verify_pinned_parquet`. The caller must provide the exact SHA-256 and row count; the
-ordered schema must match without casts or extra columns, and long-running consumers rehash the
-source after use. Paths are deliberately excluded from the relocatable identity. The complete
-feature schema and every frozen stage specification also contribute to one
-`project_feature_pipeline_sha256` identity. [ADR 0029](docs/adr/0029-pinned-support-parquet.md)
-records this small generic boundary.
+The risk-free curve is projected directly from one pinned current-vintage Federal Reserve nominal
+Svensson CSV:
+
+```shell
+uv run --locked discrete-dividend-study materialize-fed-nominal-curve \
+  --source /private/curve/feds200628.csv \
+  --expected-source-sha256 "$FED_CURVE_SHA256" \
+  --expected-source-size-bytes "$FED_CURVE_BYTES" \
+  --start-date 2011-01-01 --end-date-exclusive 2024-09-28 \
+  --output-root /private/curve/projected
+```
+
+The source's Svensson betas are converted from percentage points to decimal continuously
+compounded rates while its tau parameters remain in years. Every complete parameter row must
+reproduce the published one-year zero yield within the source's stated rounding precision. Positive
+option maturities use the same Svensson curve at their exact year fraction; the short-end metadata
+stores its stable numerical floor and exact zero-maturity limit, not a one-year flat-rate
+substitution. Partial or inconsistent rows fail, while fully unavailable calendar rows are explicitly
+counted and excluded. [ADR 0032](docs/adr/0032-pinned-federal-reserve-svensson-curve.md) records the
+financial and provenance contract.
+
+The externally prepared underlying history enters through `verify_pinned_parquet`. The caller must
+provide its exact SHA-256 and row count; the ordered schema must match without casts or extra
+columns, and long-running consumers rehash the source after use. The Federal Reserve projection is
+verified by the same pinned-Parquet boundary before feature construction. Paths are deliberately
+excluded from relocatable identities. The complete feature schema and every frozen stage
+specification also contribute to one `project_feature_pipeline_sha256` identity.
+[ADR 0029](docs/adr/0029-pinned-support-parquet.md) records the small generic boundary.
 
 Materialize the single closed feature artifact only after all five identities are known:
 
@@ -234,7 +255,7 @@ uv run --locked discrete-dividend-study materialize-project-features \
 
 The request hash binds every source, every transformation choice, the exact 42-column schema, and
 the byte-producing Polars runtime before a streaming sink runs. Only forecast snapshots matching
-consumed project ticker/date keys are relevant; each consumed snapshot remains strict. Sources are
+consumed project quote dates are relevant; each consumed snapshot date remains strict. Sources are
 reverified after the sink, and the result can then be loaded from its Parquet and receipt alone. A
 benchmark subset cannot be passed accidentally: the option source must declare the exact six
 tickers and half-open `[2011-01-01, 2024-09-28)` project horizon.

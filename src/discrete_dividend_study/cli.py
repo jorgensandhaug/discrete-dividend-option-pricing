@@ -28,6 +28,10 @@ from .classical_spec import (
     ClassicalExecutionSpec,
 )
 from .event_buffers import EventBufferPolicy
+from .federal_reserve_curve import (
+    FederalReserveCurveProjectionSpec,
+    materialize_federal_reserve_curve,
+)
 from .historical_dividend_projection import (
     HistoricalDividendProjectionSpec,
     historical_dividend_projection_spec_sha256,
@@ -174,6 +178,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "download-orats-dividend-archives": _download_orats_dividend_archives,
         "inventory-orats-archives": _inventory_orats_archives,
         "inventory-orats-dividend-archives": _inventory_orats_dividend_archives,
+        "materialize-fed-nominal-curve": _materialize_fed_nominal_curve,
         "materialize-orats-options": _materialize_orats_options,
         "materialize-orats-dividends": _materialize_orats_dividends,
         "materialize-historical-dividends": _materialize_historical_dividends,
@@ -182,6 +187,32 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
     }
     handler = handlers.get(arguments.command)
     return None if handler is None else handler(arguments)
+
+
+def _materialize_fed_nominal_curve(arguments: argparse.Namespace) -> int:
+    result = materialize_federal_reserve_curve(
+        _required_path(arguments.source, field="source", kind="file"),
+        expected_source_sha256=arguments.expected_source_sha256,
+        expected_source_size_bytes=arguments.expected_source_size_bytes,
+        spec=FederalReserveCurveProjectionSpec(
+            start_date=arguments.start_date,
+            end_date_exclusive=arguments.end_date_exclusive,
+        ),
+        output_root=_destination_directory(arguments.output_root),
+    )
+    receipt = result.receipt
+    summary = {
+        "excluded_unavailable_rows": receipt.excluded_unavailable_rows,
+        "output_path": str(result.path),
+        "output_sha256": receipt.output_sha256,
+        "request_sha256": receipt.request_sha256,
+        "rows": receipt.output_rows,
+        "selected_source_rows": receipt.selected_source_rows,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
 
 
 def _inventory_orats_archives(arguments: argparse.Namespace) -> int:
@@ -743,6 +774,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     _add_option_data_commands(commands)
     _add_dividend_data_commands(commands)
+    _add_curve_data_command(commands)
     _add_project_feature_command(commands)
     neural = commands.add_parser(
         "run-neural-study",
@@ -903,6 +935,25 @@ def _add_project_feature_command(
     materialize.add_argument("--nss-parameters", type=Path, required=True)
     materialize.add_argument("--nss-sha256", required=True)
     materialize.add_argument("--nss-rows", type=_positive_int, required=True)
+    materialize.add_argument("--output-root", type=Path, required=True)
+
+
+def _add_curve_data_command(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    materialize = commands.add_parser(
+        "materialize-fed-nominal-curve",
+        help="pin one official Federal Reserve nominal Svensson CSV vintage",
+    )
+    materialize.add_argument("--source", type=Path, required=True)
+    materialize.add_argument("--expected-source-sha256", required=True)
+    materialize.add_argument(
+        "--expected-source-size-bytes",
+        type=_positive_int,
+        required=True,
+    )
+    materialize.add_argument("--start-date", type=_iso_date, required=True)
+    materialize.add_argument("--end-date-exclusive", type=_iso_date, required=True)
     materialize.add_argument("--output-root", type=Path, required=True)
 
 
