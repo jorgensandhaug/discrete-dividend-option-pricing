@@ -585,11 +585,66 @@ def _load_existing_projection(
     if receipt.projection_spec != spec or receipt.output_name != output_path.name:
         msg = "existing projection receipt disagrees with the requested specification"
         raise OratsOptionProjectionContentError(msg, str(receipt_path))
+    return _verify_materialized_output(output_path, receipt)
+
+
+def load_verified_orats_option_projection(
+    path: str | Path,
+) -> MaterializedOratsOptionProjection:
+    """Load and fully verify one daily projection without requiring the raw ZIP."""
+    output_path = Path(path).expanduser()
+    receipt_path = output_path.with_name(f"{output_path.name}.receipt.json")
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        msg = "daily option projection receipt must be a non-symlink file"
+        raise OratsOptionProjectionContentError(msg, str(receipt_path))
+    receipt = _read_receipt(receipt_path)
+    return _verify_materialized_output(output_path, receipt)
+
+
+def _verify_materialized_output(
+    output_path: Path,
+    receipt: OratsOptionProjectionReceipt,
+) -> MaterializedOratsOptionProjection:
+    if not output_path.is_file() or output_path.is_symlink():
+        msg = "daily option projection must be a non-symlink file"
+        raise OratsOptionProjectionContentError(msg, str(output_path))
+    if receipt.output_name != output_path.name:
+        msg = "daily option projection name disagrees with its receipt"
+        raise OratsOptionProjectionContentError(msg, str(output_path))
     if receipt.output_bytes != output_path.stat().st_size:
-        msg = "existing projection output byte count disagrees with its receipt"
+        msg = "daily option projection byte count disagrees with its receipt"
         raise OratsOptionProjectionContentError(msg, str(output_path))
     if receipt.output_sha256 != _file_sha256(output_path):
-        msg = "existing projection output bytes disagree with its receipt SHA-256"
+        msg = "daily option projection bytes disagree with its receipt SHA-256"
+        raise OratsOptionProjectionContentError(msg, str(output_path))
+    try:
+        lazy = pl.scan_parquet(output_path, rechunk=False)
+        schema = lazy.collect_schema()
+        summary = lazy.select(
+            pl.len().alias("rows"),
+            pl.col("quote_date").n_unique().alias("quote_dates"),
+            pl.col("quote_date").min().alias("quote_date_min"),
+            pl.col("quote_date").max().alias("quote_date_max"),
+        ).collect()
+        observed_tickers = tuple(
+            lazy.select("ticker").unique().sort("ticker").collect().get_column("ticker").to_list(),
+        )
+    except (OSError, pl.exceptions.PolarsError) as error:
+        msg = "daily option projection is not readable Parquet"
+        raise OratsOptionProjectionContentError(msg, str(output_path)) from error
+    if schema != pl.Schema(ORATS_NORMALIZED_OPTION_DTYPES):
+        msg = "daily option projection schema disagrees with its receipt contract"
+        raise OratsOptionProjectionContentError(msg, str(output_path))
+    row = summary.row(0, named=True)
+    expected_date = receipt.source_entry.trade_date
+    if (
+        row["rows"] != receipt.output_rows
+        or row["quote_dates"] != 1
+        or row["quote_date_min"] != expected_date
+        or row["quote_date_max"] != expected_date
+        or observed_tickers != receipt.observed_tickers
+    ):
+        msg = "daily option projection content summary disagrees with its receipt"
         raise OratsOptionProjectionContentError(msg, str(output_path))
     return MaterializedOratsOptionProjection(path=output_path, receipt=receipt)
 
@@ -699,6 +754,7 @@ __all__ = [
     "OratsOptionProjectionReceipt",
     "OratsOptionProjectionSpec",
     "OratsOptionProjectionSpecError",
+    "load_verified_orats_option_projection",
     "materialize_orats_option_projection",
     "orats_normalized_option_schema_sha256",
     "orats_option_projection_spec_sha256",

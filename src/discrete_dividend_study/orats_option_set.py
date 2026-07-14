@@ -15,8 +15,10 @@ import polars as pl
 from .orats_archive import OratsArchiveEntry, OratsArchiveInventory, read_orats_archive_inventory
 from .orats_option_projection import (
     MaterializedOratsOptionProjection,
+    OratsOptionProjectionError,
     OratsOptionProjectionReceipt,
     OratsOptionProjectionSpec,
+    load_verified_orats_option_projection,
     orats_normalized_option_schema_sha256,
     orats_option_projection_spec_sha256,
 )
@@ -444,7 +446,10 @@ def _build_manifest(
         if sidecar != receipt:
             msg = "daily projection sidecar disagrees with the supplied receipt"
             raise OratsOptionProjectionSetContentError(msg, str(receipt_path))
-        _verify_output_identity(output, receipt)
+        verified = load_verified_orats_option_projection(output)
+        if verified.receipt != receipt:
+            msg = "verified daily projection disagrees with the supplied receipt"
+            raise OratsOptionProjectionSetContentError(msg, str(output))
         entries.append(
             OratsOptionProjectionSetEntry(
                 trade_date=source_entry.trade_date,
@@ -524,20 +529,15 @@ def _verify_entry(
     ):
         msg = "daily projection receipt identity disagrees with the projection-set entry"
         raise OratsOptionProjectionSetContentError(msg, str(receipt_path))
-    _verify_output_identity(output, receipt)
+    try:
+        verified = load_verified_orats_option_projection(output)
+    except OratsOptionProjectionError as error:
+        msg = f"daily projection content fails its complete receipt contract: {error}"
+        raise OratsOptionProjectionSetContentError(msg, str(output)) from error
+    if verified.receipt != receipt:
+        msg = "verified daily projection receipt disagrees with the projection-set entry"
+        raise OratsOptionProjectionSetContentError(msg, str(output))
     return output
-
-
-def _verify_output_identity(path: Path, receipt: OratsOptionProjectionReceipt) -> None:
-    if path.name != receipt.output_name:
-        msg = "daily projection filename disagrees with its receipt"
-        raise OratsOptionProjectionSetContentError(msg, str(path))
-    if path.stat().st_size != receipt.output_bytes:
-        msg = "daily projection byte count disagrees with its receipt"
-        raise OratsOptionProjectionSetContentError(msg, str(path))
-    if _file_sha256(path) != receipt.output_sha256:
-        msg = "daily projection bytes disagree with its receipt SHA-256"
-        raise OratsOptionProjectionSetContentError(msg, str(path))
 
 
 def _read_manifest(path: Path) -> OratsOptionProjectionSetManifest:

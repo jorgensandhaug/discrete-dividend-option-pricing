@@ -24,6 +24,7 @@ from discrete_dividend_study import (
     OratsOptionProjectionSpecError,
     VerifiedOratsArchive,
     archive_entries_sha256,
+    load_verified_orats_option_projection,
     load_verified_orats_option_projection_set,
     materialize_orats_option_projection,
     orats_archive_name,
@@ -110,6 +111,7 @@ def test_projection_is_filtered_typed_receipted_and_exactly_reusable(tmp_path: P
     assert receipt_json == first.receipt.as_dict()
     second = materialize_orats_option_projection(source, _spec(), output_root, tmp_path)
     assert second == first
+    assert load_verified_orats_option_projection(expected) == first
 
     duplicate_tickers = first.receipt.as_dict()
     duplicate_tickers["observed_tickers"] = ["DUK", "DUK"]
