@@ -253,7 +253,6 @@ class OratsOptionProjectionSetManifest:
             "source_entries_sha256": self.source_entries_sha256,
             "source_inventory_name": self.source_inventory_name,
             "source_inventory_sha256": self.source_inventory_sha256,
-            "start_date": self.start_date.isoformat(),
             "total_bytes": self.total_bytes,
             "total_rows": self.total_rows,
         }

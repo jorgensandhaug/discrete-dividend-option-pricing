@@ -154,8 +154,8 @@ def test_complete_projection_set_is_bound_to_inventory_receipts_and_outputs(
     )
     inventory = OratsArchiveInventory(
         host="de1.hostedftp.com",
-        start_date=TRADE_DATE,
-        end_date=TRADE_DATE,
+        start_date=date(2024, 9, 26),
+        end_date=date(2024, 9, 28),
         observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
         entries=(source.receipt.entry,),
         entries_sha256=archive_entries_sha256((source.receipt.entry,)),
@@ -181,6 +181,8 @@ def test_complete_projection_set_is_bound_to_inventory_receipts_and_outputs(
         (projection,),
     )
     assert first == second
+    assert first.manifest.first_trade_date == TRADE_DATE
+    assert first.manifest.last_trade_date == TRADE_DATE
     assert first.scan().collect().height == len(_spec().tickers)
     assert json.loads(manifest_path.read_bytes()) == first.manifest.as_dict()
     assert (
