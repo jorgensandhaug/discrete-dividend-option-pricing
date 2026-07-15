@@ -69,7 +69,9 @@ the current target-free numerical baseline; it does not establish an empirical r
 XNYS schedule materialization and its two exhaustive rate domains are specified in
 [ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md). Deterministic grouped
 pricing for both continuous-yield variants is fixed in
-[ADR 0047](docs/adr/0047-deterministic-publication-yield-pricing.md).
+[ADR 0047](docs/adr/0047-deterministic-publication-yield-pricing.md). The cash-LSM path, mesh, and
+12-replication random plan are frozen in
+[ADR 0048](docs/adr/0048-frozen-cash-lsm-replication-plan.md).
 
 The first production data boundary is intentionally small:
 
@@ -396,6 +398,9 @@ coverage and restore every native diagnostic to source order. ADR 0037 retains t
 first partition; new cash schedules use
 [ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md), and the yield route is
 specified in [ADR 0047](docs/adr/0047-deterministic-publication-yield-pricing.md).
+The complete study combines that deterministic route with the independently fitted/evaluated
+32,768-path cash estimator and 12 explicit seed replications from
+[ADR 0048](docs/adr/0048-frozen-cash-lsm-replication-plan.md).
 
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared

@@ -29,10 +29,13 @@ from finoptions import (
 
 _STUDY_HASH_FORMAT: Final = "project-publication-study-v3"
 _EXECUTION_HASH_FORMAT: Final = "project-publication-replication-execution-v1"
+_REPLICATION_PLAN_HASH_FORMAT: Final = "project-publication-replication-plan-v1"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
+_SEED_MODULUS: Final = 2**64
 _MAX_POLYNOMIAL_DEGREE: Final = 4
 _MIN_EVALUATION_PATHS: Final = 2
+_MIN_REPLICATIONS: Final = 2
 
 
 class PublicationSpecError(ValueError):
@@ -77,7 +80,7 @@ class PublicationCashPartitionRule(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PublicationCashLsmSpec:
-    """One pilot-selected cash-dividend LSM identity with no production default."""
+    """One explicit cash-dividend LSM identity with no engine-selected controls."""
 
     general_base_intervals: int
     general_origin_exercise: OriginExercise
@@ -351,6 +354,32 @@ class PublicationStudySpec:
             )
 
 
+PROJECT_PUBLICATION_CASH_LSM_SPEC: Final = PublicationCashLsmSpec(
+    general_base_intervals=128,
+    general_origin_exercise=OriginExercise.INCLUDED,
+    training_paths=32_768,
+    evaluation_paths=32_768,
+    polynomial_degree=4,
+    rank_tolerance=1.0e-12,
+    condition_limit=1.0e8,
+    tie_rule=ExerciseTieRule.STRICTLY_GREATER,
+    insufficient_exercise_support=InsufficientExerciseSupportPolicy.FAIL,
+    cash_partition_rule=PublicationCashPartitionRule.NONNEGATIVE_RATE_EXACT_CALENDAR,
+)
+"""Target-free selected independently fitted and evaluated cash-dividend LSM profile."""
+
+
+PROJECT_PUBLICATION_STUDY_SPEC: Final = PublicationStudySpec(
+    name="project-publication-v1",
+    variants=tuple(PublicationVariant),
+    cash_lsm=PROJECT_PUBLICATION_CASH_LSM_SPEC,
+    yield_boundary=PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC,
+    exact_cash_policy=DividendPolicy.LIQUIDATOR,
+    cash_maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
+)
+"""Complete frozen four-variant project publication study identity."""
+
+
 @dataclass(frozen=True, slots=True)
 class PublicationReplicationExecutionSpec:
     """Device and random identity of one complete paired estimator replication."""
@@ -430,6 +459,113 @@ class PublicationReplicationExecutionSpec:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class PublicationReplicationPlanSpec:
+    """Runtime-independent seed and namespace identity for every required replication."""
+
+    replications: int
+    seed_root: int
+    seed_increment: int
+    training_domain_start: int
+    evaluation_domain_start: int
+    replication_critical_value: float
+
+    def __post_init__(self) -> None:
+        """Reject incomplete, colliding, or coerced replication identities."""
+        if (
+            type(self.replications) is not int
+            or not _MIN_REPLICATIONS <= self.replications <= _MAX_U32
+        ):
+            raise PublicationSpecValueError(
+                field="replications",
+                observed=self.replications,
+                requirement=f"a plain int in [{_MIN_REPLICATIONS}, {_MAX_U32}]",
+            )
+        for field, value, maximum in (
+            ("seed_root", self.seed_root, _MAX_U64),
+            ("seed_increment", self.seed_increment, _MAX_U64),
+            ("training_domain_start", self.training_domain_start, _MAX_U32),
+            ("evaluation_domain_start", self.evaluation_domain_start, _MAX_U32),
+        ):
+            if type(value) is not int or not 0 <= value <= maximum:
+                raise PublicationSpecValueError(
+                    field=field,
+                    observed=value,
+                    requirement=f"a plain int in [0, {maximum}]",
+                )
+        if self.seed_increment == 0:
+            raise PublicationSpecValueError(
+                field="seed_increment",
+                observed=self.seed_increment,
+                requirement="a nonzero plain int",
+            )
+        if (
+            type(self.replication_critical_value) is not float
+            or not math.isfinite(self.replication_critical_value)
+            or self.replication_critical_value <= 0.0
+        ):
+            raise PublicationSpecValueError(
+                field="replication_critical_value",
+                observed=self.replication_critical_value,
+                requirement="a finite positive plain float",
+            )
+        seed_period = _SEED_MODULUS // math.gcd(self.seed_increment, _SEED_MODULUS)
+        if self.replications > seed_period:
+            raise PublicationSpecValueError(
+                field="replication seeds",
+                observed=(self.replications, seed_period),
+                requirement="a replication count no greater than the modular seed period",
+            )
+
+    def seed(self, replication: int) -> int:
+        """Return one exact modular seed after validating its declared index."""
+        if type(replication) is not int or not 0 <= replication < self.replications:
+            raise PublicationSpecValueError(
+                field="replication",
+                observed=replication,
+                requirement=f"a plain int in [0, {self.replications})",
+            )
+        return (self.seed_root + (replication * self.seed_increment)) & _MAX_U64
+
+    def execution(
+        self,
+        replication: int,
+        *,
+        threads: int,
+        math_backend: CpuMathBackend,
+    ) -> PublicationReplicationExecutionSpec:
+        """Bind one predeclared random identity to an explicit local CPU runtime."""
+        seed = self.seed(replication)
+        return PublicationReplicationExecutionSpec(
+            replication=replication,
+            threads=threads,
+            math_backend=math_backend,
+            training_seed=seed,
+            training_domain_start=self.training_domain_start,
+            evaluation_seed=seed,
+            evaluation_domain_start=self.evaluation_domain_start,
+        )
+
+    def validate_units(self, units: int) -> None:
+        """Validate the common domain blocks through every declared replication."""
+        self.execution(
+            0,
+            threads=1,
+            math_backend=CpuMathBackend.RUST_STD_F64,
+        ).validate_units(units)
+
+
+PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC: Final = PublicationReplicationPlanSpec(
+    replications=12,
+    seed_root=0x243F6A8885A308D3,
+    seed_increment=0x9E3779B97F4A7C15,
+    training_domain_start=10_000,
+    evaluation_domain_start=1_000_000,
+    replication_critical_value=3.1058065155392804,
+)
+"""Twelve predeclared seed replications with disjoint fitting/evaluation domain blocks."""
+
+
 def publication_study_sha256(study: PublicationStudySpec) -> str:
     """Hash the complete financial and estimator identity."""
     if type(study) is not PublicationStudySpec:
@@ -497,21 +633,47 @@ def publication_execution_sha256(execution: PublicationReplicationExecutionSpec)
     )
 
 
+def publication_replication_plan_sha256(plan: PublicationReplicationPlanSpec) -> str:
+    """Hash the complete runtime-independent randomized replication plan."""
+    if type(plan) is not PublicationReplicationPlanSpec:
+        raise PublicationSpecValueError(
+            field="plan",
+            observed=plan,
+            requirement="PublicationReplicationPlanSpec",
+        )
+    return _sha256_json(
+        {
+            "format": _REPLICATION_PLAN_HASH_FORMAT,
+            "replications": plan.replications,
+            "seed_root": plan.seed_root,
+            "seed_increment": plan.seed_increment,
+            "training_domain_start": plan.training_domain_start,
+            "evaluation_domain_start": plan.evaluation_domain_start,
+            "replication_critical_value": float(plan.replication_critical_value).hex(),
+        }
+    )
+
+
 def _sha256_json(payload: dict[str, object]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
 __all__ = [
+    "PROJECT_PUBLICATION_CASH_LSM_SPEC",
+    "PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC",
+    "PROJECT_PUBLICATION_STUDY_SPEC",
     "PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC",
     "PublicationCashLsmSpec",
     "PublicationCashPartitionRule",
     "PublicationReplicationExecutionSpec",
+    "PublicationReplicationPlanSpec",
     "PublicationSpecError",
     "PublicationSpecValueError",
     "PublicationStudySpec",
     "PublicationVariant",
     "PublicationYieldBoundarySpec",
     "publication_execution_sha256",
+    "publication_replication_plan_sha256",
     "publication_study_sha256",
 ]

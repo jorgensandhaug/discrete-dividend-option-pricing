@@ -44,6 +44,9 @@ from discrete_dividend_study.publication_groups import (
     publication_partitions_sha256,
 )
 from discrete_dividend_study.publication_spec import (
+    PROJECT_PUBLICATION_CASH_LSM_SPEC,
+    PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC,
+    PROJECT_PUBLICATION_STUDY_SPEC,
     PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC,
     PublicationCashLsmSpec,
     PublicationCashPartitionRule,
@@ -52,6 +55,7 @@ from discrete_dividend_study.publication_spec import (
     PublicationStudySpec,
     PublicationVariant,
     publication_execution_sha256,
+    publication_replication_plan_sha256,
     publication_study_sha256,
 )
 from tests.test_publication_exercise import schedule_frame
@@ -65,6 +69,13 @@ _GENERAL_GROUPS = 1
 _EXACT_MESH_CALLS = 2
 _UNIFORM_MESH_CALLS = 2
 _YIELD_PARTITION_CALLS = 4
+_PRODUCTION_GENERAL_INTERVALS = 128
+_PRODUCTION_PATHS = 32_768
+_PRODUCTION_POLYNOMIAL_DEGREE = 4
+_PRODUCTION_REPLICATIONS = 12
+_PRODUCTION_REPLICATION_CRITICAL_VALUE = 3.1058065155392804
+_PRODUCTION_TRAINING_DOMAIN = 10_000
+_PRODUCTION_EVALUATION_DOMAIN = 1_000_000
 
 
 def study() -> PublicationStudySpec:
@@ -165,6 +176,50 @@ def test_publication_identity_has_no_implicit_budget_or_sparse_support() -> None
         replace(declared.yield_boundary, collocation_nodes=1)
     with pytest.raises(PublicationSpecValueError, match="yield_boundary_method"):
         replace(declared.yield_boundary, boundary_quadrature_order=-1)
+
+
+def test_frozen_publication_study_and_replication_plan_are_complete() -> None:
+    """Production controls, seeds, domains, and inference critical value are explicit."""
+    cash = PROJECT_PUBLICATION_CASH_LSM_SPEC
+    assert cash.general_base_intervals == _PRODUCTION_GENERAL_INTERVALS
+    assert cash.training_paths == _PRODUCTION_PATHS
+    assert cash.evaluation_paths == _PRODUCTION_PATHS
+    assert cash.polynomial_degree == _PRODUCTION_POLYNOMIAL_DEGREE
+    assert cash.insufficient_exercise_support is InsufficientExerciseSupportPolicy.FAIL
+    assert PROJECT_PUBLICATION_STUDY_SPEC.cash_lsm is cash
+    assert PROJECT_PUBLICATION_STUDY_SPEC.yield_boundary is PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC
+    assert len(publication_study_sha256(PROJECT_PUBLICATION_STUDY_SPEC)) == _SHA256_HEX_LENGTH
+
+    plan = PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC
+    assert plan.replications == _PRODUCTION_REPLICATIONS
+    assert plan.replication_critical_value == _PRODUCTION_REPLICATION_CRITICAL_VALUE
+    executions = tuple(
+        plan.execution(
+            replication,
+            threads=14,
+            math_backend=CpuMathBackend.APPLE_ACCELERATE,
+        )
+        for replication in range(plan.replications)
+    )
+    assert len({execution.training_seed for execution in executions}) == plan.replications
+    assert all(execution.training_seed == execution.evaluation_seed for execution in executions)
+    assert all(
+        execution.training_domain_start == _PRODUCTION_TRAINING_DOMAIN for execution in executions
+    )
+    assert all(
+        execution.evaluation_domain_start == _PRODUCTION_EVALUATION_DOMAIN
+        for execution in executions
+    )
+    assert len({publication_execution_sha256(item) for item in executions}) == plan.replications
+    plan.validate_units(96_666)
+    assert len(publication_replication_plan_sha256(plan)) == _SHA256_HEX_LENGTH
+    assert publication_replication_plan_sha256(plan) != publication_replication_plan_sha256(
+        replace(plan, seed_root=plan.seed_root + 1)
+    )
+    with pytest.raises(PublicationSpecValueError, match="a nonzero plain int"):
+        replace(plan, seed_increment=0)
+    with pytest.raises(PublicationSpecValueError, match=r"\[0, 12\)"):
+        plan.seed(12)
 
 
 def test_cash_domain_partition_is_complete_disjoint_and_source_ordered() -> None:
