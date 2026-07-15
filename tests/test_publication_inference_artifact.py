@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import date
 from typing import TYPE_CHECKING
 
+import numpy as np
 import polars as pl
 import pytest
 from finoptions import CpuExecutor, CpuMathBackend
@@ -125,9 +126,9 @@ def test_inference_artifact_round_trip_recomputes_summaries_and_exactly_resumes(
                 date(2020, 1, 2),
                 date(2020, 1, 3),
             ],
-            "call_mid_price": final.target,
+            "call_mid_price": final.target.astype(np.float32),
         },
-        schema={"ticker": pl.String, "quote_date": pl.Date, "call_mid_price": pl.Float64},
+        schema={"ticker": pl.String, "quote_date": pl.Date, "call_mid_price": pl.Float32},
     )
     frozen = PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC
     inference_spec = replace(

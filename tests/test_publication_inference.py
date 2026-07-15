@@ -41,7 +41,8 @@ def _inputs() -> tuple[pl.DataFrame, PublicationPredictionSet]:
         "VZ": dates[:1],
     }
     rows = [(ticker, quote_date) for ticker in tickers for quote_date in admitted_dates[ticker]]
-    target = np.ascontiguousarray(np.linspace(10.0, 27.0, len(rows)), dtype=np.float64)
+    source_target = np.linspace(10.0, 27.0, len(rows), dtype=np.float32)
+    target = np.ascontiguousarray(source_target, dtype=np.float64)
     predictions = (
         target.copy(),
         np.ascontiguousarray(target + 1.0),
@@ -54,9 +55,9 @@ def _inputs() -> tuple[pl.DataFrame, PublicationPredictionSet]:
         {
             "ticker": [row[0] for row in rows],
             "quote_date": [row[1] for row in rows],
-            "call_mid_price": target,
+            "call_mid_price": source_target,
         },
-        schema={"ticker": pl.String, "quote_date": pl.Date, "call_mid_price": pl.Float64},
+        schema={"ticker": pl.String, "quote_date": pl.Date, "call_mid_price": pl.Float32},
     )
     return frame, PublicationPredictionSet(target=target, predictions=predictions)
 

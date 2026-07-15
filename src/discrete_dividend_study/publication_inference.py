@@ -31,7 +31,7 @@ _FLOAT64: Final = np.dtype(np.float64)
 _PANEL_INPUT_SCHEMA: Final = {
     "ticker": pl.String,
     "quote_date": pl.Date,
-    "call_mid_price": pl.Float64,
+    "call_mid_price": pl.Float32,
 }
 _ADDITIVE_FIELDS: Final = (
     "absolute_error_sum",
@@ -351,7 +351,9 @@ def prepare_publication_inference_panels(
     _validate_panel_frame(frame, predictions)
     if type(spec) is not PublicationEmpiricalInferenceSpec:
         raise PublicationInferenceError(reason="spec must be PublicationEmpiricalInferenceSpec")
-    frame_target = np.ascontiguousarray(frame.get_column("call_mid_price").to_numpy())
+    frame_target = np.ascontiguousarray(
+        frame.get_column("call_mid_price").cast(pl.Float64).to_numpy()
+    )
     if not np.array_equal(frame_target, predictions.target):
         raise PublicationInferenceError(reason="frame target differs from result-artifact target")
     quote_dates = frame.get_column("quote_date").to_numpy()
