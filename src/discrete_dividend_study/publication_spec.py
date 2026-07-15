@@ -10,11 +10,14 @@ from enum import StrEnum
 from typing import Final
 
 from finoptions import (
+    AmericanOptionError,
+    AndersenLake,
     CpuExecutor,
     CpuMathBackend,
     DividendPolicy,
     ExerciseTieRule,
     ExplicitExerciseMesh,
+    InputError,
     InsufficientExerciseSupportPolicy,
     Lsm,
     MaturityBoundary,
@@ -24,7 +27,7 @@ from finoptions import (
     UniformExerciseMesh,
 )
 
-_STUDY_HASH_FORMAT: Final = "project-publication-study-v2"
+_STUDY_HASH_FORMAT: Final = "project-publication-study-v3"
 _EXECUTION_HASH_FORMAT: Final = "project-publication-replication-execution-v1"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
@@ -73,8 +76,8 @@ class PublicationCashPartitionRule(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class PublicationEstimatorSpec:
-    """One pilot-selected estimator identity; this module defines no production default."""
+class PublicationCashLsmSpec:
+    """One pilot-selected cash-dividend LSM identity with no production default."""
 
     general_base_intervals: int
     general_origin_exercise: OriginExercise
@@ -117,7 +120,7 @@ class PublicationEstimatorSpec:
             )
 
     def general_mesh(self) -> UniformExerciseMesh:
-        """Build the separately declared mesh for general-domain and yield rows."""
+        """Build the separately declared mesh for general-domain cash rows."""
         return UniformExerciseMesh(
             base_intervals=self.general_base_intervals,
             origin_exercise=self.general_origin_exercise,
@@ -180,7 +183,7 @@ class PublicationEstimatorSpec:
         )
 
 
-def _validate_estimator_counts(spec: PublicationEstimatorSpec) -> None:
+def _validate_estimator_counts(spec: PublicationCashLsmSpec) -> None:
     for field, value in (
         ("general_base_intervals", spec.general_base_intervals),
         ("training_paths", spec.training_paths),
@@ -200,7 +203,7 @@ def _validate_estimator_counts(spec: PublicationEstimatorSpec) -> None:
         )
 
 
-def _validate_estimator_regression(spec: PublicationEstimatorSpec) -> None:
+def _validate_estimator_regression(spec: PublicationCashLsmSpec) -> None:
     if (
         type(spec.polynomial_degree) is not int
         or not 0 <= spec.polynomial_degree <= _MAX_POLYNOMIAL_DEGREE
@@ -229,12 +232,82 @@ def _validate_estimator_regression(spec: PublicationEstimatorSpec) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicationYieldBoundarySpec:
+    """One fixed deterministic continuous-yield boundary-method identity."""
+
+    boundary_quadrature_order: int
+    iterations: int
+    collocation_nodes: int
+    price_quadrature_order: int
+    maximum_relative_boundary_residual: float
+    maximum_relative_obstacle_projection: float
+
+    def __post_init__(self) -> None:
+        """Reject coerced controls and unsupported native configurations immediately."""
+        for field in (
+            "boundary_quadrature_order",
+            "iterations",
+            "collocation_nodes",
+            "price_quadrature_order",
+        ):
+            value = getattr(self, field)
+            if type(value) is not int:
+                raise PublicationSpecValueError(
+                    field=field,
+                    observed=value,
+                    requirement="a plain int admitted by AndersenLake",
+                )
+        for field in (
+            "maximum_relative_boundary_residual",
+            "maximum_relative_obstacle_projection",
+        ):
+            value = getattr(self, field)
+            if type(value) is not float:
+                raise PublicationSpecValueError(
+                    field=field,
+                    observed=value,
+                    requirement="a plain float admitted by AndersenLake",
+                )
+        try:
+            self.method()
+        except (AmericanOptionError, InputError) as error:
+            raise PublicationSpecValueError(
+                field="yield_boundary_method",
+                observed=str(error),
+                requirement="a financially and numerically admitted AndersenLake configuration",
+            ) from error
+
+    def method(self) -> AndersenLake:
+        """Build the reusable native boundary method with exactly these controls."""
+        return AndersenLake(
+            boundary_quadrature_order=self.boundary_quadrature_order,
+            iterations=self.iterations,
+            collocation_nodes=self.collocation_nodes,
+            price_quadrature_order=self.price_quadrature_order,
+            maximum_relative_boundary_residual=self.maximum_relative_boundary_residual,
+            maximum_relative_obstacle_projection=self.maximum_relative_obstacle_projection,
+        )
+
+
+PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC: Final = PublicationYieldBoundarySpec(
+    boundary_quadrature_order=13,
+    iterations=16,
+    collocation_nodes=6,
+    price_quadrature_order=21,
+    maximum_relative_boundary_residual=1.0e-4,
+    maximum_relative_obstacle_projection=1.0e-6,
+)
+"""Target-free selected deterministic profile for both publication yield variants."""
+
+
+@dataclass(frozen=True, slots=True)
 class PublicationStudySpec:
     """Financial and estimator identity for one four-way publication comparison."""
 
     name: str
     variants: tuple[PublicationVariant, ...]
-    estimator: PublicationEstimatorSpec
+    cash_lsm: PublicationCashLsmSpec
+    yield_boundary: PublicationYieldBoundarySpec
     exact_cash_policy: DividendPolicy
     cash_maturity_boundary: MaturityBoundary
 
@@ -252,11 +325,17 @@ class PublicationStudySpec:
                 observed=self.variants,
                 requirement="tuple(PublicationVariant) in canonical order",
             )
-        if type(self.estimator) is not PublicationEstimatorSpec:
+        if type(self.cash_lsm) is not PublicationCashLsmSpec:
             raise PublicationSpecValueError(
-                field="estimator",
-                observed=self.estimator,
-                requirement="PublicationEstimatorSpec",
+                field="cash_lsm",
+                observed=self.cash_lsm,
+                requirement="PublicationCashLsmSpec",
+            )
+        if type(self.yield_boundary) is not PublicationYieldBoundarySpec:
+            raise PublicationSpecValueError(
+                field="yield_boundary",
+                observed=self.yield_boundary,
+                requirement="PublicationYieldBoundarySpec",
             )
         if self.exact_cash_policy is not DividendPolicy.LIQUIDATOR:
             raise PublicationSpecValueError(
@@ -359,25 +438,38 @@ def publication_study_sha256(study: PublicationStudySpec) -> str:
             observed=study,
             requirement="PublicationStudySpec",
         )
-    estimator = study.estimator
+    cash_lsm = study.cash_lsm
+    yield_boundary = study.yield_boundary
     payload = {
         "format": _STUDY_HASH_FORMAT,
         "name": study.name,
         "variants": [variant.value for variant in study.variants],
         "exact_cash_policy": study.exact_cash_policy.value,
         "cash_maturity_boundary": study.cash_maturity_boundary.value,
-        "estimator": {
-            "general_base_intervals": estimator.general_base_intervals,
-            "general_origin_exercise": estimator.general_origin_exercise.value,
-            "training_paths": estimator.training_paths,
-            "evaluation_paths": estimator.evaluation_paths,
-            "polynomial_degree": estimator.polynomial_degree,
-            "rank_tolerance": float(estimator.rank_tolerance).hex(),
-            "condition_limit": float(estimator.condition_limit).hex(),
-            "tie_rule": estimator.tie_rule.value,
-            "insufficient_exercise_support": estimator.insufficient_exercise_support.value,
-            "cash_partition_rule": estimator.cash_partition_rule.value,
+        "cash_lsm": {
+            "general_base_intervals": cash_lsm.general_base_intervals,
+            "general_origin_exercise": cash_lsm.general_origin_exercise.value,
+            "training_paths": cash_lsm.training_paths,
+            "evaluation_paths": cash_lsm.evaluation_paths,
+            "polynomial_degree": cash_lsm.polynomial_degree,
+            "rank_tolerance": float(cash_lsm.rank_tolerance).hex(),
+            "condition_limit": float(cash_lsm.condition_limit).hex(),
+            "tie_rule": cash_lsm.tie_rule.value,
+            "insufficient_exercise_support": cash_lsm.insufficient_exercise_support.value,
+            "cash_partition_rule": cash_lsm.cash_partition_rule.value,
             "exact_cash_mesh": "calendar_owned_explicit_times_origin_excluded",
+        },
+        "yield_boundary": {
+            "boundary_quadrature_order": yield_boundary.boundary_quadrature_order,
+            "iterations": yield_boundary.iterations,
+            "collocation_nodes": yield_boundary.collocation_nodes,
+            "price_quadrature_order": yield_boundary.price_quadrature_order,
+            "maximum_relative_boundary_residual": float(
+                yield_boundary.maximum_relative_boundary_residual
+            ).hex(),
+            "maximum_relative_obstacle_projection": float(
+                yield_boundary.maximum_relative_obstacle_projection
+            ).hex(),
         },
     }
     return _sha256_json(payload)
@@ -411,13 +503,15 @@ def _sha256_json(payload: dict[str, object]) -> str:
 
 
 __all__ = [
+    "PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC",
+    "PublicationCashLsmSpec",
     "PublicationCashPartitionRule",
-    "PublicationEstimatorSpec",
     "PublicationReplicationExecutionSpec",
     "PublicationSpecError",
     "PublicationSpecValueError",
     "PublicationStudySpec",
     "PublicationVariant",
+    "PublicationYieldBoundarySpec",
     "publication_execution_sha256",
     "publication_study_sha256",
 ]

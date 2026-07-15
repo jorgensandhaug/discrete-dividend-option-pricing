@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import numpy.typing as npt
 import polars as pl
 import pytest
 from finoptions import (
+    AndersenLake,
+    AndersenLakeBatchResult,
     CpuExecutor,
     CpuMathBackend,
     DividendPolicy,
@@ -41,8 +44,9 @@ from discrete_dividend_study.publication_groups import (
     publication_partitions_sha256,
 )
 from discrete_dividend_study.publication_spec import (
+    PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC,
+    PublicationCashLsmSpec,
     PublicationCashPartitionRule,
-    PublicationEstimatorSpec,
     PublicationReplicationExecutionSpec,
     PublicationSpecValueError,
     PublicationStudySpec,
@@ -59,15 +63,16 @@ _SHA256_HEX_LENGTH = 64
 _EXACT_GROUPS = 2
 _GENERAL_GROUPS = 1
 _EXACT_MESH_CALLS = 2
-_UNIFORM_MESH_CALLS = 6
+_UNIFORM_MESH_CALLS = 2
+_YIELD_PARTITION_CALLS = 4
 
 
 def study() -> PublicationStudySpec:
-    """Return a small explicit test identity, never a production budget default."""
+    """Return a small cash test identity with the selected deterministic yield profile."""
     return PublicationStudySpec(
         name="publication-test-fixture",
         variants=tuple(PublicationVariant),
-        estimator=PublicationEstimatorSpec(
+        cash_lsm=PublicationCashLsmSpec(
             general_base_intervals=2,
             general_origin_exercise=OriginExercise.INCLUDED,
             training_paths=_PATHS,
@@ -79,6 +84,7 @@ def study() -> PublicationStudySpec:
             insufficient_exercise_support=InsufficientExerciseSupportPolicy.FAIL,
             cash_partition_rule=PublicationCashPartitionRule.NONNEGATIVE_RATE_EXACT_CALENDAR,
         ),
+        yield_boundary=PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC,
         exact_cash_policy=DividendPolicy.LIQUIDATOR,
         cash_maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
     )
@@ -129,12 +135,18 @@ def test_publication_identity_has_no_implicit_budget_or_sparse_support() -> None
     assert publication_study_sha256(declared) != publication_study_sha256(
         replace(
             declared,
-            estimator=replace(declared.estimator, training_paths=_PATHS * 2),
+            cash_lsm=replace(declared.cash_lsm, training_paths=_PATHS * 2),
+        )
+    )
+    assert publication_study_sha256(declared) != publication_study_sha256(
+        replace(
+            declared,
+            yield_boundary=replace(declared.yield_boundary, iterations=17),
         )
     )
     with pytest.raises(PublicationSpecValueError, match=r"OriginExercise\.INCLUDED"):
         replace(
-            declared.estimator,
+            declared.cash_lsm,
             general_origin_exercise=OriginExercise.EXCLUDED,
         )
     with pytest.raises(
@@ -142,11 +154,17 @@ def test_publication_identity_has_no_implicit_budget_or_sparse_support() -> None
         match=r"InsufficientExerciseSupportPolicy\.FAIL",
     ):
         replace(
-            declared.estimator,
+            declared.cash_lsm,
             insufficient_exercise_support=InsufficientExerciseSupportPolicy.CONTINUE,
         )
     with pytest.raises(PublicationSpecValueError, match=r"DividendPolicy\.LIQUIDATOR"):
         replace(declared, exact_cash_policy=DividendPolicy.SURVIVOR)
+    with pytest.raises(PublicationSpecValueError, match="plain int"):
+        replace(declared.yield_boundary, iterations=True)
+    with pytest.raises(PublicationSpecValueError, match="yield_boundary_method"):
+        replace(declared.yield_boundary, collocation_nodes=1)
+    with pytest.raises(PublicationSpecValueError, match="yield_boundary_method"):
+        replace(declared.yield_boundary, boundary_quadrature_order=-1)
 
 
 def test_cash_domain_partition_is_complete_disjoint_and_source_ordered() -> None:
@@ -206,8 +224,10 @@ def test_publication_replication_dispatches_explicit_meshes_and_merges_original_
     """Exact cash meshes and general meshes dispatch without fallback or row reordering."""
     source, schedules = publication_inputs()
     prepared = prepare_publication_partitions(source, schedules, study())
-    observed: list[tuple[type[object], int]] = []
-    native_price = publication_pricing.price_lsm_call_grouped_batch
+    observed_lsm: list[tuple[type[object], int]] = []
+    observed_yield: list[tuple[int, int]] = []
+    native_lsm_price = publication_pricing.price_lsm_call_grouped_batch
+    native_yield_price = publication_pricing.price_andersen_lake_call_grouped
 
     def recording_price(
         *,
@@ -216,30 +236,71 @@ def test_publication_replication_dispatches_explicit_meshes_and_merges_original_
         executor: CpuExecutor,
         method: Lsm,
     ) -> LsmBatchResult:
-        observed.append((type(mesh), method.training_stream.domain))
-        return native_price(groups=groups, mesh=mesh, executor=executor, method=method)
+        observed_lsm.append((type(mesh), method.training_stream.domain))
+        return native_lsm_price(groups=groups, mesh=mesh, executor=executor, method=method)
+
+    def recording_yield_price(  # noqa: PLR0913 - exact native facade spy
+        *,
+        group_offsets: npt.NDArray[np.int64],
+        group_spots: npt.NDArray[np.float64],
+        group_maturities: npt.NDArray[np.float64],
+        group_constant_continuously_compounded_rates: npt.NDArray[np.float64],
+        group_annualized_dividend_yields: npt.NDArray[np.float64],
+        group_constant_volatilities: npt.NDArray[np.float64],
+        strikes: npt.NDArray[np.float64],
+        executor: CpuExecutor,
+        method: AndersenLake,
+    ) -> AndersenLakeBatchResult:
+        observed_yield.append((group_offsets.size - 1, strikes.size))
+        return native_yield_price(
+            group_offsets=group_offsets,
+            group_spots=group_spots,
+            group_maturities=group_maturities,
+            group_constant_continuously_compounded_rates=(
+                group_constant_continuously_compounded_rates
+            ),
+            group_annualized_dividend_yields=group_annualized_dividend_yields,
+            group_constant_volatilities=group_constant_volatilities,
+            strikes=strikes,
+            executor=executor,
+            method=method,
+        )
 
     monkeypatch.setattr(publication_pricing, "price_lsm_call_grouped_batch", recording_price)
+    monkeypatch.setattr(
+        publication_pricing,
+        "price_andersen_lake_call_grouped",
+        recording_yield_price,
+    )
     result = publication_pricing.run_publication_replication(prepared, execution(), study())
 
     assert result.rows == _ROWS
     assert result.exact_groups == _EXACT_GROUPS
     assert result.general_groups == _GENERAL_GROUPS
     assert tuple(item.variant for item in result.variants) == tuple(PublicationVariant)
-    assert [mesh for mesh, _ in observed].count(ExplicitExerciseMesh) == _EXACT_MESH_CALLS
-    assert [mesh for mesh, _ in observed].count(UniformExerciseMesh) == _UNIFORM_MESH_CALLS
-    assert [domain for _, domain in observed] == [100, 102] * len(PublicationVariant)
+    assert [mesh for mesh, _ in observed_lsm].count(ExplicitExerciseMesh) == _EXACT_MESH_CALLS
+    assert [mesh for mesh, _ in observed_lsm].count(UniformExerciseMesh) == _UNIFORM_MESH_CALLS
+    assert [domain for _, domain in observed_lsm] == [100, 102] * 2
+    assert observed_yield == [(_EXACT_GROUPS, 3), (_GENERAL_GROUPS, 1)] * 2
+    assert len(observed_yield) == _YIELD_PARTITION_CALLS
     for variant in result.variants:
         assert variant.native.rows == _ROWS
         assert variant.metrics.observations == _ROWS
         assert np.isfinite(variant.native.prices).all()
         assert np.all(variant.native.prices >= 0.0)
         assert not variant.native.prices.flags.writeable
-        assert np.array_equal(
-            variant.native.early_exercise_paths.astype(np.uint64)
-            + variant.native.expiry_paths.astype(np.uint64),
-            np.full(_ROWS, _PATHS, dtype=np.uint64),
-        )
+        if variant.variant.uses_cash_schedule:
+            assert type(variant.native) is LsmBatchResult
+            assert np.array_equal(
+                variant.native.early_exercise_paths.astype(np.uint64)
+                + variant.native.expiry_paths.astype(np.uint64),
+                np.full(_ROWS, _PATHS, dtype=np.uint64),
+            )
+        else:
+            assert type(variant.native) is AndersenLakeBatchResult
+            assert variant.native.groups == _GROUPS
+            assert not variant.native.exercised_at_origin.flags.writeable
+            assert not variant.native.maximum_relative_boundary_residuals.flags.writeable
 
 
 def test_empty_domain_partitions_are_skipped_without_changing_complete_output() -> None:

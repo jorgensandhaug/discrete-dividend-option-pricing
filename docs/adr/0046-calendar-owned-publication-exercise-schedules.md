@@ -3,6 +3,7 @@
 - Status: accepted architecture; production replication plan remains predeclaration-gated
 - Date: 2026-07-15
 - Supersedes: ADR 0037 for new publication runs
+- Superseded in part: ADR 0047 replaces the continuous-yield mesh route
 
 ## Context
 

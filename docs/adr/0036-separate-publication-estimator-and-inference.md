@@ -2,6 +2,7 @@
 
 - Status: accepted architecture; numerical budgets remain evidence-gated
 - Date: 2026-07-15
+- Superseded in part: ADR 0047 replaces LSM only for the two continuous-yield variants
 
 ## Context
 

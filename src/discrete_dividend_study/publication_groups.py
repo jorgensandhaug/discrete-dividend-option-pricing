@@ -358,7 +358,7 @@ def prepare_publication_partitions(
             reason="exercise_schedules must be PreparedPublicationExerciseSchedules"
         )
     if (
-        study.estimator.cash_partition_rule
+        study.cash_lsm.cash_partition_rule
         is not PublicationCashPartitionRule.NONNEGATIVE_RATE_EXACT_CALENDAR
     ):
         raise PublicationPartitionError(reason="unsupported cash partition rule")

@@ -67,7 +67,9 @@ and single-change full-panel v5 are recorded in
 [ADR 0045](docs/adr/0045-full-panel-compact-pilot-v5.md). V5 passed all 60 applicable gates and is
 the current target-free numerical baseline; it does not establish an empirical ranking. The real
 XNYS schedule materialization and its two exhaustive rate domains are specified in
-[ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md).
+[ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md). Deterministic grouped
+pricing for both continuous-yield variants is fixed in
+[ADR 0047](docs/adr/0047-deterministic-publication-yield-pricing.md).
 
 The first production data boundary is intentionally small:
 
@@ -387,10 +389,13 @@ The publication input boundary binds exact civil dates to a checked-in, versione
 asset. It preserves pre-expiry cash-event left limits and maps terminal cash only to the verified
 prior session. Verified natural states then form two exhaustive domains: nonnegative-rate cash
 groups use their explicit ragged exercise schedules, while negative-rate cash groups retain the
-declared origin-inclusive uniform American mesh. Both yield variants use that uniform mesh in both
-domains. Immutable group/row maps prove complete coverage and restore every native diagnostic to
-source order without a retry or fallback. ADR 0037 retains the historical first partition; new
-runs use [ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md).
+declared origin-inclusive uniform American mesh. Both continuous-yield variants instead use one
+fixed deterministic grouped boundary method across the complete cohort; no simulation path,
+fitted stopping rule, or method fallback is involved. Immutable group/row maps prove complete
+coverage and restore every native diagnostic to source order. ADR 0037 retains the historical
+first partition; new cash schedules use
+[ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md), and the yield route is
+specified in [ADR 0047](docs/adr/0047-deterministic-publication-yield-pricing.md).
 
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared

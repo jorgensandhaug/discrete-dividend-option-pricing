@@ -6,11 +6,15 @@ from dataclasses import dataclass
 
 import numpy as np
 from finoptions import (
+    AmericanOptionError,
+    AndersenLake,
+    AndersenLakeBatchResult,
     CpuExecutor,
     InputError,
     Lsm,
     LsmBatchResult,
     LsmError,
+    price_andersen_lake_call_grouped,
     price_lsm_call_grouped_batch,
 )
 
@@ -33,6 +37,8 @@ from .publication_spec import (
 )
 
 _SHA256_HEX_LENGTH = 64
+
+type PublicationNativeResult = LsmBatchResult | AndersenLakeBatchResult
 
 
 @dataclass(slots=True)
@@ -67,15 +73,18 @@ class PublicationVariantReplicationResult:
     """One variant's source-ordered native diagnostics and metrics."""
 
     variant: PublicationVariant
-    native: LsmBatchResult
+    native: PublicationNativeResult
     metrics: ProjectPricingMetrics
 
     def __post_init__(self) -> None:
         """Require complete row agreement and immutable engine outputs."""
         if type(self.variant) is not PublicationVariant:
             raise PublicationPricingContractError(reason="variant must be PublicationVariant")
-        if type(self.native) is not LsmBatchResult:
-            raise PublicationPricingContractError(reason="native must be LsmBatchResult")
+        expected = LsmBatchResult if self.variant.uses_cash_schedule else AndersenLakeBatchResult
+        if type(self.native) is not expected:
+            raise PublicationPricingContractError(
+                reason=f"native must be {expected.__name__} for {self.variant.value}"
+            )
         if type(self.metrics) is not ProjectPricingMetrics:
             raise PublicationPricingContractError(reason="metrics must be ProjectPricingMetrics")
         if self.native.rows != self.metrics.observations:
@@ -143,8 +152,10 @@ def run_publication_replication(
         raise PublicationPricingContractError(reason="partition and requested studies differ")
     execution.validate_units(inputs.simulation_units)
     executor = execution.executor()
+    yield_method = study.yield_boundary.method()
     variants = tuple(
-        _price_variant(inputs, execution, study, variant, executor) for variant in study.variants
+        _price_variant(inputs, execution, study, variant, executor, yield_method)
+        for variant in study.variants
     )
     return PublicationStudyReplicationResult(
         study=study,
@@ -157,22 +168,46 @@ def run_publication_replication(
     )
 
 
-def _price_variant(
+def _price_variant(  # noqa: PLR0913 - method identities stay explicit at dispatch
     inputs: PreparedPublicationPartitions,
     execution: PublicationReplicationExecutionSpec,
     study: PublicationStudySpec,
     variant: PublicationVariant,
     executor: CpuExecutor,
+    yield_method: AndersenLake,
 ) -> PublicationVariantReplicationResult:
+    native = (
+        _price_cash_variant(inputs, execution, study, variant, executor)
+        if variant.uses_cash_schedule
+        else _price_yield_variant(inputs, variant, executor, yield_method)
+    )
+    try:
+        metrics = evaluate_project_pricing_f64(inputs.targets, native.prices)
+    except ProjectMetricError as error:
+        raise PublicationPricingError(
+            variant=variant,
+            domain=None,
+            source=error,
+        ) from error
+    return PublicationVariantReplicationResult(variant=variant, native=native, metrics=metrics)
+
+
+def _price_cash_variant(
+    inputs: PreparedPublicationPartitions,
+    execution: PublicationReplicationExecutionSpec,
+    study: PublicationStudySpec,
+    variant: PublicationVariant,
+    executor: CpuExecutor,
+) -> LsmBatchResult:
     pieces: list[tuple[PublicationGroupPartition, LsmBatchResult]] = []
     unit_offset = 0
     for partition in inputs.ordered():
         if partition.groups:
-            method = study.estimator.method(execution, unit_offset=unit_offset)
+            method = study.cash_lsm.method(execution, unit_offset=unit_offset)
             pieces.append(
                 (
                     partition,
-                    _price_partition(
+                    _price_cash_partition(
                         partition,
                         variant,
                         study,
@@ -183,18 +218,16 @@ def _price_variant(
             )
         unit_offset += partition.groups
     try:
-        native = _merge_partition_results(pieces, inputs.original_rows)
-        metrics = evaluate_project_pricing_f64(inputs.targets, native.prices)
-    except (ProjectMetricError, PublicationPricingContractError) as error:
+        return _merge_lsm_partition_results(pieces, inputs.original_rows)
+    except PublicationPricingContractError as error:
         raise PublicationPricingError(
             variant=variant,
             domain=None,
             source=error,
         ) from error
-    return PublicationVariantReplicationResult(variant=variant, native=native, metrics=metrics)
 
 
-def _price_partition(
+def _price_cash_partition(
     partition: PublicationGroupPartition,
     variant: PublicationVariant,
     study: PublicationStudySpec,
@@ -207,9 +240,9 @@ def _price_partition(
             raise PublicationPricingContractError(
                 reason="a nonempty exact cash partition has no exercise schedule"
             )
-        mesh = study.estimator.exact_cash_mesh(partition.exercise_times)
+        mesh = study.cash_lsm.exact_cash_mesh(partition.exercise_times)
     else:
-        mesh = study.estimator.general_mesh()
+        mesh = study.cash_lsm.general_mesh()
     try:
         native = price_lsm_call_grouped_batch(
             groups=partition.engine_groups_for(variant),
@@ -217,7 +250,7 @@ def _price_partition(
             executor=executor,
             method=method,
         )
-        _validate_stopping_counts(native, partition.rows, study.estimator.evaluation_paths)
+        _validate_stopping_counts(native, partition.rows, study.cash_lsm.evaluation_paths)
     except (
         InputError,
         LsmError,
@@ -232,7 +265,71 @@ def _price_partition(
     return native
 
 
-def _merge_partition_results(
+def _price_yield_variant(
+    inputs: PreparedPublicationPartitions,
+    variant: PublicationVariant,
+    executor: CpuExecutor,
+    method: AndersenLake,
+) -> AndersenLakeBatchResult:
+    pieces = [
+        (
+            partition,
+            _price_yield_partition(
+                partition,
+                variant,
+                executor=executor,
+                method=method,
+            ),
+        )
+        for partition in inputs.ordered()
+        if partition.groups
+    ]
+    try:
+        return _merge_yield_partition_results(
+            pieces,
+            groups=inputs.original_groups,
+            rows=inputs.original_rows,
+        )
+    except PublicationPricingContractError as error:
+        raise PublicationPricingError(variant=variant, domain=None, source=error) from error
+
+
+def _price_yield_partition(
+    partition: PublicationGroupPartition,
+    variant: PublicationVariant,
+    *,
+    executor: CpuExecutor,
+    method: AndersenLake,
+) -> AndersenLakeBatchResult:
+    if variant is PublicationVariant.FORECAST_YIELD:
+        yields = partition.forecast_yields
+    elif variant is PublicationVariant.HISTORICAL_YIELD:
+        yields = partition.historical_yields
+    else:
+        raise PublicationPricingContractError(
+            reason=f"{variant.value} is not a continuous-yield variant"
+        )
+    try:
+        return price_andersen_lake_call_grouped(
+            group_offsets=np.ascontiguousarray(partition.group_offsets, dtype=np.int64),
+            group_spots=partition.initial_spots,
+            group_maturities=partition.maturities,
+            group_constant_continuously_compounded_rates=partition.rates,
+            group_annualized_dividend_yields=yields,
+            group_constant_volatilities=partition.volatilities,
+            strikes=partition.strikes,
+            executor=executor,
+            method=method,
+        )
+    except (AmericanOptionError, InputError) as error:
+        raise PublicationPricingError(
+            variant=variant,
+            domain=partition.domain,
+            source=error,
+        ) from error
+
+
+def _merge_lsm_partition_results(
     pieces: list[tuple[PublicationGroupPartition, LsmBatchResult]],
     rows: int,
 ) -> LsmBatchResult:
@@ -299,6 +396,57 @@ def _merge_partition_results(
         maximum_regression_condition_numbers=maximum_regression_condition_numbers,
         early_exercise_paths=early_exercise_paths,
         expiry_paths=expiry_paths,
+    )
+
+
+def _merge_yield_partition_results(
+    pieces: list[tuple[PublicationGroupPartition, AndersenLakeBatchResult]],
+    *,
+    groups: int,
+    rows: int,
+) -> AndersenLakeBatchResult:
+    prices = np.empty(rows, dtype=np.float64)
+    exercised_at_origin = np.empty(rows, dtype=np.bool_)
+    maximum_relative_boundary_residuals = np.empty(groups, dtype=np.float64)
+    maximum_relative_obstacle_projections = np.empty(groups, dtype=np.float64)
+    used_european_identity = np.empty(groups, dtype=np.bool_)
+    assigned_rows = np.zeros(rows, dtype=np.bool_)
+    assigned_groups = np.zeros(groups, dtype=np.bool_)
+    for partition, native in pieces:
+        row_indices = partition.original_row_indices
+        group_indices = partition.original_group_indices
+        if np.any(assigned_rows[row_indices]) or np.any(assigned_groups[group_indices]):
+            raise PublicationPricingContractError(reason="yield partition outputs overlap")
+        if native.rows != row_indices.size or native.groups != group_indices.size:
+            raise PublicationPricingContractError(reason="yield partition output shape changed")
+        prices[row_indices] = native.prices
+        exercised_at_origin[row_indices] = native.exercised_at_origin
+        maximum_relative_boundary_residuals[group_indices] = (
+            native.maximum_relative_boundary_residuals
+        )
+        maximum_relative_obstacle_projections[group_indices] = (
+            native.maximum_relative_obstacle_projections
+        )
+        used_european_identity[group_indices] = native.used_european_identity
+        assigned_rows[row_indices] = True
+        assigned_groups[group_indices] = True
+    if not bool(np.all(assigned_rows)) or not bool(np.all(assigned_groups)):
+        raise PublicationPricingContractError(reason="yield partition outputs are incomplete")
+    arrays = (
+        prices,
+        exercised_at_origin,
+        maximum_relative_boundary_residuals,
+        maximum_relative_obstacle_projections,
+        used_european_identity,
+    )
+    for array in arrays:
+        array.flags.writeable = False
+    return AndersenLakeBatchResult(
+        prices=prices,
+        exercised_at_origin=exercised_at_origin,
+        maximum_relative_boundary_residuals=maximum_relative_boundary_residuals,
+        maximum_relative_obstacle_projections=maximum_relative_obstacle_projections,
+        used_european_identity=used_european_identity,
     )
 
 
