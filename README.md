@@ -34,6 +34,22 @@ The neural benchmark uses deterministic project-shaped synthetic rows, emits can
 records metric-history and trained-weight hashes beside throughput and peak process memory. It never
 requires or fabricates provider data.
 
+The publication estimator has a separate target-free numerical pilot. It retains every declared
+direct-quadrature level, general exercise mesh, LSM path level, and randomized replication in one
+non-overwriting JSON receipt; any missed gate returns a nonzero status and changes nothing
+automatically:
+
+```shell
+python3 tools/dev.py -- publication-numerical-pilot \
+  --threads 4 \
+  --math-backend rust_std_f64 \
+  --output artifacts/numerical-pilot/v1-portable.json
+```
+
+The frozen synthetic panel, tolerances, and limits are recorded in
+[ADR 0038](docs/adr/0038-target-free-numerical-pilot.md). It contains no market price target or
+legacy ranking and does not turn a passing pilot into an empirical conclusion.
+
 The first production data boundary is intentionally small:
 
 ```python

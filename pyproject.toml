@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 discrete-dividend-study = "discrete_dividend_study.cli:main"
+publication-numerical-pilot = "discrete_dividend_study.numerical_pilot:main"
 
 [project.optional-dependencies]
 mlx = [
@@ -72,6 +73,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 "src/discrete_dividend_study/cli.py" = ["S603"] # argv is a closed set of Git read commands.
+"src/discrete_dividend_study/numerical_pilot.py" = ["S603"] # fixed Git inspection argv only.
 "tools/dev.py" = ["S603"] # commands are fixed argv lists; no shell is used
 
 [tool.ruff.format]
