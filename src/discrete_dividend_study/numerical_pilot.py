@@ -684,6 +684,28 @@ def project_publication_numerical_pilot_v3() -> NumericalPilotSpec:
     )
 
 
+def terminal_cash_polynomial_degree_diagnostic_v1(degree: int) -> NumericalPilotSpec:
+    """Isolate polynomial-space bias on v3's exact terminal-cash paths and schedule."""
+    if type(degree) is not int or not 0 <= degree <= _MAX_POLYNOMIAL_DEGREE:
+        raise NumericalPilotValueError(
+            field="degree",
+            observed=degree,
+            requirement=f"a plain integer in [0, {_MAX_POLYNOMIAL_DEGREE}]",
+        )
+    v3 = project_publication_numerical_pilot_v3()
+    terminal_index = next(
+        index for index, case in enumerate(v3.cases) if case.name == "terminal_cash_atm"
+    )
+    return replace(
+        v3,
+        name=f"terminal-cash-polynomial-degree-{degree}-diagnostic-v1",
+        cases=(v3.cases[terminal_index],),
+        lsm_levels=v3.lsm_levels[-2:],
+        random_domain_root=v3.random_domain_root + (2 * terminal_index),
+        polynomial_degree=degree,
+    )
+
+
 def numerical_pilot_spec_sha256(spec: NumericalPilotSpec) -> str:
     """Hash the complete target-free scientific identity."""
     if type(spec) is not NumericalPilotSpec:
@@ -1125,7 +1147,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run one frozen pilot version and return nonzero when any numerical gate fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--pilot", choices=("v1", "v2", "v3"), required=True)
+    pilot_choices = (
+        "v1",
+        "v2",
+        "v3",
+        "terminal-degree-0",
+        "terminal-degree-1",
+        "terminal-degree-2",
+        "terminal-degree-3",
+        "terminal-degree-4",
+    )
+    parser.add_argument("--pilot", choices=pilot_choices, required=True)
     parser.add_argument("--threads", type=int, required=True)
     parser.add_argument(
         "--math-backend",
@@ -1145,6 +1177,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "v1": project_publication_numerical_pilot_v1,
         "v2": project_publication_numerical_pilot_v2,
         "v3": project_publication_numerical_pilot_v3,
+        **{
+            f"terminal-degree-{degree}": (
+                lambda degree=degree: terminal_cash_polynomial_degree_diagnostic_v1(degree)
+            )
+            for degree in range(_MAX_POLYNOMIAL_DEGREE + 1)
+        },
     }
     spec = specs[arguments.pilot]()
     receipt = run_numerical_pilot(
@@ -1353,5 +1391,6 @@ __all__ = [
     "project_publication_numerical_pilot_v2",
     "project_publication_numerical_pilot_v3",
     "run_numerical_pilot",
+    "terminal_cash_polynomial_degree_diagnostic_v1",
     "write_numerical_pilot_receipt",
 ]

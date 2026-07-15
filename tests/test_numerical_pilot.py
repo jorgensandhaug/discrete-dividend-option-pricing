@@ -23,6 +23,7 @@ from discrete_dividend_study.numerical_pilot import (
     project_publication_numerical_pilot_v2,
     project_publication_numerical_pilot_v3,
     run_numerical_pilot,
+    terminal_cash_polynomial_degree_diagnostic_v1,
     write_numerical_pilot_receipt,
 )
 
@@ -32,6 +33,14 @@ if TYPE_CHECKING:
 _REVISION_A = "0" * 40
 _REVISION_B = "1" * 40
 _SHA256_LENGTH = 64
+_POLYNOMIAL_DEGREES = 5
+_TERMINAL_DEGREE_HASHES = (
+    "77bffc33ae67049cf764429e9cb1a1ae07c0ad7781334cd8b00fc6df2b9f7ad2",
+    "b0e643d387d98bf07c149de6090567ead88eee4cea7fc4b3d76612539d5313f4",
+    "17408240538036511a07a1e867f392fb961639e7d881abac799072175a4dc746",
+    "33515f847f52dd19c3dbb7f1f9650b3f5fba6024bd035a16a044434ce696d2e6",
+    "beba98e74c2392ab0775b05842c1aa2b818701da956a01abf46f570d5d29fdfa",
+)
 
 
 def small_spec() -> numerical_pilot.NumericalPilotSpec:
@@ -116,6 +125,36 @@ def test_v3_changes_only_the_failed_lsm_path_dimension() -> None:
         == "6f7843bde65ec6629027b3f98b5f6f113f717be92697828467f9ea49c0d4cf27"
     )
     assert numerical_pilot_spec_sha256(v3) != numerical_pilot_spec_sha256(v2)
+
+
+def test_terminal_degree_diagnostic_preserves_v3_paths_schedule_and_case_domain() -> None:
+    """All five degrees use identical terminal-case p3/p4 streams and numerical controls."""
+    v3 = project_publication_numerical_pilot_v3()
+    terminal_index = next(
+        index for index, case in enumerate(v3.cases) if case.name == "terminal_cash_atm"
+    )
+    diagnostics = tuple(
+        terminal_cash_polynomial_degree_diagnostic_v1(degree)
+        for degree in range(_POLYNOMIAL_DEGREES)
+    )
+    for degree, diagnostic in enumerate(diagnostics):
+        assert diagnostic == replace(
+            v3,
+            name=f"terminal-cash-polynomial-degree-{degree}-diagnostic-v1",
+            cases=(v3.cases[terminal_index],),
+            lsm_levels=v3.lsm_levels[-2:],
+            random_domain_root=v3.random_domain_root + (2 * terminal_index),
+            polynomial_degree=degree,
+        )
+    assert (
+        len({numerical_pilot_spec_sha256(diagnostic) for diagnostic in diagnostics})
+        == _POLYNOMIAL_DEGREES
+    )
+    assert tuple(numerical_pilot_spec_sha256(diagnostic) for diagnostic in diagnostics) == (
+        _TERMINAL_DEGREE_HASHES
+    )
+    with pytest.raises(NumericalPilotValueError, match=r"\[0, 4\]"):
+        terminal_cash_polynomial_degree_diagnostic_v1(5)
 
 
 def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:
