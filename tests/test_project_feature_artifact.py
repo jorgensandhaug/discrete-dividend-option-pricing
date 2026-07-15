@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -13,10 +14,12 @@ import pytest
 
 from discrete_dividend_study import (
     HISTORICAL_DIVIDEND_SOURCE_DTYPES,
+    LONG_FORM_OPTION_QUOTE_DTYPES,
     NSS_PARAMETER_DTYPES,
     ORATS_DIVIDEND_ARCHIVE_BASE_URL,
     PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
     PROJECT_AS_SUBMITTED_TICKERS,
+    PROJECT_EXPERIMENT_FEATURE_DTYPES,
     PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE,
     PROJECT_FEATURE_OPTION_START_DATE,
     UNDERLYING_HISTORY_DTYPES,
@@ -56,6 +59,17 @@ from discrete_dividend_study.orats_option_compaction import (
     OratsOptionCompactionSpec,
     VerifiedOratsOptionCompaction,
     materialize_orats_option_compaction,
+)
+from discrete_dividend_study.project_experiment_artifact import (
+    PROJECT_EXPERIMENT_LONG_FORM_TICKERS,
+    PROJECT_EXPERIMENT_OPTION_PLAN,
+    ProjectExperimentArtifactContentError,
+    ProjectExperimentArtifactManifest,
+    ProjectExperimentFeatureSources,
+    ProjectExperimentOptionPlan,
+    load_verified_project_experiment_artifact,
+    materialize_project_experiment_artifact,
+    project_experiment_mixed_pipeline_sha256,
 )
 from discrete_dividend_study.project_feature_artifact import (
     ProjectFeatureArtifactContentError,
@@ -300,6 +314,57 @@ def _sources(tmp_path: Path) -> ProjectFeatureSources:
     )
 
 
+def _long_form_options(
+    tmp_path: Path,
+    options: VerifiedOratsOptionCompaction,
+) -> VerifiedPinnedParquet:
+    """Project the five recovered tickers into the strict source-precision long form."""
+    selected = options.scan().filter(pl.col("ticker").is_in(PROJECT_EXPERIMENT_LONG_FORM_TICKERS))
+    contract = ("ticker", "quote_date", "expiry_date", "strike", "underlying_price")
+    calls = selected.select(
+        *contract,
+        pl.col("call_bid").alias("bid"),
+        pl.col("call_ask").alias("ask"),
+        pl.col("call_volume").alias("volume"),
+        pl.lit("call").alias("option_type"),
+    )
+    puts = selected.select(
+        *contract,
+        pl.col("put_bid").alias("bid"),
+        pl.col("put_ask").alias("ask"),
+        pl.col("put_volume").alias("volume"),
+        pl.lit("put").alias("option_type"),
+    )
+    path = tmp_path / "long-form-options.parquet"
+    frame = (
+        pl.concat((calls, puts))
+        .select(
+            *(pl.col(name).cast(dtype) for name, dtype in LONG_FORM_OPTION_QUOTE_DTYPES.items())
+        )
+        .sort("ticker", "quote_date", "expiry_date", "strike", "option_type")
+        .collect()
+    )
+    frame.write_parquet(path)
+    return verify_pinned_parquet(
+        path,
+        expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        expected_rows=frame.height,
+        expected_schema=LONG_FORM_OPTION_QUOTE_DTYPES,
+    )
+
+
+def _experiment_sources(tmp_path: Path) -> ProjectExperimentFeatureSources:
+    sources = _sources(tmp_path)
+    return ProjectExperimentFeatureSources(
+        long_form_options=_long_form_options(tmp_path, sources.options),
+        compacted_options=sources.options,
+        forecast_dividends=sources.forecast_dividends,
+        historical_dividends=sources.historical_dividends,
+        underlying_history=sources.underlying_history,
+        nss_parameters=sources.nss_parameters,
+    )
+
+
 def test_feature_artifact_binds_all_sources_and_is_exactly_reusable(tmp_path: Path) -> None:
     """Five verified sources become one detached, typed, content-addressed Parquet."""
     sources = _sources(tmp_path)
@@ -345,6 +410,124 @@ def test_feature_artifact_binds_all_sources_and_is_exactly_reusable(tmp_path: Pa
     first.path.write_bytes(b"x" * first.path.stat().st_size)
     with pytest.raises(ProjectFeatureArtifactContentError, match="receipt SHA-256"):
         load_verified_project_feature_artifact(first.path)
+
+
+def test_mixed_source_experiment_artifact_is_detached_exact_and_reusable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Float64 long form and Float32 compaction become one verified minimal artifact."""
+    sources = _experiment_sources(tmp_path)
+    output_root = tmp_path / "experiment-features"
+    first = materialize_project_experiment_artifact(sources, output_root)
+    second = materialize_project_experiment_artifact(sources, output_root)
+
+    assert first == second
+    assert first.path.parent.name == first.manifest.request_sha256
+    assert first.scan().collect().shape == (
+        len(PROJECT_AS_SUBMITTED_TICKERS),
+        len(PROJECT_EXPERIMENT_FEATURE_DTYPES),
+    )
+    assert first.scan().collect_schema() == pl.Schema(PROJECT_EXPERIMENT_FEATURE_DTYPES)
+    assert tuple(item.ticker for item in first.manifest.coverage) == PROJECT_AS_SUBMITTED_TICKERS
+    assert all(
+        item.rows == item.descriptive_rows == item.post_2015_rows == 1
+        for item in first.manifest.coverage
+    )
+    assert ProjectExperimentArtifactManifest.from_dict(first.manifest.as_dict()) == first.manifest
+    assert json.loads(first.receipt_path.read_bytes()) == first.manifest.as_dict()
+    assert (
+        ProjectExperimentOptionPlan.from_dict(PROJECT_EXPERIMENT_OPTION_PLAN.as_dict())
+        == PROJECT_EXPERIMENT_OPTION_PLAN
+    )
+    assert (
+        project_experiment_mixed_pipeline_sha256(PROJECT_EXPERIMENT_OPTION_PLAN)
+        == first.manifest.pipeline_sha256
+    )
+    arguments = (
+        "materialize-project-experiment-features",
+        "--long-form-options",
+        str(sources.long_form_options.path),
+        "--long-form-sha256",
+        sources.long_form_options.identity.sha256,
+        "--long-form-rows",
+        str(sources.long_form_options.identity.rows),
+        "--option-compaction-manifest",
+        str(sources.compacted_options.manifest_path),
+        "--option-compaction-root",
+        str(sources.compacted_options.output_root),
+        "--forecast-manifest",
+        str(sources.forecast_dividends.manifest_path),
+        "--forecast-inventory",
+        str(sources.forecast_dividends.inventory_path),
+        "--forecast-root",
+        str(sources.forecast_dividends.output_root),
+        "--historical-dividends",
+        str(sources.historical_dividends.path),
+        "--underlying-history",
+        str(sources.underlying_history.path),
+        "--underlying-sha256",
+        sources.underlying_history.identity.sha256,
+        "--underlying-rows",
+        str(sources.underlying_history.identity.rows),
+        "--nss-parameters",
+        str(sources.nss_parameters.path),
+        "--nss-sha256",
+        sources.nss_parameters.identity.sha256,
+        "--nss-rows",
+        str(sources.nss_parameters.identity.rows),
+        "--output-root",
+        str(output_root),
+    )
+    assert main(arguments) == 0
+    cli_summary = json.loads(capsys.readouterr().out)
+    assert cli_summary["output_sha256"] == first.manifest.output_sha256
+    assert cli_summary["rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+    assert cli_summary["descriptive_rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+    assert cli_summary["post_2015_rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+
+    upstream_paths = (
+        sources.long_form_options.path,
+        *sources.compacted_options.paths,
+        sources.compacted_options.manifest_path,
+        *sources.forecast_dividends.paths,
+        sources.forecast_dividends.manifest_path,
+        sources.forecast_dividends.inventory_path,
+        sources.historical_dividends.path,
+        sources.historical_dividends.path.with_name(
+            f"{sources.historical_dividends.path.name}.receipt.json"
+        ),
+        sources.underlying_history.path,
+        sources.nss_parameters.path,
+    )
+    for path in upstream_paths:
+        path.unlink()
+    assert load_verified_project_experiment_artifact(first.path) == first
+
+    first.scan().with_columns(
+        pl.lit([], dtype=pl.List(pl.Date)).alias("forecasted_discrete_ex_dates")
+    ).collect().write_parquet(first.path)
+    corrupted_manifest = replace(
+        first.manifest,
+        output_bytes=first.path.stat().st_size,
+        output_sha256=hashlib.sha256(first.path.read_bytes()).hexdigest(),
+    )
+    first.receipt_path.write_text(
+        json.dumps(
+            corrupted_manifest.as_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    with pytest.raises(ProjectExperimentArtifactContentError, match="invalid rows"):
+        load_verified_project_experiment_artifact(first.path)
+
+    first.path.write_bytes(b"x" * first.path.stat().st_size)
+    with pytest.raises(ProjectExperimentArtifactContentError, match="receipt SHA-256"):
+        load_verified_project_experiment_artifact(first.path)
 
 
 def test_feature_materialization_rejects_runtime_and_source_drift(tmp_path: Path) -> None:

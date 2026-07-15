@@ -5,11 +5,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
+from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 import polars as pl
 
-from .orats_options import ORATS_NORMALIZED_OPTION_DTYPES
+from .option_quotes import (
+    FLOAT32_PAIRED_OPTION_QUOTE_DTYPES,
+    FLOAT64_PAIRED_OPTION_QUOTE_DTYPES,
+)
 from .schema import require_columns
 
 if TYPE_CHECKING:
@@ -28,6 +32,18 @@ QUOTE_FEATURE_DTYPES = {
     "call_spread": pl.Float32,
     "put_spread": pl.Float32,
 }
+FLOAT64_QUOTE_FEATURE_DTYPES: Final = {
+    name: dtype if dtype == pl.Int64 else pl.Float64 for name, dtype in QUOTE_FEATURE_DTYPES.items()
+}
+_FLOAT32_QUOTE_FEATURE_INPUT_DTYPES: Final = dict(FLOAT32_PAIRED_OPTION_QUOTE_DTYPES)
+_FLOAT64_QUOTE_FEATURE_INPUT_DTYPES: Final = dict(FLOAT64_PAIRED_OPTION_QUOTE_DTYPES)
+
+
+class QuoteNumericPrecision(StrEnum):
+    """Exact floating-point representation used while evaluating quote predicates."""
+
+    FLOAT32 = "float32"
+    FLOAT64 = "float64"
 
 
 class QuoteFilterError(ValueError):
@@ -195,7 +211,11 @@ def _validate_dtypes(
     return validated
 
 
-def add_quote_features(frame: pl.LazyFrame) -> pl.LazyFrame:
+def add_quote_features(
+    frame: pl.LazyFrame,
+    *,
+    precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> pl.LazyFrame:
     """Add shared deterministic quote features without filtering or collecting rows.
 
     `project_call_spread` is the exact project-study convention `(ask - mid) / mid`.
@@ -207,7 +227,8 @@ def add_quote_features(frame: pl.LazyFrame) -> pl.LazyFrame:
         QuoteSchemaError: If a normalized option column has the wrong dtype.
 
     """
-    validated = _validate_dtypes(frame, ORATS_NORMALIZED_OPTION_DTYPES)
+    input_dtypes, _ = _precision_dtypes(precision)
+    validated = _validate_dtypes(frame, input_dtypes)
     with_mid_and_days = validated.with_columns(
         ((pl.col("call_bid") + pl.col("call_ask")) / 2).alias("call_mid_price"),
         ((pl.col("put_bid") + pl.col("put_ask")) / 2).alias("put_mid_price"),
@@ -233,7 +254,12 @@ def add_quote_features(frame: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
-def apply_quote_predicates(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
+def apply_quote_predicates(
+    frame: pl.LazyFrame,
+    spec: QuoteFilter,
+    *,
+    precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> pl.LazyFrame:
     """Apply only the explicit quote-domain predicates and preserve extra columns.
 
     This operation can run before expensive support joins because every predicate depends only on
@@ -244,7 +270,8 @@ def apply_quote_predicates(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFra
         QuoteSchemaError: If a required derived quote feature has the wrong dtype.
 
     """
-    validated = _validate_dtypes(frame, QUOTE_FEATURE_DTYPES)
+    _, feature_dtypes = _precision_dtypes(precision)
+    validated = _validate_dtypes(frame, feature_dtypes)
     predicate = (
         (pl.col("days_to_expiry") >= spec.min_days_to_expiry)
         & (pl.col("days_to_expiry") <= spec.max_days_to_expiry)
@@ -274,7 +301,12 @@ def apply_complete_row_policy(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.Lazy
     return frame.drop_nulls() if spec.drop_nulls else frame
 
 
-def apply_quote_filter(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
+def apply_quote_filter(
+    frame: pl.LazyFrame,
+    spec: QuoteFilter,
+    *,
+    precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> pl.LazyFrame:
     """Apply one explicit quote identity in a single convenient operation.
 
     Extra columns are preserved. When `drop_nulls` is true, null removal covers the complete row at
@@ -287,15 +319,35 @@ def apply_quote_filter(frame: pl.LazyFrame, spec: QuoteFilter) -> pl.LazyFrame:
         QuoteSchemaError: If a required derived quote feature has the wrong dtype.
 
     """
-    return apply_complete_row_policy(apply_quote_predicates(frame, spec), spec)
+    filtered = apply_quote_predicates(frame, spec, precision=precision)
+    return apply_complete_row_policy(filtered, spec)
+
+
+def _precision_dtypes(
+    precision: QuoteNumericPrecision,
+) -> tuple[
+    Mapping[str, type[pl.DataType]],
+    Mapping[str, type[pl.DataType]],
+]:
+    if precision is QuoteNumericPrecision.FLOAT32:
+        return _FLOAT32_QUOTE_FEATURE_INPUT_DTYPES, QUOTE_FEATURE_DTYPES
+    if precision is QuoteNumericPrecision.FLOAT64:
+        return _FLOAT64_QUOTE_FEATURE_INPUT_DTYPES, FLOAT64_QUOTE_FEATURE_DTYPES
+    raise QuoteFilterSpecError(
+        field="precision",
+        observed=precision,
+        requirement="QuoteNumericPrecision.FLOAT32 or QuoteNumericPrecision.FLOAT64",
+    )
 
 
 __all__ = [
+    "FLOAT64_QUOTE_FEATURE_DTYPES",
     "PROJECT_AS_SUBMITTED_FILTER",
     "QUOTE_FEATURE_DTYPES",
     "QuoteFilter",
     "QuoteFilterError",
     "QuoteFilterSpecError",
+    "QuoteNumericPrecision",
     "QuoteSchemaError",
     "add_quote_features",
     "apply_complete_row_policy",

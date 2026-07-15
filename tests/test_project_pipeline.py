@@ -8,6 +8,8 @@ import polars as pl
 import pytest
 
 from discrete_dividend_study import (
+    FLOAT32_PAIRED_OPTION_QUOTE_DTYPES,
+    FLOAT64_PAIRED_OPTION_QUOTE_DTYPES,
     HISTORICAL_DIVIDEND_DTYPES,
     NSS_PARAMETER_DTYPES,
     ORATS_DIVIDEND_DTYPES,
@@ -15,8 +17,15 @@ from discrete_dividend_study import (
     PROJECT_AS_SUBMITTED_FEATURE_COLUMNS,
     PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
     PROJECT_AS_SUBMITTED_TICKERS,
+    PROJECT_EXPERIMENT_FEATURE_COLUMNS,
+    PROJECT_EXPERIMENT_FEATURE_DTYPES,
     ProjectFeatureUniverseError,
+    QuoteNumericPrecision,
     build_project_as_submitted_features,
+    build_project_experiment_features,
+    build_project_experiment_quote_partition,
+    project_experiment_feature_pipeline_sha256,
+    project_experiment_feature_schema_sha256,
     project_feature_schema_sha256,
 )
 from discrete_dividend_study.project_pipeline import project_feature_pipeline_sha256
@@ -40,6 +49,21 @@ def test_project_feature_pipeline_has_one_complete_stable_identity() -> None:
     assert first == project_feature_pipeline_sha256()
     assert len(first) == SHA256_HEX_LENGTH
     assert first == first.lower()
+
+
+def test_project_experiment_contract_has_distinct_stable_identities() -> None:
+    """The provider-minimal experiment boundary is ordered, typed, and independently hashed."""
+    schema_hash = project_experiment_feature_schema_sha256()
+    pipeline_hash = project_experiment_feature_pipeline_sha256()
+    assert schema_hash == project_experiment_feature_schema_sha256()
+    assert pipeline_hash == project_experiment_feature_pipeline_sha256()
+    assert len(schema_hash) == SHA256_HEX_LENGTH
+    assert len(pipeline_hash) == SHA256_HEX_LENGTH
+    assert schema_hash != project_feature_schema_sha256()
+    assert pipeline_hash != project_feature_pipeline_sha256()
+    assert (
+        project_experiment_feature_pipeline_sha256(QuoteNumericPrecision.FLOAT64) != pipeline_hash
+    )
 
 
 def normalized_options() -> pl.LazyFrame:
@@ -197,6 +221,66 @@ def test_project_pipeline_has_one_ordered_typed_complete_feature_contract() -> N
     assert observed["risk_free_rate"].to_list() == [SHORTEST_RATE] * len(
         PROJECT_AS_SUBMITTED_TICKERS
     )
+
+
+def test_minimal_paired_pipeline_is_value_identical_on_every_experiment_field() -> None:
+    """Unused ORATS diagnostics are unnecessary for either submitted experiment family."""
+    complete = build_project_as_submitted_features(
+        normalized_options(),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    minimal = build_project_experiment_features(
+        normalized_options().select(tuple(FLOAT32_PAIRED_OPTION_QUOTE_DTYPES)),
+        underlying_history(),
+        future_forecasts(),
+        historical_dividends(),
+        nss_parameters(),
+    ).collect()
+    assert minimal.schema == pl.Schema(PROJECT_EXPERIMENT_FEATURE_DTYPES)
+    assert minimal.columns == list(PROJECT_EXPERIMENT_FEATURE_COLUMNS)
+    assert minimal.equals(complete.select(PROJECT_EXPERIMENT_FEATURE_COLUMNS))
+
+
+def test_source_precision_is_preserved_until_after_strict_quote_predicates() -> None:
+    """A Float64 boundary quote cannot enter the cohort through premature narrowing."""
+    source = pl.LazyFrame(
+        {
+            "ticker": ["DUK"],
+            "quote_date": [date(2024, 10, 1)],
+            "expiry_date": [date(2024, 11, 1)],
+            "strike": [1.0],
+            "call_ask": [1.11],
+            "call_bid": [1.10],
+            "put_ask": [0.02],
+            "put_bid": [0.01],
+            "underlying_price": [2.00000001],
+            "call_volume": [1.0],
+            "put_volume": [1.0],
+        },
+        schema=FLOAT64_PAIRED_OPTION_QUOTE_DTYPES,
+    )
+    preserved = build_project_experiment_quote_partition(
+        source,
+        nss_parameters(),
+        tickers=("DUK",),
+        source_precision=QuoteNumericPrecision.FLOAT64,
+    ).collect()
+    narrowed_first = build_project_experiment_quote_partition(
+        source.select(
+            *(
+                pl.col(name).cast(dtype)
+                for name, dtype in FLOAT32_PAIRED_OPTION_QUOTE_DTYPES.items()
+            )
+        ),
+        nss_parameters(),
+        tickers=("DUK",),
+        source_precision=QuoteNumericPrecision.FLOAT32,
+    ).collect()
+    assert preserved.height == 0
+    assert narrowed_first.height == 1
 
 
 def test_project_pipeline_validates_only_forecast_snapshots_consumed_by_quotes() -> None:

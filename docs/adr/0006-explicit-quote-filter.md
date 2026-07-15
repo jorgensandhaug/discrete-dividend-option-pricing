@@ -14,6 +14,9 @@ put bid and ask strictly above zero, call moneyness in the closed interval [1, 2
 intrinsic/ask tolerance, the submitted call-spread limit, quote dates from 2011-01-01, and complete
 joined rows. Strict versus inclusive comparisons are part of the identity.
 
-The filter is applied after support-data joins so its explicit null policy covers the complete
-featured row. Input normalization, support-data joins, quote filtering, and later corrected or
-robustness cohorts remain distinct immutable stages; no convenience default selects among them.
+Quote-domain predicates execute before expensive support-data joins. Their arithmetic and
+comparisons retain the input source's declared `Float32` or `Float64` representation; narrowing a
+surviving row is a separate later boundary. The explicit complete-row null policy executes after
+support enrichment so it covers the complete featured row. Input normalization, quote predicates,
+support-data joins, complete-row selection, and later corrected or robustness cohorts remain
+distinct immutable stages; no convenience default selects among them.

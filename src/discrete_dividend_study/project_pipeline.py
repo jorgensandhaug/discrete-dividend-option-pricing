@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import polars as pl
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from .dividend_features import (
     DIVIDEND_FEATURE_DTYPES,
@@ -25,6 +28,7 @@ from .orats_options import ORATS_NORMALIZED_OPTION_DTYPES
 from .quote_filters import (
     PROJECT_AS_SUBMITTED_FILTER,
     QUOTE_FEATURE_DTYPES,
+    QuoteNumericPrecision,
     add_quote_features,
     apply_complete_row_policy,
     apply_quote_predicates,
@@ -50,13 +54,51 @@ PROJECT_AS_SUBMITTED_FEATURE_DTYPES = {
     **HISTORICAL_DIVIDEND_FEATURE_DTYPES,
 }
 PROJECT_AS_SUBMITTED_FEATURE_COLUMNS = tuple(PROJECT_AS_SUBMITTED_FEATURE_DTYPES)
+PROJECT_EXPERIMENT_FEATURE_DTYPES: Final = {
+    "ticker": pl.String,
+    "quote_date": pl.Date,
+    "expiry_date": pl.Date,
+    "strike": pl.Float32,
+    "underlying_price": pl.Float32,
+    "call_mid_price": pl.Float32,
+    "days_to_expiry": pl.Int64,
+    "yte": pl.Float64,
+    "call_moneyness": pl.Float32,
+    "forecasted_total_dividend_in_period": pl.Float64,
+    "forecasted_discrete_ex_dates": pl.List(pl.Date),
+    "forecasted_discrete_amounts": pl.List(pl.Float64),
+    "forecasted_years_to_discrete_ex_dates": pl.List(pl.Float64),
+    "forecasted_dividend_count": pl.UInt32,
+    "forecasted_dividend_yield": pl.Float64,
+    "historical_volatility_90": pl.Float64,
+    "risk_free_rate": pl.Float64,
+    "historical_total_dividend_in_lookback_window": pl.Float64,
+    "historical_dividend_yield": pl.Float64,
+}
+PROJECT_EXPERIMENT_FEATURE_COLUMNS: Final = tuple(PROJECT_EXPERIMENT_FEATURE_DTYPES)
 PROJECT_AS_SUBMITTED_TICKERS: Final = ("DUK", "EPD", "ETR", "MO", "SO", "VZ")
 _PROJECT_QUOTE_COHORT_DTYPES: Final = {
     **ORATS_NORMALIZED_OPTION_DTYPES,
     **QUOTE_FEATURE_DTYPES,
 }
+PROJECT_EXPERIMENT_QUOTE_COHORT_DTYPES: Final = {
+    name: PROJECT_EXPERIMENT_FEATURE_DTYPES[name]
+    for name in (
+        "ticker",
+        "quote_date",
+        "expiry_date",
+        "strike",
+        "underlying_price",
+        "call_mid_price",
+        "days_to_expiry",
+        "yte",
+        "call_moneyness",
+    )
+}
 _PROJECT_FEATURE_SCHEMA_HASH_FORMAT: Final = "project-as-submitted-feature-schema-v1"
 _PROJECT_FEATURE_PIPELINE_HASH_FORMAT: Final = "project-as-submitted-feature-pipeline-v1"
+_PROJECT_EXPERIMENT_SCHEMA_HASH_FORMAT: Final = "project-experiment-feature-schema-v1"
+_PROJECT_EXPERIMENT_PIPELINE_HASH_FORMAT: Final = "project-experiment-feature-pipeline-v1"
 
 
 class ProjectFeatureError(ValueError):
@@ -75,6 +117,19 @@ class ProjectFeatureSchemaError(ProjectFeatureError):
 
 
 @dataclass(slots=True)
+class ProjectFeatureSpecError(ProjectFeatureError):
+    """A project pipeline declaration is malformed or outside the frozen study domain."""
+
+    field: str
+    observed: object
+    requirement: str
+
+    def __str__(self) -> str:
+        """Describe the invalid declaration without inspecting licensed rows."""
+        return f"{self.field} must be {self.requirement}; observed {self.observed!r}"
+
+
+@dataclass(slots=True)
 class ProjectFeatureUniverseError(ProjectFeatureError):
     """The normalized source lacks one or more frozen study tickers."""
 
@@ -87,10 +142,28 @@ class ProjectFeatureUniverseError(ProjectFeatureError):
 
 def project_feature_schema_sha256() -> str:
     """Hash the exact ordered project feature names and Polars dtypes."""
+    return _feature_schema_sha256(
+        _PROJECT_FEATURE_SCHEMA_HASH_FORMAT,
+        PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
+    )
+
+
+def project_experiment_feature_schema_sha256() -> str:
+    """Hash the minimal ordered feature contract consumed by every project experiment."""
+    return _feature_schema_sha256(
+        _PROJECT_EXPERIMENT_SCHEMA_HASH_FORMAT,
+        PROJECT_EXPERIMENT_FEATURE_DTYPES,
+    )
+
+
+def _feature_schema_sha256(
+    format_identity: str,
+    dtypes: Mapping[str, type[pl.DataType] | pl.DataType],
+) -> str:
     hasher = hashlib.sha256()
     for value in (
-        _PROJECT_FEATURE_SCHEMA_HASH_FORMAT,
-        *(item for pair in PROJECT_AS_SUBMITTED_FEATURE_DTYPES.items() for item in map(str, pair)),
+        format_identity,
+        *(item for pair in dtypes.items() for item in map(str, pair)),
     ):
         encoded = value.encode("utf-8")
         hasher.update(len(encoded).to_bytes(8, byteorder="little", signed=False))
@@ -100,6 +173,33 @@ def project_feature_schema_sha256() -> str:
 
 def project_feature_pipeline_sha256() -> str:
     """Hash every immutable transformation choice in the complete project pipeline."""
+    return _feature_pipeline_sha256(
+        format_identity=_PROJECT_FEATURE_PIPELINE_HASH_FORMAT,
+        feature_schema_sha256=project_feature_schema_sha256(),
+    )
+
+
+def project_experiment_feature_pipeline_sha256(
+    source_precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> str:
+    """Hash the same financial pipeline under its minimal experiment output schema."""
+    if type(source_precision) is not QuoteNumericPrecision:
+        raise ProjectFeatureSchemaError(
+            mismatches=(("source_precision", "QuoteNumericPrecision", repr(source_precision)),),
+        )
+    return _feature_pipeline_sha256(
+        format_identity=_PROJECT_EXPERIMENT_PIPELINE_HASH_FORMAT,
+        feature_schema_sha256=project_experiment_feature_schema_sha256(),
+        quote_source_precision=source_precision.value,
+    )
+
+
+def _feature_pipeline_sha256(
+    *,
+    format_identity: str,
+    feature_schema_sha256: str,
+    quote_source_precision: str | None = None,
+) -> str:
     quote_filter = PROJECT_AS_SUBMITTED_FILTER
     volatility = PROJECT_HISTORICAL_VOLATILITY_SPEC
     underlying_join = PROJECT_AS_SUBMITTED_UNDERLYING_JOIN_SPEC
@@ -107,7 +207,7 @@ def project_feature_pipeline_sha256() -> str:
     historical = PROJECT_AS_SUBMITTED_HISTORICAL_DIVIDEND_SPEC
     nss = PROJECT_AS_SUBMITTED_NSS_RATE_SPEC
     payload = {
-        "feature_schema_sha256": project_feature_schema_sha256(),
+        "feature_schema_sha256": feature_schema_sha256,
         "forecast_dividends": {
             "aggregate_same_date_components": forecast.aggregate_same_date_components,
             "include_expiry_date": forecast.include_expiry_date,
@@ -115,7 +215,7 @@ def project_feature_pipeline_sha256() -> str:
             "snapshot_coverage": forecast.snapshot_coverage,
             "year_basis_days": forecast.year_basis_days,
         },
-        "format": _PROJECT_FEATURE_PIPELINE_HASH_FORMAT,
+        "format": format_identity,
         "forecast_source_selection": "exact-project-quote-dates-then-strict-future-v1",
         "historical_dividends": {
             "include_lookback_boundary": historical.include_lookback_boundary,
@@ -163,6 +263,8 @@ def project_feature_pipeline_sha256() -> str:
             "maximum_calendar_lag_days": underlying_join.maximum_calendar_lag_days,
         },
     }
+    if quote_source_precision is not None:
+        payload["quote_source_precision"] = quote_source_precision
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -174,6 +276,26 @@ def project_feature_pipeline_sha256() -> str:
 
 
 def _select_project_as_submitted_universe(frame: pl.LazyFrame) -> pl.LazyFrame:
+    return _select_project_tickers(frame, PROJECT_AS_SUBMITTED_TICKERS)
+
+
+def _select_project_tickers(
+    frame: pl.LazyFrame,
+    tickers: tuple[str, ...],
+) -> pl.LazyFrame:
+    if (
+        type(tickers) is not tuple
+        or not tickers
+        or tickers != tuple(sorted(set(tickers)))
+        or any(ticker not in PROJECT_AS_SUBMITTED_TICKERS for ticker in tickers)
+    ):
+        raise ProjectFeatureSpecError(
+            field="tickers",
+            observed=tickers,
+            requirement=(
+                f"a sorted unique nonempty tuple drawn from {PROJECT_AS_SUBMITTED_TICKERS!r}"
+            ),
+        )
     validated = require_columns(frame, ("ticker",))
     ticker_dtype = validated.collect_schema()["ticker"]
     if ticker_dtype != pl.String:
@@ -181,16 +303,16 @@ def _select_project_as_submitted_universe(frame: pl.LazyFrame) -> pl.LazyFrame:
             mismatches=(("ticker", str(pl.String), str(ticker_dtype)),),
         )
     available = frozenset(
-        validated.filter(pl.col("ticker").is_in(PROJECT_AS_SUBMITTED_TICKERS))
+        validated.filter(pl.col("ticker").is_in(tickers))
         .select("ticker")
         .unique()
         .collect()["ticker"]
         .to_list(),
     )
-    missing = tuple(ticker for ticker in PROJECT_AS_SUBMITTED_TICKERS if ticker not in available)
+    missing = tuple(ticker for ticker in tickers if ticker not in available)
     if missing:
         raise ProjectFeatureUniverseError(missing_tickers=missing)
-    return validated.filter(pl.col("ticker").is_in(PROJECT_AS_SUBMITTED_TICKERS))
+    return validated.filter(pl.col("ticker").is_in(tickers))
 
 
 def select_project_as_submitted_features(frame: pl.LazyFrame) -> pl.LazyFrame:
@@ -226,26 +348,98 @@ def select_project_as_submitted_features(frame: pl.LazyFrame) -> pl.LazyFrame:
     return projected
 
 
+def select_project_experiment_features(frame: pl.LazyFrame) -> pl.LazyFrame:
+    """Project enriched rows into the minimal contract needed by every submitted experiment."""
+    validated = require_columns(frame, PROJECT_EXPERIMENT_FEATURE_COLUMNS)
+    projected = validated.select(PROJECT_EXPERIMENT_FEATURE_COLUMNS)
+    schema = projected.collect_schema()
+    mismatches = tuple(
+        (name, str(dtype), str(schema[name]))
+        for name, dtype in PROJECT_EXPERIMENT_FEATURE_DTYPES.items()
+        if schema[name] != dtype
+    )
+    if mismatches:
+        raise ProjectFeatureSchemaError(mismatches=mismatches)
+    return projected
+
+
 def build_project_quote_cohort(
     normalized_options: pl.LazyFrame,
     nss_parameters: pl.LazyFrame,
 ) -> pl.LazyFrame:
     """Build the exact quote-only cohort before all expensive support joins."""
-    selected_options = _select_project_as_submitted_universe(normalized_options)
+    return _build_project_quote_cohort(
+        normalized_options,
+        nss_parameters,
+        output_dtypes=_PROJECT_QUOTE_COHORT_DTYPES,
+        required_tickers=PROJECT_AS_SUBMITTED_TICKERS,
+        source_precision=QuoteNumericPrecision.FLOAT32,
+    )
+
+
+def build_project_experiment_quote_cohort(
+    paired_options: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+    *,
+    source_precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> pl.LazyFrame:
+    """Build the submitted cohort from only the provider fields used by experiments."""
+    return _build_project_quote_cohort(
+        paired_options,
+        nss_parameters,
+        output_dtypes=PROJECT_EXPERIMENT_QUOTE_COHORT_DTYPES,
+        required_tickers=PROJECT_AS_SUBMITTED_TICKERS,
+        source_precision=source_precision,
+    )
+
+
+def build_project_experiment_quote_partition(
+    paired_options: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+    *,
+    tickers: tuple[str, ...],
+    source_precision: QuoteNumericPrecision,
+) -> pl.LazyFrame:
+    """Filter one explicit submitted-ticker partition before cross-source union."""
+    return _build_project_quote_cohort(
+        paired_options,
+        nss_parameters,
+        output_dtypes=PROJECT_EXPERIMENT_QUOTE_COHORT_DTYPES,
+        required_tickers=tickers,
+        source_precision=source_precision,
+    )
+
+
+def _build_project_quote_cohort(
+    options: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+    *,
+    output_dtypes: Mapping[str, type[pl.DataType] | pl.DataType],
+    required_tickers: tuple[str, ...],
+    source_precision: QuoteNumericPrecision,
+) -> pl.LazyFrame:
+    selected_options = _select_project_tickers(options, required_tickers)
     quotes = apply_quote_predicates(
-        add_quote_features(selected_options),
+        add_quote_features(selected_options, precision=source_precision),
         PROJECT_AS_SUBMITTED_FILTER,
+        precision=source_precision,
     )
     quotes = quotes.join(
         nss_parameters.select(pl.col("date").alias("quote_date")).unique(),
         on="quote_date",
         how="semi",
     )
-    projected = quotes.select(tuple(_PROJECT_QUOTE_COHORT_DTYPES))
+    source_schema = quotes.collect_schema()
+    projected = quotes.select(
+        *(
+            pl.col(name) if source_schema[name] == dtype else pl.col(name).cast(dtype)
+            for name, dtype in output_dtypes.items()
+        )
+    )
     schema = projected.collect_schema()
     mismatches = tuple(
         (name, str(dtype), str(schema[name]))
-        for name, dtype in _PROJECT_QUOTE_COHORT_DTYPES.items()
+        for name, dtype in output_dtypes.items()
         if schema[name] != dtype
     )
     if mismatches:
@@ -261,6 +455,41 @@ def enrich_project_quote_cohort(
     nss_parameters: pl.LazyFrame,
 ) -> pl.LazyFrame:
     """Validate support sources and enrich one already-filtered quote cohort."""
+    complete = _enrich_project_quote_cohort(
+        quotes,
+        underlying_history,
+        future_dividend_forecasts,
+        historical_dividends,
+        nss_parameters,
+    )
+    return select_project_as_submitted_features(complete)
+
+
+def enrich_project_experiment_quote_cohort(
+    quotes: pl.LazyFrame,
+    underlying_history: pl.LazyFrame,
+    future_dividend_forecasts: pl.LazyFrame,
+    historical_dividends: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+) -> pl.LazyFrame:
+    """Enrich a minimal paired cohort without fabricating unused vendor diagnostics."""
+    complete = _enrich_project_quote_cohort(
+        quotes,
+        underlying_history,
+        future_dividend_forecasts,
+        historical_dividends,
+        nss_parameters,
+    )
+    return select_project_experiment_features(complete)
+
+
+def _enrich_project_quote_cohort(
+    quotes: pl.LazyFrame,
+    underlying_history: pl.LazyFrame,
+    future_dividend_forecasts: pl.LazyFrame,
+    historical_dividends: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+) -> pl.LazyFrame:
     relevant_forecast_dates = quotes.select(
         pl.col("quote_date").alias("forecast_date"),
     ).unique()
@@ -296,8 +525,7 @@ def enrich_project_quote_cohort(
         nss_parameters,
         PROJECT_AS_SUBMITTED_NSS_RATE_SPEC,
     )
-    complete = apply_complete_row_policy(enriched, PROJECT_AS_SUBMITTED_FILTER)
-    return select_project_as_submitted_features(complete)
+    return apply_complete_row_policy(enriched, PROJECT_AS_SUBMITTED_FILTER)
 
 
 def build_project_as_submitted_features(
@@ -330,17 +558,58 @@ def build_project_as_submitted_features(
     )
 
 
+def build_project_experiment_features(  # noqa: PLR0913 - each independent source is explicit
+    paired_options: pl.LazyFrame,
+    underlying_history: pl.LazyFrame,
+    future_dividend_forecasts: pl.LazyFrame,
+    historical_dividends: pl.LazyFrame,
+    nss_parameters: pl.LazyFrame,
+    *,
+    source_precision: QuoteNumericPrecision = QuoteNumericPrecision.FLOAT32,
+) -> pl.LazyFrame:
+    """Compose the submitted study from the minimal provider-neutral paired quote contract.
+
+    This path applies the same cohort, point-in-time support, dividend, rate, and complete-row
+    policies as ``build_project_as_submitted_features``. It deliberately emits only fields consumed
+    by the classical/neural experiments or their aggregate diagnostics, so a compatible long-form
+    source does not need to invent open interest, vendor theoretical values, or implied volatility.
+    """
+    quotes = build_project_experiment_quote_cohort(
+        paired_options,
+        nss_parameters,
+        source_precision=source_precision,
+    )
+    return enrich_project_experiment_quote_cohort(
+        quotes,
+        underlying_history,
+        future_dividend_forecasts,
+        historical_dividends,
+        nss_parameters,
+    )
+
+
 __all__ = [
     "PROJECT_AS_SUBMITTED_FEATURE_COLUMNS",
     "PROJECT_AS_SUBMITTED_FEATURE_DTYPES",
     "PROJECT_AS_SUBMITTED_TICKERS",
+    "PROJECT_EXPERIMENT_FEATURE_COLUMNS",
+    "PROJECT_EXPERIMENT_FEATURE_DTYPES",
+    "PROJECT_EXPERIMENT_QUOTE_COHORT_DTYPES",
     "ProjectFeatureError",
     "ProjectFeatureSchemaError",
+    "ProjectFeatureSpecError",
     "ProjectFeatureUniverseError",
     "build_project_as_submitted_features",
+    "build_project_experiment_features",
+    "build_project_experiment_quote_cohort",
+    "build_project_experiment_quote_partition",
     "build_project_quote_cohort",
+    "enrich_project_experiment_quote_cohort",
     "enrich_project_quote_cohort",
+    "project_experiment_feature_pipeline_sha256",
+    "project_experiment_feature_schema_sha256",
     "project_feature_pipeline_sha256",
     "project_feature_schema_sha256",
     "select_project_as_submitted_features",
+    "select_project_experiment_features",
 ]

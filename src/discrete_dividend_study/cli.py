@@ -60,6 +60,7 @@ from .neural_study import (
     run_project_neural_rolling_study,
 )
 from .nss_rates import NSS_PARAMETER_DTYPES
+from .option_quotes import LONG_FORM_OPTION_QUOTE_DTYPES
 from .orats_archive import (
     ORATS_DEFAULT_FTPS_HOST,
     OratsArchiveInventory,
@@ -107,6 +108,10 @@ from .orats_option_set import (
     write_orats_option_projection_set_manifest,
 )
 from .pinned_parquet import verify_pinned_parquet
+from .project_experiment_artifact import (
+    ProjectExperimentFeatureSources,
+    materialize_project_experiment_artifact,
+)
 from .project_feature_artifact import (
     ProjectFeatureSources,
     materialize_project_feature_artifact,
@@ -192,6 +197,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "materialize-orats-dividends": _materialize_orats_dividends,
         "materialize-historical-dividends": _materialize_historical_dividends,
         "materialize-project-features": _materialize_project_features,
+        "materialize-project-experiment-features": (_materialize_project_experiment_features),
         "render-classical-table": _render_classical_table,
     }
     handler = handlers.get(arguments.command)
@@ -475,6 +481,97 @@ def _materialize_project_features(arguments: argparse.Namespace) -> int:
         "pipeline_sha256": artifact.manifest.pipeline_sha256,
         "quote_date_max": artifact.manifest.quote_date_max.isoformat(),
         "quote_date_min": artifact.manifest.quote_date_min.isoformat(),
+        "request_sha256": artifact.manifest.request_sha256,
+        "rows": artifact.manifest.output_rows,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n",
+    )
+    return 0
+
+
+def _materialize_project_experiment_features(arguments: argparse.Namespace) -> int:
+    long_form = verify_pinned_parquet(
+        _required_path(
+            arguments.long_form_options,
+            field="long-form-options",
+            kind="file",
+        ),
+        expected_sha256=arguments.long_form_sha256,
+        expected_rows=arguments.long_form_rows,
+        expected_schema=LONG_FORM_OPTION_QUOTE_DTYPES,
+    )
+    compacted = load_verified_orats_option_compaction(
+        _required_path(
+            arguments.option_compaction_manifest,
+            field="option-compaction-manifest",
+            kind="file",
+        ),
+        _required_path(
+            arguments.option_compaction_root,
+            field="option-compaction-root",
+            kind="directory",
+        ),
+    )
+    forecasts = load_verified_orats_dividend_projection_set(
+        _required_path(
+            arguments.forecast_manifest,
+            field="forecast-manifest",
+            kind="file",
+        ),
+        _required_path(
+            arguments.forecast_inventory,
+            field="forecast-inventory",
+            kind="file",
+        ),
+        _required_path(
+            arguments.forecast_root,
+            field="forecast-root",
+            kind="directory",
+        ),
+    )
+    historical = load_verified_historical_dividend_projection(
+        _required_path(
+            arguments.historical_dividends,
+            field="historical-dividends",
+            kind="file",
+        ),
+    )
+    underlying = verify_pinned_parquet(
+        _required_path(
+            arguments.underlying_history,
+            field="underlying-history",
+            kind="file",
+        ),
+        expected_sha256=arguments.underlying_sha256,
+        expected_rows=arguments.underlying_rows,
+        expected_schema=UNDERLYING_HISTORY_DTYPES,
+    )
+    nss = verify_pinned_parquet(
+        _required_path(arguments.nss_parameters, field="nss-parameters", kind="file"),
+        expected_sha256=arguments.nss_sha256,
+        expected_rows=arguments.nss_rows,
+        expected_schema=NSS_PARAMETER_DTYPES,
+    )
+    artifact = materialize_project_experiment_artifact(
+        ProjectExperimentFeatureSources(
+            long_form,
+            compacted,
+            forecasts,
+            historical,
+            underlying,
+            nss,
+        ),
+        _destination_directory(arguments.output_root),
+    )
+    summary = {
+        "descriptive_rows": sum(item.descriptive_rows for item in artifact.manifest.coverage),
+        "feature_schema_sha256": artifact.manifest.feature_schema_sha256,
+        "output_bytes": artifact.manifest.output_bytes,
+        "output_path": str(artifact.path),
+        "output_sha256": artifact.manifest.output_sha256,
+        "pipeline_sha256": artifact.manifest.pipeline_sha256,
+        "post_2015_rows": sum(item.post_2015_rows for item in artifact.manifest.coverage),
         "request_sha256": artifact.manifest.request_sha256,
         "rows": artifact.manifest.output_rows,
     }
@@ -969,6 +1066,26 @@ def _add_project_feature_command(
     materialize.add_argument("--nss-sha256", required=True)
     materialize.add_argument("--nss-rows", type=_positive_int, required=True)
     materialize.add_argument("--output-root", type=Path, required=True)
+    experiment = commands.add_parser(
+        "materialize-project-experiment-features",
+        help="materialize the precision-safe mixed-source project experiment artifact",
+    )
+    experiment.add_argument("--long-form-options", type=Path, required=True)
+    experiment.add_argument("--long-form-sha256", required=True)
+    experiment.add_argument("--long-form-rows", type=_positive_int, required=True)
+    experiment.add_argument("--option-compaction-manifest", type=Path, required=True)
+    experiment.add_argument("--option-compaction-root", type=Path, required=True)
+    experiment.add_argument("--forecast-manifest", type=Path, required=True)
+    experiment.add_argument("--forecast-inventory", type=Path, required=True)
+    experiment.add_argument("--forecast-root", type=Path, required=True)
+    experiment.add_argument("--historical-dividends", type=Path, required=True)
+    experiment.add_argument("--underlying-history", type=Path, required=True)
+    experiment.add_argument("--underlying-sha256", required=True)
+    experiment.add_argument("--underlying-rows", type=_positive_int, required=True)
+    experiment.add_argument("--nss-parameters", type=Path, required=True)
+    experiment.add_argument("--nss-sha256", required=True)
+    experiment.add_argument("--nss-rows", type=_positive_int, required=True)
+    experiment.add_argument("--output-root", type=Path, required=True)
 
 
 def _add_curve_data_command(

@@ -261,6 +261,37 @@ benchmark subset cannot be passed accidentally: the option source must declare t
 tickers and half-open `[2011-01-01, 2024-09-28)` project horizon.
 [ADR 0031](docs/adr/0031-content-addressed-project-features.md) records this boundary.
 
+A provider-neutral long-form quote source can enter the same submitted experiment pipeline without
+fabricating unused ORATS diagnostics. The long-form boundary is exactly
+`ticker, quote_date, expiry_date, strike, underlying_price, bid, ask, volume, option_type`, with
+dates and strings plus `Float64` financial values. When source coverage is split by ticker, use the
+closed mixed-source materializer:
+
+```shell
+uv run --locked discrete-dividend-study materialize-project-experiment-features \
+  --long-form-options /private/options/long_form.parquet \
+  --long-form-sha256 "$LONG_FORM_SHA256" --long-form-rows "$LONG_FORM_ROWS" \
+  --option-compaction-manifest /private/options/annual-set.json \
+  --option-compaction-root /private/options/annual \
+  --forecast-manifest /private/dividends/projection-set.json \
+  --forecast-inventory /private/dividends/inventory.json \
+  --forecast-root /private/dividends/projected \
+  --historical-dividends /private/history/historical_dividends.parquet \
+  --underlying-history /private/support/underlying.parquet \
+  --underlying-sha256 "$UNDERLYING_SHA256" --underlying-rows "$UNDERLYING_ROWS" \
+  --nss-parameters /private/support/nss.parquet \
+  --nss-sha256 "$NSS_SHA256" --nss-rows "$NSS_ROWS" \
+  --output-root /private/experiment-features
+```
+
+Every strict quote predicate is evaluated in its source representation: long-form `Float64` values
+remain `Float64`, while the canonical raw-ORATS projection remains `Float32`. Only surviving rows
+are narrowed to one common `Float32` quote-cohort schema. The two ticker domains must be disjoint
+and must exactly partition the submitted six-name universe; there is no precedence, date fallback,
+row repair, or deduplication. The result is a detached content-addressed 19-column feature artifact
+containing only fields consumed by the project experiments and their aggregate diagnostics.
+[ADR 0034](docs/adr/0034-source-precision-mixed-option-artifact.md) records this boundary.
+
 `add_quote_features` and `apply_quote_filter` keep feature definitions and cohort selection separate.
 The immutable `PROJECT_AS_SUBMITTED_FILTER` records every project-study bound and comparison rather
 than recovering hidden defaults at runtime.
@@ -293,6 +324,10 @@ their own explicit provider and quote-convention adapter.
 frozen six-ticker study universe, pushes quote-only predicates before expensive joins, applies the
 complete-row policy after all support data, and emits one fixed ordered 42-column model/research
 contract.
+
+`build_project_experiment_features` is the provider-minimal equivalent. It applies the same
+financial transformations and complete-row policy but emits only the ordered 19-column contract
+consumed by the submitted classical and neural experiment families.
 
 `PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC` resolves the calendar-day train, validation, and test
 identity into a typed 117-window manifest. Phase bounds are half-open, and a one-scan coverage
