@@ -29,7 +29,8 @@ from finoptions import (
 
 _STUDY_HASH_FORMAT: Final = "project-publication-study-v3"
 _EXECUTION_HASH_FORMAT: Final = "project-publication-replication-execution-v1"
-_REPLICATION_PLAN_HASH_FORMAT: Final = "project-publication-replication-plan-v1"
+_DETERMINISTIC_EXECUTION_HASH_FORMAT: Final = "project-publication-deterministic-execution-v1"
+_REPLICATION_PLAN_HASH_FORMAT: Final = "project-publication-replication-plan-v2"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
 _SEED_MODULUS: Final = 2**64
@@ -460,6 +461,33 @@ class PublicationReplicationExecutionSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicationDeterministicExecutionSpec:
+    """Explicit local CPU identity for deterministic publication estimators."""
+
+    threads: int
+    math_backend: CpuMathBackend
+
+    def __post_init__(self) -> None:
+        """Forbid automatic resources and coerced backend identities."""
+        if type(self.threads) is not int or self.threads <= 0:
+            raise PublicationSpecValueError(
+                field="threads",
+                observed=self.threads,
+                requirement="a positive plain int",
+            )
+        if type(self.math_backend) is not CpuMathBackend:
+            raise PublicationSpecValueError(
+                field="math_backend",
+                observed=self.math_backend,
+                requirement="CpuMathBackend",
+            )
+
+    def executor(self) -> CpuExecutor:
+        """Build the exact requested native CPU runtime."""
+        return CpuExecutor(threads=self.threads, math_backend=self.math_backend)
+
+
+@dataclass(frozen=True, slots=True)
 class PublicationReplicationPlanSpec:
     """Runtime-independent seed and namespace identity for every required replication."""
 
@@ -468,6 +496,7 @@ class PublicationReplicationPlanSpec:
     seed_increment: int
     training_domain_start: int
     evaluation_domain_start: int
+    confidence_level: float
     replication_critical_value: float
 
     def __post_init__(self) -> None:
@@ -499,16 +528,7 @@ class PublicationReplicationPlanSpec:
                 observed=self.seed_increment,
                 requirement="a nonzero plain int",
             )
-        if (
-            type(self.replication_critical_value) is not float
-            or not math.isfinite(self.replication_critical_value)
-            or self.replication_critical_value <= 0.0
-        ):
-            raise PublicationSpecValueError(
-                field="replication_critical_value",
-                observed=self.replication_critical_value,
-                requirement="a finite positive plain float",
-            )
+        _validate_confidence_identity(self)
         seed_period = _SEED_MODULUS // math.gcd(self.seed_increment, _SEED_MODULUS)
         if self.replications > seed_period:
             raise PublicationSpecValueError(
@@ -555,15 +575,39 @@ class PublicationReplicationPlanSpec:
         ).validate_units(units)
 
 
+def _validate_confidence_identity(plan: PublicationReplicationPlanSpec) -> None:
+    if (
+        type(plan.confidence_level) is not float
+        or not math.isfinite(plan.confidence_level)
+        or not 0.0 < plan.confidence_level < 1.0
+    ):
+        raise PublicationSpecValueError(
+            field="confidence_level",
+            observed=plan.confidence_level,
+            requirement="a finite plain float strictly between zero and one",
+        )
+    if (
+        type(plan.replication_critical_value) is not float
+        or not math.isfinite(plan.replication_critical_value)
+        or plan.replication_critical_value <= 0.0
+    ):
+        raise PublicationSpecValueError(
+            field="replication_critical_value",
+            observed=plan.replication_critical_value,
+            requirement="a finite positive plain float",
+        )
+
+
 PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC: Final = PublicationReplicationPlanSpec(
     replications=12,
     seed_root=0x243F6A8885A308D3,
     seed_increment=0x9E3779B97F4A7C15,
     training_domain_start=10_000,
     evaluation_domain_start=1_000_000,
+    confidence_level=0.99,
     replication_critical_value=3.1058065155392804,
 )
-"""Twelve predeclared seed replications with disjoint fitting/evaluation domain blocks."""
+"""Twelve predeclared replications and a two-sided 99% Student-t uncertainty identity."""
 
 
 def publication_study_sha256(study: PublicationStudySpec) -> str:
@@ -633,6 +677,25 @@ def publication_execution_sha256(execution: PublicationReplicationExecutionSpec)
     )
 
 
+def publication_deterministic_execution_sha256(
+    execution: PublicationDeterministicExecutionSpec,
+) -> str:
+    """Hash one complete deterministic CPU execution identity."""
+    if type(execution) is not PublicationDeterministicExecutionSpec:
+        raise PublicationSpecValueError(
+            field="execution",
+            observed=execution,
+            requirement="PublicationDeterministicExecutionSpec",
+        )
+    return _sha256_json(
+        {
+            "format": _DETERMINISTIC_EXECUTION_HASH_FORMAT,
+            "threads": execution.threads,
+            "math_backend": execution.math_backend.value,
+        }
+    )
+
+
 def publication_replication_plan_sha256(plan: PublicationReplicationPlanSpec) -> str:
     """Hash the complete runtime-independent randomized replication plan."""
     if type(plan) is not PublicationReplicationPlanSpec:
@@ -649,6 +712,7 @@ def publication_replication_plan_sha256(plan: PublicationReplicationPlanSpec) ->
             "seed_increment": plan.seed_increment,
             "training_domain_start": plan.training_domain_start,
             "evaluation_domain_start": plan.evaluation_domain_start,
+            "confidence_level": float(plan.confidence_level).hex(),
             "replication_critical_value": float(plan.replication_critical_value).hex(),
         }
     )
@@ -666,6 +730,7 @@ __all__ = [
     "PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC",
     "PublicationCashLsmSpec",
     "PublicationCashPartitionRule",
+    "PublicationDeterministicExecutionSpec",
     "PublicationReplicationExecutionSpec",
     "PublicationReplicationPlanSpec",
     "PublicationSpecError",
@@ -673,6 +738,7 @@ __all__ = [
     "PublicationStudySpec",
     "PublicationVariant",
     "PublicationYieldBoundarySpec",
+    "publication_deterministic_execution_sha256",
     "publication_execution_sha256",
     "publication_replication_plan_sha256",
     "publication_study_sha256",

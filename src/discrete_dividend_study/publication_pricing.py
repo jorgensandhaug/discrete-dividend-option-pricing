@@ -31,12 +31,15 @@ from .publication_groups import (
     publication_partitions_sha256,
 )
 from .publication_spec import (
+    PublicationDeterministicExecutionSpec,
     PublicationReplicationExecutionSpec,
     PublicationStudySpec,
     PublicationVariant,
 )
 
 _SHA256_HEX_LENGTH = 64
+_CASH_VARIANTS = tuple(variant for variant in PublicationVariant if variant.uses_cash_schedule)
+_YIELD_VARIANTS = tuple(variant for variant in PublicationVariant if not variant.uses_cash_schedule)
 
 type PublicationNativeResult = LsmBatchResult | AndersenLakeBatchResult
 
@@ -105,23 +108,14 @@ class PublicationStudyReplicationResult:
 
     def __post_init__(self) -> None:
         """Reject missing, reordered, or population-misaligned variant output."""
-        if type(self.study) is not PublicationStudySpec:
-            raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
-        if type(self.execution) is not PublicationReplicationExecutionSpec:
-            raise PublicationPricingContractError(
-                reason="execution must be PublicationReplicationExecutionSpec"
-            )
-        if (
-            type(self.partitions_sha256) is not str
-            or len(self.partitions_sha256) != _SHA256_HEX_LENGTH
-        ):
-            raise PublicationPricingContractError(reason="partition identity must be SHA-256")
-        if type(self.rows) is not int or self.rows <= 0:
-            raise PublicationPricingContractError(reason="rows must be positive")
-        if type(self.exact_groups) is not int or self.exact_groups < 0:
-            raise PublicationPricingContractError(reason="exact_groups must be nonnegative")
-        if type(self.general_groups) is not int or self.general_groups < 0:
-            raise PublicationPricingContractError(reason="general_groups must be nonnegative")
+        _validate_replication_header(
+            self.study,
+            self.execution,
+            self.partitions_sha256,
+            self.rows,
+            self.exact_groups,
+            self.general_groups,
+        )
         if tuple(result.variant for result in self.variants) != self.study.variants:
             raise PublicationPricingContractError(reason="variant output order differs from study")
         if any(result.native.rows != self.rows for result in self.variants):
@@ -134,23 +128,97 @@ class PublicationStudyReplicationResult:
         return next(result for result in self.variants if result.variant is identity)
 
 
+@dataclass(frozen=True, slots=True)
+class PublicationCashReplicationResult:
+    """One complete paired cash-only seed replication ready for immutable persistence."""
+
+    study: PublicationStudySpec
+    execution: PublicationReplicationExecutionSpec
+    partitions_sha256: str
+    rows: int
+    exact_groups: int
+    general_groups: int
+    variants: tuple[PublicationVariantReplicationResult, ...]
+
+    def __post_init__(self) -> None:
+        """Require both cash variants once and no deterministic-yield result."""
+        _validate_replication_header(
+            self.study,
+            self.execution,
+            self.partitions_sha256,
+            self.rows,
+            self.exact_groups,
+            self.general_groups,
+        )
+        if tuple(result.variant for result in self.variants) != _CASH_VARIANTS:
+            raise PublicationPricingContractError(
+                reason="cash variant output order differs from the canonical cash subset"
+            )
+        if any(result.native.rows != self.rows for result in self.variants):
+            raise PublicationPricingContractError(reason="cash variant output row counts differ")
+
+    def variant(self, identity: PublicationVariant) -> PublicationVariantReplicationResult:
+        """Return one typed cash result without accepting a yield identity or string alias."""
+        if type(identity) is not PublicationVariant or not identity.uses_cash_schedule:
+            raise PublicationPricingContractError(
+                reason="identity must be a cash PublicationVariant"
+            )
+        return next(result for result in self.variants if result.variant is identity)
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationYieldPricingResult:
+    """One complete deterministic two-yield publication result."""
+
+    study: PublicationStudySpec
+    execution: PublicationDeterministicExecutionSpec
+    partitions_sha256: str
+    rows: int
+    groups: int
+    variants: tuple[PublicationVariantReplicationResult, ...]
+
+    def __post_init__(self) -> None:
+        """Require both deterministic yield variants once and in canonical order."""
+        if type(self.study) is not PublicationStudySpec:
+            raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
+        if type(self.execution) is not PublicationDeterministicExecutionSpec:
+            raise PublicationPricingContractError(
+                reason="execution must be PublicationDeterministicExecutionSpec"
+            )
+        if (
+            type(self.partitions_sha256) is not str
+            or len(self.partitions_sha256) != _SHA256_HEX_LENGTH
+        ):
+            raise PublicationPricingContractError(reason="partition identity must be SHA-256")
+        if type(self.rows) is not int or self.rows <= 0:
+            raise PublicationPricingContractError(reason="rows must be positive")
+        if type(self.groups) is not int or not 0 < self.groups <= self.rows:
+            raise PublicationPricingContractError(
+                reason="groups must be positive and no greater than rows"
+            )
+        if tuple(result.variant for result in self.variants) != _YIELD_VARIANTS:
+            raise PublicationPricingContractError(
+                reason="yield variant output order differs from the canonical yield subset"
+            )
+        if any(result.native.rows != self.rows for result in self.variants):
+            raise PublicationPricingContractError(reason="yield variant output row counts differ")
+
+    def variant(self, identity: PublicationVariant) -> PublicationVariantReplicationResult:
+        """Return one typed yield result without accepting a cash identity or string alias."""
+        if type(identity) is not PublicationVariant or identity.uses_cash_schedule:
+            raise PublicationPricingContractError(
+                reason="identity must be a yield PublicationVariant"
+            )
+        return next(result for result in self.variants if result.variant is identity)
+
+
 def run_publication_replication(
     inputs: PreparedPublicationPartitions,
     execution: PublicationReplicationExecutionSpec,
     study: PublicationStudySpec,
 ) -> PublicationStudyReplicationResult:
     """Run one complete paired replication over the immutable two-domain partition."""
-    if type(inputs) is not PreparedPublicationPartitions:
-        raise PublicationPricingContractError(reason="inputs must be PreparedPublicationPartitions")
-    if type(execution) is not PublicationReplicationExecutionSpec:
-        raise PublicationPricingContractError(
-            reason="execution must be PublicationReplicationExecutionSpec"
-        )
-    if type(study) is not PublicationStudySpec:
-        raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
-    if inputs.study != study:
-        raise PublicationPricingContractError(reason="partition and requested studies differ")
-    execution.validate_units(inputs.simulation_units)
+    _validate_run_request(inputs, execution, study)
     executor = execution.executor()
     yield_method = study.yield_boundary.method()
     variants = tuple(
@@ -168,6 +236,69 @@ def run_publication_replication(
     )
 
 
+def run_publication_cash_replication(
+    inputs: PreparedPublicationPartitions,
+    execution: PublicationReplicationExecutionSpec,
+    study: PublicationStudySpec,
+) -> PublicationCashReplicationResult:
+    """Run only the two paired stochastic cash variants for one declared seed."""
+    _validate_run_request(inputs, execution, study)
+    executor = execution.executor()
+    variants = tuple(
+        _evaluate_variant(
+            inputs,
+            variant,
+            _price_cash_variant(inputs, execution, study, variant, executor),
+        )
+        for variant in _CASH_VARIANTS
+    )
+    return PublicationCashReplicationResult(
+        study=study,
+        execution=execution,
+        partitions_sha256=publication_partitions_sha256(inputs),
+        rows=inputs.original_rows,
+        exact_groups=inputs.exact.groups,
+        general_groups=inputs.general.groups,
+        variants=variants,
+    )
+
+
+def run_publication_yield_pricing(
+    inputs: PreparedPublicationPartitions,
+    execution: PublicationDeterministicExecutionSpec,
+    study: PublicationStudySpec,
+) -> PublicationYieldPricingResult:
+    """Run exactly the two deterministic continuous-yield publication variants."""
+    if type(inputs) is not PreparedPublicationPartitions:
+        raise PublicationPricingContractError(reason="inputs must be PreparedPublicationPartitions")
+    if type(execution) is not PublicationDeterministicExecutionSpec:
+        raise PublicationPricingContractError(
+            reason="execution must be PublicationDeterministicExecutionSpec"
+        )
+    if type(study) is not PublicationStudySpec:
+        raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
+    if inputs.study != study:
+        raise PublicationPricingContractError(reason="partition and requested studies differ")
+    executor = execution.executor()
+    method = study.yield_boundary.method()
+    variants = tuple(
+        _evaluate_variant(
+            inputs,
+            variant,
+            _price_yield_variant(inputs, variant, executor, method),
+        )
+        for variant in _YIELD_VARIANTS
+    )
+    return PublicationYieldPricingResult(
+        study=study,
+        execution=execution,
+        partitions_sha256=publication_partitions_sha256(inputs),
+        rows=inputs.original_rows,
+        groups=inputs.original_groups,
+        variants=variants,
+    )
+
+
 def _price_variant(  # noqa: PLR0913 - method identities stay explicit at dispatch
     inputs: PreparedPublicationPartitions,
     execution: PublicationReplicationExecutionSpec,
@@ -181,6 +312,14 @@ def _price_variant(  # noqa: PLR0913 - method identities stay explicit at dispat
         if variant.uses_cash_schedule
         else _price_yield_variant(inputs, variant, executor, yield_method)
     )
+    return _evaluate_variant(inputs, variant, native)
+
+
+def _evaluate_variant(
+    inputs: PreparedPublicationPartitions,
+    variant: PublicationVariant,
+    native: PublicationNativeResult,
+) -> PublicationVariantReplicationResult:
     try:
         metrics = evaluate_project_pricing_f64(inputs.targets, native.prices)
     except ProjectMetricError as error:
@@ -190,6 +329,48 @@ def _price_variant(  # noqa: PLR0913 - method identities stay explicit at dispat
             source=error,
         ) from error
     return PublicationVariantReplicationResult(variant=variant, native=native, metrics=metrics)
+
+
+def _validate_run_request(
+    inputs: PreparedPublicationPartitions,
+    execution: PublicationReplicationExecutionSpec,
+    study: PublicationStudySpec,
+) -> None:
+    if type(inputs) is not PreparedPublicationPartitions:
+        raise PublicationPricingContractError(reason="inputs must be PreparedPublicationPartitions")
+    if type(execution) is not PublicationReplicationExecutionSpec:
+        raise PublicationPricingContractError(
+            reason="execution must be PublicationReplicationExecutionSpec"
+        )
+    if type(study) is not PublicationStudySpec:
+        raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
+    if inputs.study != study:
+        raise PublicationPricingContractError(reason="partition and requested studies differ")
+    execution.validate_units(inputs.simulation_units)
+
+
+def _validate_replication_header(  # noqa: PLR0913 - immutable header stays explicit
+    study: object,
+    execution: object,
+    partitions_sha256: object,
+    rows: object,
+    exact_groups: object,
+    general_groups: object,
+) -> None:
+    if type(study) is not PublicationStudySpec:
+        raise PublicationPricingContractError(reason="study must be PublicationStudySpec")
+    if type(execution) is not PublicationReplicationExecutionSpec:
+        raise PublicationPricingContractError(
+            reason="execution must be PublicationReplicationExecutionSpec"
+        )
+    if type(partitions_sha256) is not str or len(partitions_sha256) != _SHA256_HEX_LENGTH:
+        raise PublicationPricingContractError(reason="partition identity must be SHA-256")
+    if type(rows) is not int or rows <= 0:
+        raise PublicationPricingContractError(reason="rows must be positive")
+    if type(exact_groups) is not int or exact_groups < 0:
+        raise PublicationPricingContractError(reason="exact_groups must be nonnegative")
+    if type(general_groups) is not int or general_groups < 0:
+        raise PublicationPricingContractError(reason="general_groups must be nonnegative")
 
 
 def _price_cash_variant(
@@ -457,9 +638,13 @@ def _validate_stopping_counts(native: LsmBatchResult, rows: int, evaluation_path
 
 
 __all__ = [
+    "PublicationCashReplicationResult",
     "PublicationPricingContractError",
     "PublicationPricingError",
     "PublicationStudyReplicationResult",
     "PublicationVariantReplicationResult",
+    "PublicationYieldPricingResult",
+    "run_publication_cash_replication",
     "run_publication_replication",
+    "run_publication_yield_pricing",
 ]

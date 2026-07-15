@@ -44,9 +44,11 @@ period is checked mathematically, and every declared replication has a distinct 
 
 The two cash variants share a seed and group-domain addressing within each replication, producing
 the intended paired comparison. Fitting and evaluation never share a random population. The
-Student-t critical value for 11 degrees of freedom is fixed at `3.1058065155392804`. Runtime thread
-count and CPU math backend remain explicit per-replication execution fields and hashes; neither is
-selected automatically by the study or replication plan.
+numerical-uncertainty interval is explicitly two-sided at confidence level `0.99`. Its Student-t
+critical value for 11 degrees of freedom is fixed at `3.1058065155392804`. Runtime thread count and
+CPU math backend remain explicit per-replication execution fields and hashes; neither is selected
+automatically by the study or replication plan. These intervals measure Monte Carlo estimator
+uncertainty only; they are not confidence intervals for empirical generalization.
 
 `PROJECT_PUBLICATION_STUDY_SPEC` combines that cash estimator with the deterministic yield profile
 from ADR 0047. A complete publication result requires all 12 cash replications and the two
@@ -84,3 +86,5 @@ run but do not select a model or result.
   new named specification and requires retained target-free evidence.
 - Production execution may resume only from verified immutable replication artifacts; it may not
   infer completion from a mutable filename or silently skip a failed seed.
+- ADR 0049 specifies the content-addressed replication, request-receipt, and final-result artifact
+  contracts that enforce this rule.

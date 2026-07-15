@@ -47,6 +47,7 @@ from .historical_dividend_projection import (
     load_verified_historical_dividend_projection,
     materialize_historical_dividend_projection,
 )
+from .market_calendar import load_project_xnys_calendar
 from .neural_execution import (
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
     PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
@@ -115,6 +116,15 @@ from .project_experiment_artifact import (
 from .project_feature_artifact import (
     ProjectFeatureSources,
     materialize_project_feature_artifact,
+)
+from .publication_artifact import run_or_load_publication_cash_replication
+from .publication_exercise import prepare_publication_exercise_schedules
+from .publication_groups import prepare_publication_partitions
+from .publication_result_artifact import run_or_load_publication_study_result
+from .publication_spec import (
+    PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC,
+    PROJECT_PUBLICATION_STUDY_SPEC,
+    PublicationDeterministicExecutionSpec,
 )
 from .rolling_windows import (
     PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
@@ -201,6 +211,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_neural_study(arguments, context)
     if arguments.command == "run-classical-study":
         return _run_classical_study(arguments, context)
+    if arguments.command == "run-publication-cash-replications":
+        return _run_publication_cash_replications(arguments, context)
     raise StudyCliError(reason="an explicit supported command is required")
 
 
@@ -922,6 +934,121 @@ def _run_classical_study(
     return 0
 
 
+def _run_publication_cash_replications(
+    arguments: argparse.Namespace,
+    context: _StudyCliContext,
+) -> int:
+    """Run or exactly resume every frozen stochastic publication replication."""
+    study = PROJECT_PUBLICATION_STUDY_SPEC
+    plan = PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC
+    source = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    windows = generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC)
+    try:
+        selected = select_rolling_test_union(context.feature_artifact.scan(), windows)
+        frame = build_project_classical_grouped_frame(selected).collect()
+    except pl.exceptions.PolarsError as error:
+        raise StudyCliError(
+            reason=f"cannot materialize publication input columns: {error}"
+        ) from error
+    try:
+        verify_study_feature_artifact_unchanged(context.feature_artifact)
+    except StudyFeatureArtifactError as error:
+        raise StudyCliError(reason=str(error)) from error
+    resolved_after_scan = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    if resolved_after_scan != source:
+        raise StudyCliError(reason="source or dependency lock changed during preparation")
+    try:
+        test_counts = validate_rolling_test_coverage(frame.lazy(), windows)
+    except (pl.exceptions.PolarsError, RollingWindowError) as error:
+        raise StudyCliError(reason=f"invalid publication test cohort: {error}") from error
+    grouped = prepare_project_classical_strike_groups(
+        frame,
+        event_buffer_policy=EventBufferPolicy(arguments.event_buffer_policy),
+    )
+    schedules = prepare_publication_exercise_schedules(
+        frame,
+        grouped,
+        load_project_xnys_calendar(),
+    )
+    inputs = prepare_publication_partitions(grouped, schedules, study)
+    plan.validate_units(inputs.simulation_units)
+
+    artifacts = []
+    for replication in range(plan.replications):
+        execution = plan.execution(
+            replication,
+            threads=arguments.threads,
+            math_backend=CpuMathBackend(arguments.math_backend),
+        )
+        loaded = run_or_load_publication_cash_replication(
+            context.artifact_root,
+            source,
+            inputs,
+            execution,
+            study=study,
+            replication_plan=plan,
+        )
+        artifacts.append(loaded.artifact)
+        progress = {
+            "artifact_sha256": loaded.artifact.sha256,
+            "replication": replication,
+            "request_sha256": loaded.artifact.manifest.request_sha256,
+            "status": "verified",
+        }
+        sys.stderr.write(
+            json.dumps(progress, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+        )
+        sys.stderr.flush()
+
+    final = run_or_load_publication_study_result(
+        context.artifact_root,
+        source,
+        inputs,
+        tuple(artifact.path for artifact in artifacts),
+        PublicationDeterministicExecutionSpec(
+            threads=arguments.threads,
+            math_backend=CpuMathBackend(arguments.math_backend),
+        ),
+        study=study,
+        replication_plan=plan,
+    )
+    summary = {
+        "artifacts": tuple(
+            {
+                "artifact_path": str(artifact.path),
+                "artifact_sha256": artifact.sha256,
+                "replication": artifact.manifest.execution.replication,
+                "request_sha256": artifact.manifest.request_sha256,
+            }
+            for artifact in artifacts
+        ),
+        "exact_groups": inputs.exact.groups,
+        "general_groups": inputs.general.groups,
+        "replications": len(artifacts),
+        "result_artifact_path": str(final.artifact.path),
+        "result_artifact_sha256": final.artifact.sha256,
+        "result_request_sha256": final.artifact.manifest.request_sha256,
+        "rows": inputs.original_rows,
+        "test_end_exclusive": windows[-1].test_end.isoformat(),
+        "test_start": windows[0].test_start.isoformat(),
+        "test_windows": len(test_counts),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    )
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="discrete-dividend-study",
@@ -978,6 +1105,28 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     classical.add_argument(
+        "--event-buffer-policy",
+        choices=tuple(policy.value for policy in EventBufferPolicy),
+        required=True,
+    )
+    publication = commands.add_parser(
+        "run-publication-cash-replications",
+        help="run or exactly resume all frozen stochastic publication replications",
+    )
+    publication.add_argument("--features", type=Path, required=True)
+    publication.add_argument(
+        "--feature-artifact-kind",
+        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
+        required=True,
+    )
+    publication.add_argument("--artifacts", type=Path, required=True)
+    publication.add_argument("--threads", type=_positive_int, required=True)
+    publication.add_argument(
+        "--math-backend",
+        choices=tuple(backend.value for backend in CpuMathBackend),
+        required=True,
+    )
+    publication.add_argument(
         "--event-buffer-policy",
         choices=tuple(policy.value for policy in EventBufferPolicy),
         required=True,

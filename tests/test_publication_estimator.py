@@ -50,10 +50,12 @@ from discrete_dividend_study.publication_spec import (
     PROJECT_PUBLICATION_YIELD_BOUNDARY_SPEC,
     PublicationCashLsmSpec,
     PublicationCashPartitionRule,
+    PublicationDeterministicExecutionSpec,
     PublicationReplicationExecutionSpec,
     PublicationSpecValueError,
     PublicationStudySpec,
     PublicationVariant,
+    publication_deterministic_execution_sha256,
     publication_execution_sha256,
     publication_replication_plan_sha256,
     publication_study_sha256,
@@ -73,6 +75,7 @@ _PRODUCTION_GENERAL_INTERVALS = 128
 _PRODUCTION_PATHS = 32_768
 _PRODUCTION_POLYNOMIAL_DEGREE = 4
 _PRODUCTION_REPLICATIONS = 12
+_PRODUCTION_CONFIDENCE_LEVEL = 0.99
 _PRODUCTION_REPLICATION_CRITICAL_VALUE = 3.1058065155392804
 _PRODUCTION_TRAINING_DOMAIN = 10_000
 _PRODUCTION_EVALUATION_DOMAIN = 1_000_000
@@ -192,6 +195,7 @@ def test_frozen_publication_study_and_replication_plan_are_complete() -> None:
 
     plan = PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC
     assert plan.replications == _PRODUCTION_REPLICATIONS
+    assert plan.confidence_level == _PRODUCTION_CONFIDENCE_LEVEL
     assert plan.replication_critical_value == _PRODUCTION_REPLICATION_CRITICAL_VALUE
     executions = tuple(
         plan.execution(
@@ -218,8 +222,18 @@ def test_frozen_publication_study_and_replication_plan_are_complete() -> None:
     )
     with pytest.raises(PublicationSpecValueError, match="a nonzero plain int"):
         replace(plan, seed_increment=0)
+    with pytest.raises(PublicationSpecValueError, match="strictly between zero and one"):
+        replace(plan, confidence_level=1.0)
     with pytest.raises(PublicationSpecValueError, match=r"\[0, 12\)"):
         plan.seed(12)
+    deterministic = PublicationDeterministicExecutionSpec(
+        threads=14,
+        math_backend=CpuMathBackend.APPLE_ACCELERATE,
+    )
+    assert len(publication_deterministic_execution_sha256(deterministic)) == _SHA256_HEX_LENGTH
+    assert publication_deterministic_execution_sha256(deterministic) != (
+        publication_deterministic_execution_sha256(replace(deterministic, threads=13))
+    )
 
 
 def test_cash_domain_partition_is_complete_disjoint_and_source_ordered() -> None:
@@ -356,6 +370,73 @@ def test_publication_replication_dispatches_explicit_meshes_and_merges_original_
             assert variant.native.groups == _GROUPS
             assert not variant.native.exercised_at_origin.flags.writeable
             assert not variant.native.maximum_relative_boundary_residuals.flags.writeable
+
+
+def test_cash_replication_never_dispatches_the_deterministic_yield_solver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The resumable stochastic unit prices both cash variants and nothing else."""
+    source, schedules = publication_inputs()
+    declared = study()
+    prepared = prepare_publication_partitions(source, schedules, declared)
+
+    def forbidden_yield_price(**_: object) -> AndersenLakeBatchResult:
+        pytest.fail("cash replication dispatched the deterministic yield solver")
+
+    monkeypatch.setattr(
+        publication_pricing,
+        "price_andersen_lake_call_grouped",
+        forbidden_yield_price,
+    )
+    result = publication_pricing.run_publication_cash_replication(
+        prepared,
+        execution(),
+        declared,
+    )
+
+    assert result.rows == _ROWS
+    assert result.partitions_sha256 == publication_partitions_sha256(prepared)
+    assert tuple(item.variant for item in result.variants) == (
+        PublicationVariant.CASH_JUMP_LIQUIDATOR,
+        PublicationVariant.ESCROWED_CASH_SPOT_MATCHED,
+    )
+    assert all(type(item.native) is LsmBatchResult for item in result.variants)
+    assert all(item.native.rows == _ROWS for item in result.variants)
+
+
+def test_yield_pricing_never_dispatches_the_stochastic_cash_estimator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deterministic finalization unit prices both yield variants and nothing else."""
+    source, schedules = publication_inputs()
+    declared = study()
+    prepared = prepare_publication_partitions(source, schedules, declared)
+
+    def forbidden_cash_price(**_: object) -> LsmBatchResult:
+        pytest.fail("yield pricing dispatched the stochastic cash estimator")
+
+    monkeypatch.setattr(
+        publication_pricing,
+        "price_lsm_call_grouped_batch",
+        forbidden_cash_price,
+    )
+    result = publication_pricing.run_publication_yield_pricing(
+        prepared,
+        PublicationDeterministicExecutionSpec(
+            threads=2,
+            math_backend=CpuMathBackend.RUST_STD_F64,
+        ),
+        declared,
+    )
+
+    assert result.rows == _ROWS
+    assert result.groups == _GROUPS
+    assert result.partitions_sha256 == publication_partitions_sha256(prepared)
+    assert tuple(item.variant for item in result.variants) == (
+        PublicationVariant.FORECAST_YIELD,
+        PublicationVariant.HISTORICAL_YIELD,
+    )
+    assert all(type(item.native) is AndersenLakeBatchResult for item in result.variants)
 
 
 def test_empty_domain_partitions_are_skipped_without_changing_complete_output() -> None:
