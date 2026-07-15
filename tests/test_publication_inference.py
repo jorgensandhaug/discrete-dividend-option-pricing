@@ -29,10 +29,18 @@ _PRIMARY_TESTS = 12
 
 
 def _inputs() -> tuple[pl.DataFrame, PublicationPredictionSet]:
-    """Build three complete dates spanning the ETR common-horizon boundary."""
+    """Build unequal complete-date panels spanning the ETR common-horizon boundary."""
     tickers = ("DUK", "EPD", "ETR", "MO", "SO", "VZ")
     dates = (date(2019, 11, 6), date(2019, 11, 7), date(2020, 1, 2))
-    rows = [(ticker, quote_date) for ticker in tickers for quote_date in dates]
+    admitted_dates = {
+        "DUK": dates,
+        "EPD": dates,
+        "ETR": dates[:2],
+        "MO": dates,
+        "SO": (dates[0], dates[2]),
+        "VZ": dates[:1],
+    }
+    rows = [(ticker, quote_date) for ticker in tickers for quote_date in admitted_dates[ticker]]
     target = np.ascontiguousarray(np.linspace(10.0, 27.0, len(rows)), dtype=np.float64)
     predictions = (
         target.copy(),
@@ -69,13 +77,13 @@ def test_prepares_exact_available_case_and_sensitivity_panels() -> None:
     frame, predictions = _inputs()
     panels = prepare_publication_inference_panels(frame, predictions, _test_spec())
     assert tuple((item.observations, item.quote_date_panels) for item in panels) == (
-        (18, 3),
-        (15, 3),
-        (12, 2),
+        (14, 3),
+        (12, 3),
+        (10, 2),
     )
-    assert np.array_equal(panels[0].additive_statistics[:, 0], np.full(3, 6.0))
-    assert np.array_equal(panels[1].additive_statistics[:, 0], np.full(3, 5.0))
-    assert np.array_equal(panels[2].additive_statistics[:, 0], np.full(2, 6.0))
+    assert np.array_equal(panels[0].additive_statistics[:, 0], np.array([6.0, 4.0, 4.0]))
+    assert np.array_equal(panels[1].additive_statistics[:, 0], np.array([5.0, 3.0, 4.0]))
+    assert np.array_equal(panels[2].additive_statistics[:, 0], np.array([6.0, 4.0]))
     assert panels[0].point_metrics[0].rmse == 0.0
     assert panels[0].point_metrics[1].mae == 1.0
     assert len(publication_additive_statistic_names()) == _ADDITIVE_STATISTICS
@@ -99,6 +107,7 @@ def test_paired_bootstrap_is_thread_invariant_and_holm_is_primary_only() -> None
     )
     for left, right in zip(serial.cohorts, parallel.cohorts, strict=True):
         assert np.array_equal(left.bootstrap[0].additive_sums, right.bootstrap[0].additive_sums)
+    assert np.unique(serial.cohorts[0].bootstrap[0].additive_sums[:, 0]).size > 1
     primary = [
         result
         for result in serial.contrasts

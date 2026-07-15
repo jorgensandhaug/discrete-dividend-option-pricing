@@ -45,6 +45,7 @@ _STATISTICS_PER_VARIANT: Final = len(_ADDITIVE_FIELDS)
 _STATISTICS: Final = 1 + len(PublicationVariant) * _STATISTICS_PER_VARIANT
 _PERCENT_SCALE: Final = 100.0
 _MATRIX_DIMENSIONS: Final = 2
+_NONNEGATIVE_ADDITIVE_OFFSETS: Final = (0, 1, 2, 5)
 
 
 @dataclass(slots=True)
@@ -153,6 +154,7 @@ class PublicationCohortPanelStatistics:
         )
         if self.additive_statistics.flags.writeable:
             raise PublicationInferenceError(reason="panel statistics must be immutable")
+        _validate_additive_content(self.additive_statistics, field="panel statistics")
         observed = float(np.sum(self.additive_statistics[:, 0], dtype=np.float64))
         if observed != float(self.observations):
             raise PublicationInferenceError(reason="panel counts do not sum to observations")
@@ -181,6 +183,7 @@ class PublicationBootstrapConfigurationResult:
             raise PublicationInferenceError(reason="bootstrap statistic columns are incomplete")
         if self.additive_sums.flags.writeable:
             raise PublicationInferenceError(reason="bootstrap sums must be immutable")
+        _validate_additive_content(self.additive_sums, field="bootstrap sums")
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,10 +321,8 @@ def run_publication_empirical_inference(
             ).sum_panels(panels.additive_statistics, executor=executor)
             if sums.shape != (spec.bootstrap.replications, _STATISTICS):
                 raise PublicationInferenceError(reason="native bootstrap returned an invalid shape")
-            if not np.array_equal(sums[:, 0], np.full(sums.shape[0], panels.observations)):
-                raise PublicationInferenceError(
-                    reason="bootstrap replications do not preserve the cohort observation count"
-                )
+            if np.any(sums[:, 0] <= 0.0):
+                raise PublicationInferenceError(reason="bootstrap row counts must be positive")
             configuration = PublicationBootstrapConfigurationResult(
                 mean_block_length=mean_block_length,
                 domain=domain,
@@ -699,6 +700,19 @@ def _validate_finite_summary(estimate: float, lower: float, upper: float) -> Non
         raise PublicationInferenceError(reason="inference summary values must be finite floats")
     if lower > upper:
         raise PublicationInferenceError(reason="inference interval is reversed")
+
+
+def _validate_additive_content(values: Float64Matrix, *, field: str) -> None:
+    counts = values[:, 0]
+    if np.any(counts <= 0.0) or not np.array_equal(counts, np.floor(counts)):
+        raise PublicationInferenceError(reason=f"{field} counts must be positive exact integers")
+    for variant_index in range(len(PublicationVariant)):
+        base = 1 + variant_index * _STATISTICS_PER_VARIANT
+        for offset in _NONNEGATIVE_ADDITIVE_OFFSETS:
+            if np.any(values[:, base + offset] < 0.0):
+                raise PublicationInferenceError(
+                    reason=f"{field} contains a negative nonnegative statistic"
+                )
 
 
 __all__ = [
