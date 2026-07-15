@@ -79,6 +79,7 @@ class PilotExerciseDomain(StrEnum):
     """The theorem domain that determines a case's finite exercise schedule."""
 
     CASH_EVENT_THEOREM = "cash_event_theorem"
+    COMPACT_TERMINAL_CASH_PREDECESSOR = "compact_terminal_cash_predecessor"
     TERMINAL_CASH_PREDECESSOR = "terminal_cash_predecessor"
     UNIFORM_BERMUDAN = "uniform_bermudan"
 
@@ -149,7 +150,7 @@ class NumericalPilotCase:
 
 
 def _validate_case_exercise_domain(case: NumericalPilotCase) -> None:
-    """Validate the two closed cash-event theorem variants."""
+    """Validate the closed cash-event theorem variants."""
     if case.exercise_domain is PilotExerciseDomain.UNIFORM_BERMUDAN:
         return
     if not case.cash_dividends:
@@ -177,7 +178,11 @@ def _validate_case_exercise_domain(case: NumericalPilotCase) -> None:
             observed=case.cash_dividends,
             requirement="strictly pre-expiry events in the cash-event theorem domain",
         )
-    if case.exercise_domain is PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR and not terminal_cash:
+    terminal_predecessor_domains = (
+        PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR,
+        PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
+    )
+    if case.exercise_domain in terminal_predecessor_domains and not terminal_cash:
         raise NumericalPilotValueError(
             field="cash_dividends",
             observed=case.cash_dividends,
@@ -749,6 +754,21 @@ def terminal_cash_predecessor_diagnostic_v1() -> NumericalPilotSpec:
     )
 
 
+def terminal_cash_compact_predecessor_diagnostic_v1() -> NumericalPilotSpec:
+    """Remove transition-only nodes from the passing terminal-predecessor diagnostic."""
+    predecessor = terminal_cash_predecessor_diagnostic_v1()
+    return replace(
+        predecessor,
+        name="terminal-cash-compact-predecessor-diagnostic-v1",
+        cases=(
+            replace(
+                predecessor.cases[0],
+                exercise_domain=PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR,
+            ),
+        ),
+    )
+
+
 def numerical_pilot_spec_sha256(spec: NumericalPilotSpec) -> str:
     """Hash the complete target-free scientific identity."""
     if type(spec) is not NumericalPilotSpec:
@@ -891,7 +911,10 @@ def _mesh_sequence(
     executor: CpuExecutor,
     finest_reference: DeterministicPilotObservation,
 ) -> tuple[MeshPilotObservation, ...]:
-    if case.exercise_domain is PilotExerciseDomain.CASH_EVENT_THEOREM:
+    if case.exercise_domain in (
+        PilotExerciseDomain.CASH_EVENT_THEOREM,
+        PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR,
+    ):
         return ()
     finest_level = spec.quadrature_levels[-1]
     observations: list[MeshPilotObservation] = []
@@ -1112,6 +1135,30 @@ def _event_schedule(
             raise NumericalPilotError(message)
         times = (0.0, *(dividend.time for dividend in case.cash_dividends), case.maturity)
         exercise_nodes = tuple(range(1, len(times) - 1))
+    elif case.exercise_domain is PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR:
+        if base_intervals is None:
+            message = "compact terminal-predecessor schedule omitted its declared time denominator"
+            raise NumericalPilotError(message)
+        if base_intervals < _MINIMUM_TERMINAL_PREDECESSOR_INTERVALS:
+            message = "compact terminal-cash predecessor requires a denominator of at least two"
+            raise NumericalPilotError(message)
+        predecessor_time = case.maturity * ((base_intervals - 1) / base_intervals)
+        times = tuple(
+            sorted(
+                {
+                    0.0,
+                    predecessor_time,
+                    *(dividend.time for dividend in case.cash_dividends),
+                    case.maturity,
+                }
+            )
+        )
+        preexpiry_cash_nodes = {
+            times.index(dividend.time)
+            for dividend in case.cash_dividends
+            if dividend.time < case.maturity
+        }
+        exercise_nodes = tuple(sorted({*preexpiry_cash_nodes, times.index(predecessor_time)}))
     else:
         if base_intervals is None:
             message = "general-domain schedule omitted its uniform mesh"
@@ -1216,6 +1263,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "terminal-degree-3",
         "terminal-degree-4",
         "terminal-predecessor-v1",
+        "terminal-compact-predecessor-v1",
     )
     parser.add_argument("--pilot", choices=pilot_choices, required=True)
     parser.add_argument("--threads", type=int, required=True)
@@ -1245,6 +1293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for degree in range(_MAX_POLYNOMIAL_DEGREE + 1)
         },
         "terminal-predecessor-v1": terminal_cash_predecessor_diagnostic_v1,
+        "terminal-compact-predecessor-v1": terminal_cash_compact_predecessor_diagnostic_v1,
     }
     spec = specs[arguments.pilot]()
     receipt = run_numerical_pilot(
@@ -1454,6 +1503,7 @@ __all__ = [
     "project_publication_numerical_pilot_v3",
     "project_publication_numerical_pilot_v4",
     "run_numerical_pilot",
+    "terminal_cash_compact_predecessor_diagnostic_v1",
     "terminal_cash_polynomial_degree_diagnostic_v1",
     "terminal_cash_predecessor_diagnostic_v1",
     "write_numerical_pilot_receipt",

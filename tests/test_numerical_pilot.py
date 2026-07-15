@@ -24,6 +24,7 @@ from discrete_dividend_study.numerical_pilot import (
     project_publication_numerical_pilot_v3,
     project_publication_numerical_pilot_v4,
     run_numerical_pilot,
+    terminal_cash_compact_predecessor_diagnostic_v1,
     terminal_cash_polynomial_degree_diagnostic_v1,
     terminal_cash_predecessor_diagnostic_v1,
     write_numerical_pilot_receipt,
@@ -201,6 +202,29 @@ def test_terminal_predecessor_diagnostic_changes_only_the_exercise_domain() -> N
     assert numerical_pilot_spec_sha256(diagnostic) != numerical_pilot_spec_sha256(degree_four)
 
 
+def test_compact_predecessor_diagnostic_changes_only_the_schedule_domain() -> None:
+    """The compact diagnostic preserves all gates and removes only transition-only nodes."""
+    predecessor = terminal_cash_predecessor_diagnostic_v1()
+    diagnostic = terminal_cash_compact_predecessor_diagnostic_v1()
+    assert diagnostic == replace(
+        predecessor,
+        name="terminal-cash-compact-predecessor-diagnostic-v1",
+        cases=(
+            replace(
+                predecessor.cases[0],
+                exercise_domain=(
+                    numerical_pilot.PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR
+                ),
+            ),
+        ),
+    )
+    assert (
+        numerical_pilot_spec_sha256(diagnostic)
+        == "e2aa1fd264a7521070fa7d693cacb668da4c2f4d486dae0ef146e6a4b3d9ae4f"
+    )
+    assert numerical_pilot_spec_sha256(diagnostic) != numerical_pilot_spec_sha256(predecessor)
+
+
 def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:
     """A theorem-specialized case cannot silently enter a terminal-cash approximation."""
     case = project_publication_numerical_pilot_v1().cases[0]
@@ -249,6 +273,18 @@ def test_schedule_builders_preserve_specialized_and_general_event_order() -> Non
     assert predecessor.times == general.times
     assert predecessor.dividends == general.dividends
     assert predecessor.exercise_nodes == (3,)
+
+    compact = numerical_pilot._event_schedule(  # noqa: SLF001 - exact diagnostic identity
+        replace(
+            terminal,
+            exercise_domain=(numerical_pilot.PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR),
+        ),
+        base_intervals=4,
+    )
+    assert compact.times == (0.0, 0.75, 1.0)
+    assert compact.dividends[0].node == compact.expiry_node
+    assert compact.dividends[0].amount == general.dividends[0].amount
+    assert compact.exercise_nodes == (1,)
 
 
 def test_small_pilot_retains_all_levels_replications_and_random_identities() -> None:
