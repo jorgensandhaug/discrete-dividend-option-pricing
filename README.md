@@ -56,7 +56,9 @@ legacy ranking. V2's retained high-volatility path-drift miss and the v3 path ex
 conclusion. The stable terminal-cash policy bias across all supported global polynomial degrees and
 the frozen explicit-predecessor diagnostic are recorded in
 [ADR 0041](docs/adr/0041-terminal-cash-policy-diagnostic.md) and
-[ADR 0042](docs/adr/0042-explicit-terminal-cash-predecessor-diagnostic.md).
+[ADR 0042](docs/adr/0042-explicit-terminal-cash-predecessor-diagnostic.md). The frozen predecessor
+diagnostic passed without changing its basis, paths, tolerances, cash time, or terminal event order;
+production code must still receive the real predecessor explicitly from calendar semantics.
 
 The first production data boundary is intentionally small:
 

@@ -1,6 +1,6 @@
 # ADR 0042: Test an explicit terminal-cash predecessor exercise domain
 
-- Status: accepted for diagnostic execution
+- Status: accepted; diagnostic passed
 - Date: 2026-07-15
 
 ## Context
@@ -48,3 +48,17 @@ The diagnostic receipt is retained whether it passes or fails. A pass would supp
 API that requires an explicit row-level terminal predecessor time; it would not authorize the
 engine to infer a business day, subtract an epsilon, or silently select this domain. A failure would
 send the estimator search to a different continuation-policy family without widening any gate.
+
+## Outcome
+
+The diagnostic passed all eight predeclared gates. The p4 mean/reference gap fell from
+`0.1308468495` on the 255-regression policy to `0.0304441281` on the one-regression predecessor
+policy, while the deterministic value remained bit-identical at `11.3240479650`. The p3-to-p4
+paired drift was `0.0067862958`, well inside its `0.1228588531` limit. Complete retained evidence is
+in
+[`../performance/2026-07-15-terminal-cash-predecessor-diagnostic.md`](../performance/2026-07-15-terminal-cash-predecessor-diagnostic.md).
+
+This resolves the synthetic terminal-cash policy bias without changing a basis, path population,
+gate, event time, or terminal event order. Production work may now add a generic exact exercise-time
+input and let the study layer provide the predecessor from explicit calendar semantics. The engine
+still must not infer that time.
