@@ -22,6 +22,7 @@ from discrete_dividend_study.numerical_pilot import (
     project_publication_numerical_pilot_v1,
     project_publication_numerical_pilot_v2,
     project_publication_numerical_pilot_v3,
+    project_publication_numerical_pilot_v4,
     run_numerical_pilot,
     terminal_cash_polynomial_degree_diagnostic_v1,
     terminal_cash_predecessor_diagnostic_v1,
@@ -126,6 +127,27 @@ def test_v3_changes_only_the_failed_lsm_path_dimension() -> None:
         == "6f7843bde65ec6629027b3f98b5f6f113f717be92697828467f9ea49c0d4cf27"
     )
     assert numerical_pilot_spec_sha256(v3) != numerical_pilot_spec_sha256(v2)
+
+
+def test_v4_changes_only_the_terminal_cash_exercise_domain() -> None:
+    """V4 applies the passing predecessor domain without changing any other identity."""
+    v3 = project_publication_numerical_pilot_v3()
+    v4 = project_publication_numerical_pilot_v4()
+    expected_cases = tuple(
+        replace(
+            case,
+            exercise_domain=numerical_pilot.PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
+        )
+        if case.name == "terminal_cash_atm"
+        else case
+        for case in v3.cases
+    )
+    assert v4 == replace(v3, name="project-publication-target-free-v4", cases=expected_cases)
+    assert (
+        numerical_pilot_spec_sha256(v4)
+        == "344670190d05856d90e0ab3b2d9a084a4de32cb1c3e68bc224d943edc21e0c32"
+    )
+    assert numerical_pilot_spec_sha256(v4) != numerical_pilot_spec_sha256(v3)
 
 
 def test_terminal_degree_diagnostic_preserves_v3_paths_schedule_and_case_domain() -> None:

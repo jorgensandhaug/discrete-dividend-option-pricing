@@ -58,7 +58,9 @@ the frozen explicit-predecessor diagnostic are recorded in
 [ADR 0041](docs/adr/0041-terminal-cash-policy-diagnostic.md) and
 [ADR 0042](docs/adr/0042-explicit-terminal-cash-predecessor-diagnostic.md). The frozen predecessor
 diagnostic passed without changing its basis, paths, tolerances, cash time, or terminal event order;
-production code must still receive the real predecessor explicitly from calendar semantics.
+production code must still receive the real predecessor explicitly from calendar semantics. The
+single-change full-panel v4 specification is frozen in
+[ADR 0043](docs/adr/0043-full-panel-predecessor-pilot-v4.md).
 
 The first production data boundary is intentionally small:
 
