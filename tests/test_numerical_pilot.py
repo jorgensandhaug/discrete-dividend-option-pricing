@@ -21,6 +21,7 @@ from discrete_dividend_study.numerical_pilot import (
     numerical_pilot_spec_sha256,
     project_publication_numerical_pilot_v1,
     project_publication_numerical_pilot_v2,
+    project_publication_numerical_pilot_v3,
     run_numerical_pilot,
     write_numerical_pilot_receipt,
 )
@@ -96,6 +97,25 @@ def test_v2_changes_only_the_failed_general_mesh_dimension() -> None:
         == "4f04f0530dcb1df484492ed9ae56ea658dc18811c8d50d06513ad1e1be71fc73"
     )
     assert numerical_pilot_spec_sha256(v2) != numerical_pilot_spec_sha256(v1)
+
+
+def test_v3_changes_only_the_failed_lsm_path_dimension() -> None:
+    """V3 retains v2 and appends one geometric path refinement."""
+    v2 = project_publication_numerical_pilot_v2()
+    v3 = project_publication_numerical_pilot_v3()
+    assert v3 == replace(
+        v2,
+        name="project-publication-target-free-v3",
+        lsm_levels=(
+            *v2.lsm_levels,
+            LsmPilotLevel(name="p4", training_paths=131_072, evaluation_paths=131_072),
+        ),
+    )
+    assert (
+        numerical_pilot_spec_sha256(v3)
+        == "6f7843bde65ec6629027b3f98b5f6f113f717be92697828467f9ea49c0d4cf27"
+    )
+    assert numerical_pilot_spec_sha256(v3) != numerical_pilot_spec_sha256(v2)
 
 
 def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:

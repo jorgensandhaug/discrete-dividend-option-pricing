@@ -671,6 +671,19 @@ def project_publication_numerical_pilot_v2() -> NumericalPilotSpec:
     )
 
 
+def project_publication_numerical_pilot_v3() -> NumericalPilotSpec:
+    """Append one path level after the retained v2 high-volatility paired-drift miss."""
+    v2 = project_publication_numerical_pilot_v2()
+    return replace(
+        v2,
+        name="project-publication-target-free-v3",
+        lsm_levels=(
+            *v2.lsm_levels,
+            LsmPilotLevel(name="p4", training_paths=131_072, evaluation_paths=131_072),
+        ),
+    )
+
+
 def numerical_pilot_spec_sha256(spec: NumericalPilotSpec) -> str:
     """Hash the complete target-free scientific identity."""
     if type(spec) is not NumericalPilotSpec:
@@ -1112,7 +1125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run one frozen pilot version and return nonzero when any numerical gate fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--pilot", choices=("v1", "v2"), required=True)
+    parser.add_argument("--pilot", choices=("v1", "v2", "v3"), required=True)
     parser.add_argument("--threads", type=int, required=True)
     parser.add_argument(
         "--math-backend",
@@ -1128,11 +1141,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if engine_revision != pinned_engine:
         message = "checked-out engine revision differs from config/engine-revision.txt"
         raise NumericalPilotError(message)
-    spec = (
-        project_publication_numerical_pilot_v1()
-        if arguments.pilot == "v1"
-        else project_publication_numerical_pilot_v2()
-    )
+    specs = {
+        "v1": project_publication_numerical_pilot_v1,
+        "v2": project_publication_numerical_pilot_v2,
+        "v3": project_publication_numerical_pilot_v3,
+    }
+    spec = specs[arguments.pilot]()
     receipt = run_numerical_pilot(
         spec,
         NumericalPilotExecution(
@@ -1337,6 +1351,7 @@ __all__ = [
     "numerical_pilot_spec_sha256",
     "project_publication_numerical_pilot_v1",
     "project_publication_numerical_pilot_v2",
+    "project_publication_numerical_pilot_v3",
     "run_numerical_pilot",
     "write_numerical_pilot_receipt",
 ]

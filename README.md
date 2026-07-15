@@ -41,17 +41,19 @@ automatically:
 
 ```shell
 python3 tools/dev.py -- publication-numerical-pilot \
-  --pilot v2 \
+  --pilot v3 \
   --threads 4 \
   --math-backend rust_std_f64 \
-  --output artifacts/numerical-pilot/v2-portable.json
+  --output artifacts/numerical-pilot/v3-portable.json
 ```
 
 The frozen synthetic panel, tolerances, and limits are recorded in
 [ADR 0038](docs/adr/0038-target-free-numerical-pilot.md). V1's retained terminal-cash mesh miss and
 the single-dimension v2 extension are recorded in
 [ADR 0039](docs/adr/0039-terminal-cash-mesh-pilot-v2.md). Neither contains a market price target or
-legacy ranking, and a passing pilot is not an empirical conclusion.
+legacy ranking. V2's retained high-volatility path-drift miss and the v3 path extension are in
+[ADR 0040](docs/adr/0040-high-volatility-path-pilot-v3.md). A passing pilot is not an empirical
+conclusion.
 
 The first production data boundary is intentionally small:
 
