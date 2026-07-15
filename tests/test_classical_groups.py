@@ -67,6 +67,8 @@ def grouped_frame() -> pl.DataFrame:
             "forecasted_dividend_yield": [0.02] * 3 + [0.01] * 2,
             "historical_dividend_yield": [0.01] * 3 + [0.02] * 2,
             "call_mid_price": [31.0, 22.0, 14.0, 41.0, 32.0],
+            "forecasted_discrete_ex_dates": [[date(2020, 4, 2), date(2020, 10, 2)]] * 3
+            + [[date(2020, 5, 4)]] * 2,
             "forecasted_years_to_discrete_ex_dates": [[0.25, 0.75]] * 3 + [[0.25]] * 2,
             "forecasted_discrete_amounts": [[1.0, 1.0]] * 3 + [[0.5]] * 2,
         },
@@ -82,6 +84,7 @@ def grouped_frame() -> pl.DataFrame:
             "forecasted_dividend_yield": pl.Float64,
             "historical_dividend_yield": pl.Float64,
             "call_mid_price": pl.Float32,
+            "forecasted_discrete_ex_dates": pl.List(pl.Date),
             "forecasted_years_to_discrete_ex_dates": pl.List(pl.Float64),
             "forecasted_discrete_amounts": pl.List(pl.Float64),
         },

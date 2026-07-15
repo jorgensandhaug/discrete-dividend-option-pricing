@@ -17,11 +17,16 @@ from finoptions import (
     EscrowedVolatilityConvention,
     LsmStrikeGroups,
     RaggedCashDividends,
+    RaggedExerciseTimes,
 )
 
 from .classical_groups import (
     PreparedClassicalStrikeGroups,
     prepared_classical_strike_groups_sha256,
+)
+from .publication_exercise import (
+    PreparedPublicationExerciseSchedules,
+    publication_exercise_schedules_sha256,
 )
 from .publication_spec import (
     PublicationCashPartitionRule,
@@ -33,7 +38,7 @@ from .publication_spec import (
 Float64Vector = npt.NDArray[np.float64]
 UInt32Vector = npt.NDArray[np.uint32]
 
-_FORMAT: Final = "project-publication-cash-domain-partitions-v1"
+_FORMAT: Final = "project-publication-cash-domain-partitions-v2"
 _FLOAT64: Final = np.dtype(np.float64)
 _UINT32: Final = np.dtype(np.uint32)
 _INT64: Final = np.dtype(np.int64)
@@ -43,8 +48,8 @@ _SHA256_HEX_LENGTH: Final = 64
 class PublicationCashDomain(StrEnum):
     """The two explicit cash-call theorem domains."""
 
-    SPECIALIZED = "nonnegative_rate_strictly_pre_expiry_cash"
-    GENERAL = "negative_rate_or_terminal_cash"
+    EXACT = "nonnegative_rate_calendar_owned_exact_cash"
+    GENERAL = "negative_rate_general"
 
 
 @dataclass(slots=True)
@@ -83,6 +88,7 @@ class PublicationGroupPartition:
     historical_yields: Float64Vector
     targets: Float64Vector
     cash_dividends: RaggedCashDividends | None
+    exercise_times: RaggedExerciseTimes | None
 
     def __post_init__(self) -> None:
         """Reject malformed compact axes, mappings, or theorem-domain membership."""
@@ -186,28 +192,38 @@ def _validate_partition_shapes(partition: PublicationGroupPartition) -> None:
         raise PublicationPartitionError(reason="one group-aligned vector has the wrong length")
     if any(array.size != rows for array in row_arrays):
         raise PublicationPartitionError(reason="one row-aligned vector has the wrong length")
+    _validate_partition_schedule_shapes(partition)
+
+
+def _validate_partition_schedule_shapes(partition: PublicationGroupPartition) -> None:
+    """Require dividend and exercise buffers exactly for their declared domains."""
+    groups = partition.groups
     if groups == 0:
-        if partition.cash_dividends is not None:
-            raise PublicationPartitionError(reason="an empty partition must not own cash buffers")
-    elif type(partition.cash_dividends) is not RaggedCashDividends:
+        if partition.cash_dividends is not None or partition.exercise_times is not None:
+            raise PublicationPartitionError(
+                reason="an empty partition must not own cash or exercise buffers"
+            )
+        return
+    if type(partition.cash_dividends) is not RaggedCashDividends:
         raise PublicationPartitionError(reason="a nonempty partition requires cash buffers")
-    elif partition.cash_dividends.rows != groups:
+    if partition.cash_dividends.rows != groups:
         raise PublicationPartitionError(reason="cash schedules do not match group count")
+    if partition.domain is PublicationCashDomain.EXACT:
+        if type(partition.exercise_times) is not RaggedExerciseTimes:
+            raise PublicationPartitionError(reason="the exact domain requires exercise schedules")
+        if partition.exercise_times.rows != groups:
+            raise PublicationPartitionError(reason="exercise schedules do not match group count")
+    elif partition.exercise_times is not None:
+        raise PublicationPartitionError(
+            reason="only the nonempty exact domain may own exercise schedules"
+        )
 
 
 def _validate_partition_domain(partition: PublicationGroupPartition) -> None:
     if partition.groups == 0:
         return
-    if partition.cash_dividends is None:
-        raise PublicationPartitionError(reason="a nonempty partition requires cash buffers")
-    eligibility = _cash_specialization_eligibility(
-        partition.rates,
-        partition.maturities,
-        partition.cash_dividends,
-    )
-    expected = (
-        eligibility if partition.domain is PublicationCashDomain.SPECIALIZED else ~eligibility
-    )
+    eligibility = np.greater_equal(partition.rates, 0.0)
+    expected = eligibility if partition.domain is PublicationCashDomain.EXACT else ~eligibility
     if not bool(np.all(expected)):
         raise PublicationPartitionError(reason=f"misclassified {partition.domain.value} group")
 
@@ -233,6 +249,12 @@ def _freeze_partition(partition: PublicationGroupPartition) -> None:
             partition.cash_dividends.times,
             partition.cash_dividends.amounts,
         )
+    if partition.exercise_times is not None:
+        arrays = (
+            *arrays,
+            partition.exercise_times.offsets,
+            partition.exercise_times.times,
+        )
     for array in arrays:
         array.flags.writeable = False
 
@@ -243,10 +265,11 @@ class PreparedPublicationPartitions:
 
     study: PublicationStudySpec
     source_prepared_sha256: str
+    exercise_schedules_sha256: str
     original_groups: int
     original_rows: int
     targets: Float64Vector
-    specialized: PublicationGroupPartition
+    exact: PublicationGroupPartition
     general: PublicationGroupPartition
 
     def __post_init__(self) -> None:
@@ -259,11 +282,11 @@ class PreparedPublicationPartitions:
     @property
     def simulation_units(self) -> int:
         """Return the complete reordered group count."""
-        return self.specialized.groups + self.general.groups
+        return self.exact.groups + self.general.groups
 
     def ordered(self) -> tuple[PublicationGroupPartition, PublicationGroupPartition]:
         """Return the immutable domain order used by random-domain addressing."""
-        return (self.specialized, self.general)
+        return (self.exact, self.general)
 
 
 def _validate_prepared_partition_header(inputs: PreparedPublicationPartitions) -> None:
@@ -274,6 +297,11 @@ def _validate_prepared_partition_header(inputs: PreparedPublicationPartitions) -
         or len(inputs.source_prepared_sha256) != _SHA256_HEX_LENGTH
     ):
         raise PublicationPartitionError(reason="source prepared identity must be SHA-256")
+    if (
+        type(inputs.exercise_schedules_sha256) is not str
+        or len(inputs.exercise_schedules_sha256) != _SHA256_HEX_LENGTH
+    ):
+        raise PublicationPartitionError(reason="exercise schedule identity must be SHA-256")
     if type(inputs.original_groups) is not int or inputs.original_groups <= 0:
         raise PublicationPartitionError(reason="original_groups must be positive")
     if type(inputs.original_rows) is not int or inputs.original_rows <= 0:
@@ -284,24 +312,24 @@ def _validate_prepared_partition_header(inputs: PreparedPublicationPartitions) -
 
 
 def _validate_prepared_partition_members(inputs: PreparedPublicationPartitions) -> None:
-    if type(inputs.specialized) is not PublicationGroupPartition:
-        raise PublicationPartitionError(reason="specialized must be PublicationGroupPartition")
+    if type(inputs.exact) is not PublicationGroupPartition:
+        raise PublicationPartitionError(reason="exact must be PublicationGroupPartition")
     if type(inputs.general) is not PublicationGroupPartition:
         raise PublicationPartitionError(reason="general must be PublicationGroupPartition")
-    if inputs.specialized.domain is not PublicationCashDomain.SPECIALIZED:
-        raise PublicationPartitionError(reason="specialized partition has the wrong identity")
+    if inputs.exact.domain is not PublicationCashDomain.EXACT:
+        raise PublicationPartitionError(reason="exact partition has the wrong identity")
     if inputs.general.domain is not PublicationCashDomain.GENERAL:
         raise PublicationPartitionError(reason="general partition has the wrong identity")
-    if inputs.specialized.study != inputs.study or inputs.general.study != inputs.study:
+    if inputs.exact.study != inputs.study or inputs.general.study != inputs.study:
         raise PublicationPartitionError(reason="partition study identities differ")
 
 
 def _validate_complete_partition_maps(inputs: PreparedPublicationPartitions) -> None:
     group_map = np.concatenate(
-        (inputs.specialized.original_group_indices, inputs.general.original_group_indices)
+        (inputs.exact.original_group_indices, inputs.general.original_group_indices)
     )
     row_map = np.concatenate(
-        (inputs.specialized.original_row_indices, inputs.general.original_row_indices)
+        (inputs.exact.original_row_indices, inputs.general.original_row_indices)
     )
     if not np.array_equal(
         np.sort(group_map),
@@ -317,6 +345,7 @@ def _validate_complete_partition_maps(inputs: PreparedPublicationPartitions) -> 
 
 def prepare_publication_partitions(
     inputs: PreparedClassicalStrikeGroups,
+    exercise_schedules: PreparedPublicationExerciseSchedules,
     study: PublicationStudySpec,
 ) -> PreparedPublicationPartitions:
     """Partition verified source groups without inspecting option-price targets."""
@@ -324,24 +353,31 @@ def prepare_publication_partitions(
         raise PublicationPartitionError(reason="inputs must be PreparedClassicalStrikeGroups")
     if type(study) is not PublicationStudySpec:
         raise PublicationPartitionError(reason="study must be PublicationStudySpec")
+    if type(exercise_schedules) is not PreparedPublicationExerciseSchedules:
+        raise PublicationPartitionError(
+            reason="exercise_schedules must be PreparedPublicationExerciseSchedules"
+        )
     if (
         study.estimator.cash_partition_rule
-        is not PublicationCashPartitionRule.NONNEGATIVE_RATE_STRICTLY_PRE_EXPIRY
+        is not PublicationCashPartitionRule.NONNEGATIVE_RATE_EXACT_CALENDAR
     ):
         raise PublicationPartitionError(reason="unsupported cash partition rule")
-    eligible = _cash_specialization_eligibility(
-        inputs.rates,
-        inputs.maturities,
-        inputs.cash_dividends,
-    )
-    specialized = _subset_partition(
+    source_sha256 = prepared_classical_strike_groups_sha256(inputs)
+    if exercise_schedules.source_prepared_sha256 != source_sha256:
+        raise PublicationPartitionError(reason="exercise schedules belong to another source")
+    if exercise_schedules.groups != inputs.groups:
+        raise PublicationPartitionError(reason="exercise schedule group count differs")
+    eligible = np.greater_equal(inputs.rates, 0.0)
+    exact = _subset_partition(
         inputs,
+        exercise_schedules,
         study,
-        PublicationCashDomain.SPECIALIZED,
+        PublicationCashDomain.EXACT,
         eligible,
     )
     general = _subset_partition(
         inputs,
+        exercise_schedules,
         study,
         PublicationCashDomain.GENERAL,
         ~eligible,
@@ -350,11 +386,12 @@ def prepare_publication_partitions(
     targets.flags.writeable = False
     return PreparedPublicationPartitions(
         study=study,
-        source_prepared_sha256=prepared_classical_strike_groups_sha256(inputs),
+        source_prepared_sha256=source_sha256,
+        exercise_schedules_sha256=publication_exercise_schedules_sha256(exercise_schedules),
         original_groups=inputs.groups,
         original_rows=inputs.rows,
         targets=targets,
-        specialized=specialized,
+        exact=exact,
         general=general,
     )
 
@@ -367,15 +404,20 @@ def publication_partitions_sha256(inputs: PreparedPublicationPartitions) -> str:
     _hash_text(hasher, _FORMAT)
     _hash_text(hasher, publication_study_sha256(inputs.study))
     _hash_text(hasher, inputs.source_prepared_sha256)
+    _hash_text(hasher, inputs.exercise_schedules_sha256)
     for partition in inputs.ordered():
         _hash_text(hasher, partition.domain.value)
         _hash_array(hasher, "original_group_indices", partition.original_group_indices)
         _hash_array(hasher, "original_row_indices", partition.original_row_indices)
+        if partition.exercise_times is not None:
+            _hash_array(hasher, "exercise_offsets", partition.exercise_times.offsets)
+            _hash_array(hasher, "exercise_times", partition.exercise_times.times)
     return hasher.hexdigest()
 
 
 def _subset_partition(
     source: PreparedClassicalStrikeGroups,
+    exercise_schedules: PreparedPublicationExerciseSchedules,
     study: PublicationStudySpec,
     domain: PublicationCashDomain,
     group_mask: npt.NDArray[np.bool_],
@@ -407,6 +449,20 @@ def _subset_partition(
         if group_indices.size
         else None
     )
+    exercise: RaggedExerciseTimes | None = None
+    if group_indices.size and domain is PublicationCashDomain.EXACT:
+        exercise_sizes = np.diff(exercise_schedules.schedules.offsets).astype(
+            np.int64,
+            copy=False,
+        )
+        exercise_offsets = np.empty(group_indices.size + 1, dtype=np.int64)
+        exercise_offsets[0] = 0
+        exercise_offsets[1:] = np.cumsum(exercise_sizes[group_indices], dtype=np.int64)
+        exercise_event_mask = np.repeat(group_mask, exercise_sizes)
+        exercise = RaggedExerciseTimes(
+            offsets=exercise_offsets,
+            times=np.ascontiguousarray(exercise_schedules.schedules.times[exercise_event_mask]),
+        )
     group_arrays = tuple(
         np.ascontiguousarray(array[group_indices])
         for array in (
@@ -436,23 +492,8 @@ def _subset_partition(
         historical_yields=group_arrays[5],
         targets=row_arrays[1],
         cash_dividends=cash,
+        exercise_times=exercise,
     )
-
-
-def _cash_specialization_eligibility(
-    rates: Float64Vector,
-    maturities: Float64Vector,
-    cash: RaggedCashDividends,
-) -> npt.NDArray[np.bool_]:
-    eligible = np.greater_equal(rates, 0.0)
-    maturity_bits = maturities.view(np.uint64)
-    offset_base = int(cash.offsets[0])
-    for group in range(rates.size):
-        start = int(cash.offsets[group]) - offset_base
-        end = int(cash.offsets[group + 1]) - offset_base
-        if np.any(cash.times[start:end].view(np.uint64) == maturity_bits[group]):
-            eligible[group] = False
-    return eligible
 
 
 def _validate_vector(array: object, *, field: str, dtype: np.dtype[np.generic]) -> None:

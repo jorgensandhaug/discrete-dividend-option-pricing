@@ -1,6 +1,6 @@
 # ADR 0037: Explicit publication cash-domain partition
 
-- Status: accepted architecture; production estimator budgets remain pilot-gated
+- Status: superseded for new publication runs by ADR 0046; retained as historical evidence
 - Date: 2026-07-15
 
 ## Context

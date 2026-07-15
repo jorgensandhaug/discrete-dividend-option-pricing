@@ -45,6 +45,7 @@ Float64Vector = npt.NDArray[np.float64]
 UInt32Vector = npt.NDArray[np.uint32]
 
 _GROUP_KEYS: Final = ("ticker", "quote_date", "expiry_date")
+_GROUP_CALENDAR_FIELDS: Final = ("forecasted_discrete_ex_dates",)
 _GROUP_STATE_FIELDS: Final = (
     "underlying_price",
     "yte",
@@ -52,6 +53,7 @@ _GROUP_STATE_FIELDS: Final = (
     "historical_volatility_90",
     "forecasted_dividend_yield",
     "historical_dividend_yield",
+    "forecasted_discrete_ex_dates",
     "forecasted_years_to_discrete_ex_dates",
     "forecasted_discrete_amounts",
 )
@@ -220,7 +222,7 @@ def build_project_classical_grouped_frame(
             observed=type(study).__name__,
             expected="ClassicalStudySpec",
         )
-    required = (*_GROUP_KEYS, *study.input_columns())
+    required = (*_GROUP_KEYS, *_GROUP_CALENDAR_FIELDS, *study.input_columns())
     schema = frame.collect_schema()
     missing = tuple(column for column in required if column not in schema)
     mismatches = tuple(
@@ -344,7 +346,7 @@ def prepared_classical_strike_groups_sha256(inputs: PreparedClassicalStrikeGroup
 
 
 def _validate_materialized_schema(frame: pl.DataFrame, study: ClassicalStudySpec) -> None:
-    required = (*_GROUP_KEYS, *study.input_columns())
+    required = (*_GROUP_KEYS, *_GROUP_CALENDAR_FIELDS, *study.input_columns())
     schema = frame.schema
     missing = tuple(column for column in required if column not in schema)
     mismatches = tuple(

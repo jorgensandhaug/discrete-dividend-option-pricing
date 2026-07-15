@@ -90,7 +90,7 @@ class PublicationStudyReplicationResult:
     execution: PublicationReplicationExecutionSpec
     partitions_sha256: str
     rows: int
-    specialized_groups: int
+    exact_groups: int
     general_groups: int
     variants: tuple[PublicationVariantReplicationResult, ...]
 
@@ -109,8 +109,8 @@ class PublicationStudyReplicationResult:
             raise PublicationPricingContractError(reason="partition identity must be SHA-256")
         if type(self.rows) is not int or self.rows <= 0:
             raise PublicationPricingContractError(reason="rows must be positive")
-        if type(self.specialized_groups) is not int or self.specialized_groups < 0:
-            raise PublicationPricingContractError(reason="specialized_groups must be nonnegative")
+        if type(self.exact_groups) is not int or self.exact_groups < 0:
+            raise PublicationPricingContractError(reason="exact_groups must be nonnegative")
         if type(self.general_groups) is not int or self.general_groups < 0:
             raise PublicationPricingContractError(reason="general_groups must be nonnegative")
         if tuple(result.variant for result in self.variants) != self.study.variants:
@@ -151,7 +151,7 @@ def run_publication_replication(
         execution=execution,
         partitions_sha256=publication_partitions_sha256(inputs),
         rows=inputs.original_rows,
-        specialized_groups=inputs.specialized.groups,
+        exact_groups=inputs.exact.groups,
         general_groups=inputs.general.groups,
         variants=variants,
     )
@@ -202,11 +202,14 @@ def _price_partition(
     executor: CpuExecutor,
     method: Lsm,
 ) -> LsmBatchResult:
-    mesh = (
-        study.estimator.specialized_cash_mesh()
-        if variant.uses_cash_schedule and partition.domain is PublicationCashDomain.SPECIALIZED
-        else study.estimator.general_mesh()
-    )
+    if variant.uses_cash_schedule and partition.domain is PublicationCashDomain.EXACT:
+        if partition.exercise_times is None:
+            raise PublicationPricingContractError(
+                reason="a nonempty exact cash partition has no exercise schedule"
+            )
+        mesh = study.estimator.exact_cash_mesh(partition.exercise_times)
+    else:
+        mesh = study.estimator.general_mesh()
     try:
         native = price_lsm_call_grouped_batch(
             groups=partition.engine_groups_for(variant),

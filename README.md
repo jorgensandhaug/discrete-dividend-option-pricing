@@ -65,7 +65,9 @@ a retained synthetic numerical baseline, not an empirical conclusion. The compac
 and single-change full-panel v5 are recorded in
 [ADR 0044](docs/adr/0044-compact-explicit-terminal-predecessor-diagnostic.md) and
 [ADR 0045](docs/adr/0045-full-panel-compact-pilot-v5.md). V5 passed all 60 applicable gates and is
-the current target-free numerical baseline; it does not establish an empirical ranking.
+the current target-free numerical baseline; it does not establish an empirical ranking. The real
+XNYS schedule materialization and its two exhaustive rate domains are specified in
+[ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md).
 
 The first production data boundary is intentionally small:
 
@@ -381,12 +383,14 @@ inference are specified in
 [ADR 0036](docs/adr/0036-separate-publication-estimator-and-inference.md); no reconstruction
 artifact is promoted to a publication result implicitly.
 
-The publication input boundary explicitly partitions verified natural states into the
-nonnegative-rate, strictly-pre-expiry cash theorem domain and its negative-rate/terminal-cash
-complement. Cash variants use the optimized mesh only in the first domain; yield and general cash
-runs retain the declared origin-inclusive uniform mesh. Immutable group/row maps prove complete
-coverage and restore every native diagnostic to source order without a fallback. The contract is
-recorded in [ADR 0037](docs/adr/0037-explicit-publication-cash-domain-partition.md).
+The publication input boundary binds exact civil dates to a checked-in, versioned XNYS session
+asset. It preserves pre-expiry cash-event left limits and maps terminal cash only to the verified
+prior session. Verified natural states then form two exhaustive domains: nonnegative-rate cash
+groups use their explicit ragged exercise schedules, while negative-rate cash groups retain the
+declared origin-inclusive uniform American mesh. Both yield variants use that uniform mesh in both
+domains. Immutable group/row maps prove complete coverage and restore every native diagnostic to
+source order without a retry or fallback. ADR 0037 retains the historical first partition; new
+runs use [ADR 0046](docs/adr/0046-calendar-owned-publication-exercise-schedules.md).
 
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared

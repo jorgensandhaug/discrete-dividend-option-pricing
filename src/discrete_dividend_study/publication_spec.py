@@ -10,20 +10,21 @@ from enum import StrEnum
 from typing import Final
 
 from finoptions import (
-    CashDividendExerciseMesh,
     CpuExecutor,
     CpuMathBackend,
     DividendPolicy,
     ExerciseTieRule,
+    ExplicitExerciseMesh,
     InsufficientExerciseSupportPolicy,
     Lsm,
     MaturityBoundary,
     OriginExercise,
+    RaggedExerciseTimes,
     RandomStream,
     UniformExerciseMesh,
 )
 
-_STUDY_HASH_FORMAT: Final = "project-publication-study-v1"
+_STUDY_HASH_FORMAT: Final = "project-publication-study-v2"
 _EXECUTION_HASH_FORMAT: Final = "project-publication-replication-execution-v1"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
@@ -66,9 +67,9 @@ class PublicationVariant(StrEnum):
 
 
 class PublicationCashPartitionRule(StrEnum):
-    """Closed eligibility rules for the optimized cash-call exercise mesh."""
+    """Closed eligibility rule for exact cash-call exercise schedules."""
 
-    NONNEGATIVE_RATE_STRICTLY_PRE_EXPIRY = "nonnegative_rate_strictly_pre_expiry_v1"
+    NONNEGATIVE_RATE_EXACT_CALENDAR = "nonnegative_rate_exact_calendar_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,9 +124,18 @@ class PublicationEstimatorSpec:
         )
 
     @staticmethod
-    def specialized_cash_mesh() -> CashDividendExerciseMesh:
-        """Build the typed nonnegative-rate, pre-expiry-cash specialization."""
-        return CashDividendExerciseMesh()
+    def exact_cash_mesh(schedules: RaggedExerciseTimes) -> ExplicitExerciseMesh:
+        """Build the typed calendar-owned nonnegative-rate cash schedule."""
+        if type(schedules) is not RaggedExerciseTimes:
+            raise PublicationSpecValueError(
+                field="schedules",
+                observed=schedules,
+                requirement="RaggedExerciseTimes",
+            )
+        return ExplicitExerciseMesh(
+            schedules=schedules,
+            origin_exercise=OriginExercise.EXCLUDED,
+        )
 
     def method(
         self,
@@ -367,7 +377,7 @@ def publication_study_sha256(study: PublicationStudySpec) -> str:
             "tie_rule": estimator.tie_rule.value,
             "insufficient_exercise_support": estimator.insufficient_exercise_support.value,
             "cash_partition_rule": estimator.cash_partition_rule.value,
-            "specialized_cash_mesh": "cash_dividend_dates",
+            "exact_cash_mesh": "calendar_owned_explicit_times_origin_excluded",
         },
     }
     return _sha256_json(payload)
