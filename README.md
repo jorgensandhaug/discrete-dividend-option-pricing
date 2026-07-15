@@ -342,6 +342,12 @@ containing the target once, every variant's native diagnostics, Float64 metrics,
 source/code/engine/execution manifest without local paths. The contract is recorded in
 [ADR 0020](docs/adr/0020-explicit-classical-reconstruction.md).
 
+The publication estimator is deliberately separate from that historical identity. Its strict
+support behavior, convergence receipt, paired randomized replications, and date-block empirical
+inference are specified in
+[ADR 0036](docs/adr/0036-separate-publication-estimator-and-inference.md); no reconstruction
+artifact is promoted to a publication result implicitly.
+
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared
 float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars
