@@ -64,6 +64,18 @@ class PublicationBootstrapRandomGenerator(StrEnum):
     PHILOX_4X32_10 = "philox_4x32_10"
 
 
+class PublicationBootstrapOriginSampler(StrEnum):
+    """Exact discrete-uniform mapping used for circular block origins."""
+
+    LEMIRE_U64_REJECTION = "lemire_u64_multiply_high_with_rejection"
+
+
+class PublicationBootstrapBlockLengthSampler(StrEnum):
+    """Exact digital inverse-CDF convention used for geometric block lengths."""
+
+    INVERSE_CDF_OPEN_F64_53_LIBM = "inverse_cdf_open_f64_53_libm_log1p"
+
+
 class PublicationBootstrapQuantile(StrEnum):
     """Exact sample-quantile interpolation convention for interval endpoints."""
 
@@ -147,7 +159,10 @@ class PublicationStationaryBootstrapSpec:
     replications: int
     seed: int
     domain_start: int
+    replication_path_start: int
     random_generator: PublicationBootstrapRandomGenerator
+    origin_sampler: PublicationBootstrapOriginSampler
+    block_length_sampler: PublicationBootstrapBlockLengthSampler
     mean_block_length: float
     sensitivity_mean_block_lengths: tuple[float, ...]
     confidence_level: float
@@ -169,18 +184,7 @@ class PublicationStationaryBootstrapSpec:
                 observed=self.seed,
                 requirement=f"a plain int in [0, {_MAX_U64}]",
             )
-        if type(self.domain_start) is not int or not 0 <= self.domain_start <= _MAX_U32:
-            raise PublicationInferenceSpecValueError(
-                field="domain_start",
-                observed=self.domain_start,
-                requirement="a plain unsigned 32-bit integer",
-            )
-        if self.random_generator is not PublicationBootstrapRandomGenerator.PHILOX_4X32_10:
-            raise PublicationInferenceSpecValueError(
-                field="random_generator",
-                observed=self.random_generator,
-                requirement="PublicationBootstrapRandomGenerator.PHILOX_4X32_10",
-            )
+        _validate_bootstrap_random_mapping(self)
         _validate_block_lengths(self)
         if (
             type(self.confidence_level) is not float
@@ -210,6 +214,47 @@ class PublicationStationaryBootstrapSpec:
                 observed=self.finite_sample_p_value_correction,
                 requirement="a plain bool",
             )
+
+
+def _validate_bootstrap_random_mapping(spec: PublicationStationaryBootstrapSpec) -> None:
+    """Reject wrapping namespaces or an implementation-selected random mapping."""
+    if type(spec.domain_start) is not int or not 0 <= spec.domain_start <= _MAX_U32:
+        raise PublicationInferenceSpecValueError(
+            field="domain_start",
+            observed=spec.domain_start,
+            requirement="a plain unsigned 32-bit integer",
+        )
+    if (
+        type(spec.replication_path_start) is not int
+        or not 0 <= spec.replication_path_start <= _MAX_U32
+        or spec.replication_path_start + spec.replications - 1 > _MAX_U32
+    ):
+        raise PublicationInferenceSpecValueError(
+            field="replication_path_start",
+            observed=spec.replication_path_start,
+            requirement="a plain unsigned 32-bit start whose complete replication range fits",
+        )
+    if spec.random_generator is not PublicationBootstrapRandomGenerator.PHILOX_4X32_10:
+        raise PublicationInferenceSpecValueError(
+            field="random_generator",
+            observed=spec.random_generator,
+            requirement="PublicationBootstrapRandomGenerator.PHILOX_4X32_10",
+        )
+    if spec.origin_sampler is not PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION:
+        raise PublicationInferenceSpecValueError(
+            field="origin_sampler",
+            observed=spec.origin_sampler,
+            requirement="PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION",
+        )
+    if (
+        spec.block_length_sampler
+        is not PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM
+    ):
+        raise PublicationInferenceSpecValueError(
+            field="block_length_sampler",
+            observed=spec.block_length_sampler,
+            requirement="PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM",
+        )
 
 
 def _validate_block_lengths(spec: PublicationStationaryBootstrapSpec) -> None:
@@ -275,6 +320,13 @@ class PublicationEmpiricalInferenceSpec:
                 field="bootstrap",
                 observed=self.bootstrap,
                 requirement="PublicationStationaryBootstrapSpec",
+            )
+        domain_count = len(self.cohorts) * len(self.bootstrap.sensitivity_mean_block_lengths)
+        if self.bootstrap.domain_start + domain_count - 1 > _MAX_U32:
+            raise PublicationInferenceSpecValueError(
+                field="bootstrap domain range",
+                observed=(self.bootstrap.domain_start, domain_count),
+                requirement="a complete nonwrapping unsigned 32-bit cohort/block domain range",
             )
         if self.multiplicity is not PublicationMultiplicityProcedure.HOLM:
             raise PublicationInferenceSpecValueError(
@@ -391,7 +443,10 @@ PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC: Final = PublicationEmpiricalInfere
         replications=19_999,
         seed=0x13198A2E03707344,
         domain_start=2_000_000,
+        replication_path_start=0,
         random_generator=PublicationBootstrapRandomGenerator.PHILOX_4X32_10,
+        origin_sampler=PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION,
+        block_length_sampler=(PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM),
         mean_block_length=_PRIMARY_BLOCK_LENGTH,
         sensitivity_mean_block_lengths=(5.0, 10.0, _PRIMARY_BLOCK_LENGTH, 40.0, 60.0),
         confidence_level=0.95,
@@ -442,7 +497,23 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
             "seed": spec.bootstrap.seed,
             "domain_start": spec.bootstrap.domain_start,
             "domain_mapping": "domain_start_plus_cohort_index_times_block_count_plus_block_index",
+            "replication_path_start": spec.bootstrap.replication_path_start,
+            "replication_path_mapping": "replication_path_start_plus_zero_based_replication_index",
             "random_generator": spec.bootstrap.random_generator.value,
+            "philox_counter_lanes": "block_low_u32_block_high_u32_path_u32_domain_u32",
+            "philox_word_order": "four_u32_words_in_random123_output_order",
+            "philox_u64_packing": "first_u32_low_then_second_u32_high",
+            "origin_sampler": spec.bootstrap.origin_sampler.value,
+            "block_length_sampler": spec.bootstrap.block_length_sampler.value,
+            "block_uniform_open_mapping": (
+                "u_equals_one_plus_top_53_bits_of_u64_divided_by_one_plus_two_pow_53"
+            ),
+            "block_inverse_cdf": (
+                "one_plus_floor_libm_log1p_minus_u_divided_by_"
+                "libm_log1p_minus_reciprocal_mean_length"
+            ),
+            "block_length_parameterization": "restart_probability_equals_reciprocal_mean_length",
+            "block_length_terminal_rule": "truncate_final_block_to_exactly_panel_count_draws",
             "mean_block_length": float(spec.bootstrap.mean_block_length).hex(),
             "sensitivity_mean_block_lengths": [
                 float(value).hex() for value in spec.bootstrap.sensitivity_mean_block_lengths
@@ -465,7 +536,9 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
 
 __all__ = [
     "PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC",
+    "PublicationBootstrapBlockLengthSampler",
     "PublicationBootstrapInterval",
+    "PublicationBootstrapOriginSampler",
     "PublicationBootstrapQuantile",
     "PublicationBootstrapRandomGenerator",
     "PublicationCohortSpec",

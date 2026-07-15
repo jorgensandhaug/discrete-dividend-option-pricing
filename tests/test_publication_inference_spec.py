@@ -10,7 +10,9 @@ import pytest
 from discrete_dividend_study.project_pipeline import PROJECT_AS_SUBMITTED_TICKERS
 from discrete_dividend_study.publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
+    PublicationBootstrapBlockLengthSampler,
     PublicationBootstrapInterval,
+    PublicationBootstrapOriginSampler,
     PublicationBootstrapQuantile,
     PublicationBootstrapRandomGenerator,
     PublicationEmpiricalMetric,
@@ -46,7 +48,13 @@ def test_empirical_inference_identity_is_complete_and_frozen_before_results() ->
     assert spec.contrasts[-1].right is PublicationVariant.HISTORICAL_YIELD
     assert spec.bootstrap.replications == _BOOTSTRAP_REPLICATIONS
     assert spec.bootstrap.domain_start == _BOOTSTRAP_DOMAIN_START
+    assert spec.bootstrap.replication_path_start == 0
     assert spec.bootstrap.random_generator is PublicationBootstrapRandomGenerator.PHILOX_4X32_10
+    assert spec.bootstrap.origin_sampler is PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION
+    assert (
+        spec.bootstrap.block_length_sampler
+        is PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM
+    )
     assert spec.bootstrap.mean_block_length == _PRIMARY_BLOCK_LENGTH
     assert spec.bootstrap.sensitivity_mean_block_lengths == (5.0, 10.0, 20.0, 40.0, 60.0)
     assert spec.bootstrap.confidence_level == _CONFIDENCE_LEVEL

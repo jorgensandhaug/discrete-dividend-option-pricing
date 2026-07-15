@@ -51,7 +51,18 @@ Lengths 5, 10, 20, 40, and 60 are all mandatory sensitivity outputs. The primary
 estimated from realized model losses. Each configuration uses 19,999 replications from
 Philox4x32-10 with seed `0x13198A2E03707344`. Counter domains begin at 2,000,000 and are assigned by
 `domain_start + cohort_index * block_count + block_index`, so cohort/block configurations never
-share a resampling stream.
+share a resampling stream. Zero-based bootstrap replication `b` occupies the Philox path lane `b`;
+the remaining counter lanes are the low and high words of the sequential Philox block counter and
+the declared domain. Two consecutive Random123 output words are packed low-word first into each
+`u64` draw.
+
+Circular origins use Lemire's unsigned 64-bit multiply-high mapping with rejection, not a biased
+modulo. Geometric lengths use an explicitly digital inverse CDF: map the top 53 bits of a `u64`
+word to the open-unit value `(bits + 1) / (2^53 + 1)`, then compute
+`1 + floor(log1p(-u) / log1p(-1/L))` with the Rust `libm` implementation. `L = 1` is the exact
+one-panel case. The last block is truncated so every bootstrap draw contains exactly as many panel
+positions as the observed cohort. These mapping details are part of the hashed specification;
+thread scheduling cannot alter a replication stream.
 
 Two-sided confidence level is 0.95. Intervals use the centered basic-bootstrap construction with
 Hyndman--Fan type-7 linear sample quantiles. Two-sided p-values use the centered bootstrap
