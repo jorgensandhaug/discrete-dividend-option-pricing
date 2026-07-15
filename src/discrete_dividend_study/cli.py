@@ -119,8 +119,12 @@ from .project_feature_artifact import (
 )
 from .publication_artifact import run_or_load_publication_cash_replication
 from .publication_exercise import prepare_publication_exercise_schedules
-from .publication_groups import prepare_publication_partitions
-from .publication_result_artifact import run_or_load_publication_study_result
+from .publication_groups import prepare_publication_partitions, publication_partitions_sha256
+from .publication_inference_artifact import run_or_load_publication_empirical_inference
+from .publication_result_artifact import (
+    load_publication_study_result_artifact,
+    run_or_load_publication_study_result,
+)
 from .publication_spec import (
     PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC,
     PROJECT_PUBLICATION_STUDY_SPEC,
@@ -144,6 +148,10 @@ from .underlying_history import UNDERLYING_HISTORY_DTYPES
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+    from .neural_run import StudySourceIdentity
+    from .publication_groups import PreparedPublicationPartitions
+    from .rolling_windows import RollingTestWindowCount, RollingWindow
 
 _ENGINE_REPOSITORY_NAME: Final = "finoptions-engine"
 _PROFILE_APPLE: Final = "apple-silicon"
@@ -175,6 +183,17 @@ class _StudyCliContext:
     paper_root: Path
     paper_revision: str
     engine_revision: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedPublicationContext:
+    """One source-verified reconstruction of the submitted publication test union."""
+
+    source: StudySourceIdentity
+    windows: tuple[RollingWindow, ...]
+    test_counts: tuple[RollingTestWindowCount, ...]
+    frame: pl.DataFrame
+    inputs: PreparedPublicationPartitions
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -213,6 +232,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_classical_study(arguments, context)
     if arguments.command == "run-publication-cash-replications":
         return _run_publication_cash_replications(arguments, context)
+    if arguments.command == "run-publication-empirical-inference":
+        return _run_publication_empirical_inference(arguments, context)
     raise StudyCliError(reason="an explicit supported command is required")
 
 
@@ -941,46 +962,11 @@ def _run_publication_cash_replications(
     """Run or exactly resume every frozen stochastic publication replication."""
     study = PROJECT_PUBLICATION_STUDY_SPEC
     plan = PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC
-    source = resolve_study_source_identity(
-        context.feature_artifact,
-        context.paper_root / "uv.lock",
-        context.paper_revision,
-        context.engine_revision,
-    )
-    windows = generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC)
-    try:
-        selected = select_rolling_test_union(context.feature_artifact.scan(), windows)
-        frame = build_project_classical_grouped_frame(selected).collect()
-    except pl.exceptions.PolarsError as error:
-        raise StudyCliError(
-            reason=f"cannot materialize publication input columns: {error}"
-        ) from error
-    try:
-        verify_study_feature_artifact_unchanged(context.feature_artifact)
-    except StudyFeatureArtifactError as error:
-        raise StudyCliError(reason=str(error)) from error
-    resolved_after_scan = resolve_study_source_identity(
-        context.feature_artifact,
-        context.paper_root / "uv.lock",
-        context.paper_revision,
-        context.engine_revision,
-    )
-    if resolved_after_scan != source:
-        raise StudyCliError(reason="source or dependency lock changed during preparation")
-    try:
-        test_counts = validate_rolling_test_coverage(frame.lazy(), windows)
-    except (pl.exceptions.PolarsError, RollingWindowError) as error:
-        raise StudyCliError(reason=f"invalid publication test cohort: {error}") from error
-    grouped = prepare_project_classical_strike_groups(
-        frame,
-        event_buffer_policy=EventBufferPolicy(arguments.event_buffer_policy),
-    )
-    schedules = prepare_publication_exercise_schedules(
-        frame,
-        grouped,
-        load_project_xnys_calendar(),
-    )
-    inputs = prepare_publication_partitions(grouped, schedules, study)
+    prepared = _prepare_publication_context(arguments, context)
+    source = prepared.source
+    windows = prepared.windows
+    test_counts = prepared.test_counts
+    inputs = prepared.inputs
     plan.validate_units(inputs.simulation_units)
 
     artifacts = []
@@ -1047,6 +1033,103 @@ def _run_publication_cash_replications(
         json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
     )
     return 0
+
+
+def _run_publication_empirical_inference(
+    arguments: argparse.Namespace,
+    context: _StudyCliContext,
+) -> int:
+    """Run or exactly resume the frozen paired date-panel empirical inference."""
+    prepared = _prepare_publication_context(arguments, context)
+    publication_result_path = _required_path(
+        arguments.publication_result,
+        field="publication-result",
+        kind="file",
+    )
+    publication_result = load_publication_study_result_artifact(publication_result_path)
+    loaded = run_or_load_publication_empirical_inference(
+        context.artifact_root,
+        prepared.source,
+        context.feature_artifact,
+        publication_result,
+        prepared.frame,
+        publication_partitions_sha256(prepared.inputs),
+        CpuExecutor(threads=arguments.threads, math_backend=CpuMathBackend.RUST_STD_F64),
+    )
+    summary = {
+        "artifact_path": str(loaded.artifact.path),
+        "artifact_sha256": loaded.artifact.sha256,
+        "bootstrap_replications": loaded.artifact.manifest.bootstrap_replications,
+        "cohorts": tuple(
+            {
+                "name": cohort.name,
+                "observations": cohort.observations,
+                "quote_date_panels": cohort.quote_date_panels,
+            }
+            for cohort in loaded.artifact.manifest.cohorts
+        ),
+        "mean_block_lengths": loaded.artifact.manifest.mean_block_lengths,
+        "publication_result_sha256": loaded.artifact.manifest.publication_result_sha256,
+        "request_sha256": loaded.artifact.manifest.request_sha256,
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    )
+    return 0
+
+
+def _prepare_publication_context(
+    arguments: argparse.Namespace,
+    context: _StudyCliContext,
+) -> _PreparedPublicationContext:
+    """Verify, materialize, group, calendar-map, and partition the exact test union once."""
+    source = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    windows = generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC)
+    try:
+        selected = select_rolling_test_union(context.feature_artifact.scan(), windows)
+        frame = build_project_classical_grouped_frame(selected).collect()
+    except pl.exceptions.PolarsError as error:
+        raise StudyCliError(
+            reason=f"cannot materialize publication input columns: {error}"
+        ) from error
+    try:
+        verify_study_feature_artifact_unchanged(context.feature_artifact)
+    except StudyFeatureArtifactError as error:
+        raise StudyCliError(reason=str(error)) from error
+    resolved_after_scan = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    if resolved_after_scan != source:
+        raise StudyCliError(reason="source or dependency lock changed during preparation")
+    try:
+        test_counts = validate_rolling_test_coverage(frame.lazy(), windows)
+    except (pl.exceptions.PolarsError, RollingWindowError) as error:
+        raise StudyCliError(reason=f"invalid publication test cohort: {error}") from error
+    grouped = prepare_project_classical_strike_groups(
+        frame,
+        event_buffer_policy=EventBufferPolicy(arguments.event_buffer_policy),
+    )
+    schedules = prepare_publication_exercise_schedules(
+        frame,
+        grouped,
+        load_project_xnys_calendar(),
+    )
+    inputs = prepare_publication_partitions(grouped, schedules, PROJECT_PUBLICATION_STUDY_SPEC)
+    return _PreparedPublicationContext(
+        source=source,
+        windows=windows,
+        test_counts=test_counts,
+        frame=frame,
+        inputs=inputs,
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1127,6 +1210,24 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     publication.add_argument(
+        "--event-buffer-policy",
+        choices=tuple(policy.value for policy in EventBufferPolicy),
+        required=True,
+    )
+    inference = commands.add_parser(
+        "run-publication-empirical-inference",
+        help="run or exactly resume frozen paired date-panel publication inference",
+    )
+    inference.add_argument("--features", type=Path, required=True)
+    inference.add_argument(
+        "--feature-artifact-kind",
+        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
+        required=True,
+    )
+    inference.add_argument("--artifacts", type=Path, required=True)
+    inference.add_argument("--publication-result", type=Path, required=True)
+    inference.add_argument("--threads", type=_positive_int, required=True)
+    inference.add_argument(
         "--event-buffer-policy",
         choices=tuple(policy.value for policy in EventBufferPolicy),
         required=True,
