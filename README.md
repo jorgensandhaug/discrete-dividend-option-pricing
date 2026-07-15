@@ -348,6 +348,13 @@ inference are specified in
 [ADR 0036](docs/adr/0036-separate-publication-estimator-and-inference.md); no reconstruction
 artifact is promoted to a publication result implicitly.
 
+The publication input boundary explicitly partitions verified natural states into the
+nonnegative-rate, strictly-pre-expiry cash theorem domain and its negative-rate/terminal-cash
+complement. Cash variants use the optimized mesh only in the first domain; yield and general cash
+runs retain the declared origin-inclusive uniform mesh. Immutable group/row maps prove complete
+coverage and restore every native diagnostic to source order without a fallback. The contract is
+recorded in [ADR 0037](docs/adr/0037-explicit-publication-cash-domain-partition.md).
+
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared
 float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars

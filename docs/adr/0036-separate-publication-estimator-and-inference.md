@@ -33,8 +33,11 @@ The publication workflow has four independently auditable layers.
   evaluation path, rank deficiency, excessive condition number, non-finite arithmetic, invalid
   event order, or an unsupported financial domain fails the run. No degree reduction,
   regularization, support expansion, event movement, backend change, or result clipping is allowed.
-- Preserve common random numbers across dividend variants and strikes inside a proven natural
-  state group, while retaining separately fitted strike policies.
+- Preserve common random numbers across strikes and variants that share an identical time mesh,
+  while retaining separately fitted strike policies. Replications remain seed-paired across
+  different mesh identities, but that pairing is not described as pathwise-identical Brownian
+  increments: consuming one counter stream on different time grids does not establish that claim.
+  A stronger cross-mesh coupling requires its own named random construction and validation.
 - Treat the independently evaluated policy value as a randomized lower-bound estimator for the
   declared finite opportunity set. It is not labeled an exact American-option price.
 
