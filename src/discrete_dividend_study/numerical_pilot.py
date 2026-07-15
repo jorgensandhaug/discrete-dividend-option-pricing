@@ -716,6 +716,21 @@ def project_publication_numerical_pilot_v4() -> NumericalPilotSpec:
     return replace(v3, name="project-publication-target-free-v4", cases=cases)
 
 
+def project_publication_numerical_pilot_v5() -> NumericalPilotSpec:
+    """Use the passing compact exact schedule for v4's terminal-cash case."""
+    v4 = project_publication_numerical_pilot_v4()
+    cases = tuple(
+        replace(
+            case,
+            exercise_domain=PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR,
+        )
+        if case.name == "terminal_cash_atm"
+        else case
+        for case in v4.cases
+    )
+    return replace(v4, name="project-publication-target-free-v5", cases=cases)
+
+
 def terminal_cash_polynomial_degree_diagnostic_v1(degree: int) -> NumericalPilotSpec:
     """Isolate polynomial-space bias on v3's exact terminal-cash paths and schedule."""
     if type(degree) is not int or not 0 <= degree <= _MAX_POLYNOMIAL_DEGREE:
@@ -1257,6 +1272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "v2",
         "v3",
         "v4",
+        "v5",
         "terminal-degree-0",
         "terminal-degree-1",
         "terminal-degree-2",
@@ -1286,6 +1302,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "v2": project_publication_numerical_pilot_v2,
         "v3": project_publication_numerical_pilot_v3,
         "v4": project_publication_numerical_pilot_v4,
+        "v5": project_publication_numerical_pilot_v5,
         **{
             f"terminal-degree-{degree}": (
                 lambda degree=degree: terminal_cash_polynomial_degree_diagnostic_v1(degree)
@@ -1502,6 +1519,7 @@ __all__ = [
     "project_publication_numerical_pilot_v2",
     "project_publication_numerical_pilot_v3",
     "project_publication_numerical_pilot_v4",
+    "project_publication_numerical_pilot_v5",
     "run_numerical_pilot",
     "terminal_cash_compact_predecessor_diagnostic_v1",
     "terminal_cash_polynomial_degree_diagnostic_v1",

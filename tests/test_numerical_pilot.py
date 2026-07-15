@@ -23,6 +23,7 @@ from discrete_dividend_study.numerical_pilot import (
     project_publication_numerical_pilot_v2,
     project_publication_numerical_pilot_v3,
     project_publication_numerical_pilot_v4,
+    project_publication_numerical_pilot_v5,
     run_numerical_pilot,
     terminal_cash_compact_predecessor_diagnostic_v1,
     terminal_cash_polynomial_degree_diagnostic_v1,
@@ -149,6 +150,27 @@ def test_v4_changes_only_the_terminal_cash_exercise_domain() -> None:
         == "344670190d05856d90e0ab3b2d9a084a4de32cb1c3e68bc224d943edc21e0c32"
     )
     assert numerical_pilot_spec_sha256(v4) != numerical_pilot_spec_sha256(v3)
+
+
+def test_v5_changes_only_the_terminal_cash_schedule_representation() -> None:
+    """V5 adopts the passing compact schedule without changing the other seven cases."""
+    v4 = project_publication_numerical_pilot_v4()
+    v5 = project_publication_numerical_pilot_v5()
+    expected_cases = tuple(
+        replace(
+            case,
+            exercise_domain=(numerical_pilot.PilotExerciseDomain.COMPACT_TERMINAL_CASH_PREDECESSOR),
+        )
+        if case.name == "terminal_cash_atm"
+        else case
+        for case in v4.cases
+    )
+    assert v5 == replace(v4, name="project-publication-target-free-v5", cases=expected_cases)
+    assert (
+        numerical_pilot_spec_sha256(v5)
+        == "8dff50a6cef9c93271c745f2f6cb784552516d739d3e109884b451378493ce64"
+    )
+    assert numerical_pilot_spec_sha256(v5) != numerical_pilot_spec_sha256(v4)
 
 
 def test_terminal_degree_diagnostic_preserves_v3_paths_schedule_and_case_domain() -> None:
