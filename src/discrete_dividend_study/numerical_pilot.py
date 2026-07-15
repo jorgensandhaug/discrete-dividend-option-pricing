@@ -53,6 +53,7 @@ _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
 _MAX_POLYNOMIAL_DEGREE: Final = 4
 _MINIMUM_LEVELS: Final = 2
+_MINIMUM_TERMINAL_PREDECESSOR_INTERVALS: Final = 2
 _SEED_INCREMENT: Final = 0x9E3779B97F4A7C15
 _SHA1_LENGTH: Final = 40
 
@@ -78,6 +79,7 @@ class PilotExerciseDomain(StrEnum):
     """The theorem domain that determines a case's finite exercise schedule."""
 
     CASH_EVENT_THEOREM = "cash_event_theorem"
+    TERMINAL_CASH_PREDECESSOR = "terminal_cash_predecessor"
     UNIFORM_BERMUDAN = "uniform_bermudan"
 
 
@@ -143,31 +145,44 @@ class NumericalPilotCase:
                     requirement="strictly increasing times in (0, maturity]",
                 )
             previous = dividend.time
-        if self.exercise_domain is PilotExerciseDomain.CASH_EVENT_THEOREM:
-            if not self.cash_dividends:
-                raise NumericalPilotValueError(
-                    field="cash_dividends",
-                    observed=self.cash_dividends,
-                    requirement="at least one event for the cash-event theorem domain",
-                )
-            if self.rate < 0.0:
-                raise NumericalPilotValueError(
-                    field="rate",
-                    observed=self.rate,
-                    requirement="nonnegative in the cash-event theorem domain",
-                )
-            if self.continuous_dividend_yield != 0.0:
-                raise NumericalPilotValueError(
-                    field="continuous_dividend_yield",
-                    observed=self.continuous_dividend_yield,
-                    requirement="exactly zero in the cash-event theorem domain",
-                )
-            if self.cash_dividends[-1].time >= self.maturity:
-                raise NumericalPilotValueError(
-                    field="cash_dividends",
-                    observed=self.cash_dividends,
-                    requirement="strictly pre-expiry events in the cash-event theorem domain",
-                )
+        _validate_case_exercise_domain(self)
+
+
+def _validate_case_exercise_domain(case: NumericalPilotCase) -> None:
+    """Validate the two closed cash-event theorem variants."""
+    if case.exercise_domain is PilotExerciseDomain.UNIFORM_BERMUDAN:
+        return
+    if not case.cash_dividends:
+        raise NumericalPilotValueError(
+            field="cash_dividends",
+            observed=case.cash_dividends,
+            requirement="at least one event for a cash-event theorem domain",
+        )
+    if case.rate < 0.0:
+        raise NumericalPilotValueError(
+            field="rate",
+            observed=case.rate,
+            requirement="nonnegative in a cash-event theorem domain",
+        )
+    if case.continuous_dividend_yield != 0.0:
+        raise NumericalPilotValueError(
+            field="continuous_dividend_yield",
+            observed=case.continuous_dividend_yield,
+            requirement="exactly zero in a cash-event theorem domain",
+        )
+    terminal_cash = case.cash_dividends[-1].time == case.maturity
+    if case.exercise_domain is PilotExerciseDomain.CASH_EVENT_THEOREM and terminal_cash:
+        raise NumericalPilotValueError(
+            field="cash_dividends",
+            observed=case.cash_dividends,
+            requirement="strictly pre-expiry events in the cash-event theorem domain",
+        )
+    if case.exercise_domain is PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR and not terminal_cash:
+        raise NumericalPilotValueError(
+            field="cash_dividends",
+            observed=case.cash_dividends,
+            requirement="a final event exactly at maturity in the terminal-predecessor domain",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -706,6 +721,22 @@ def terminal_cash_polynomial_degree_diagnostic_v1(degree: int) -> NumericalPilot
     )
 
 
+def terminal_cash_predecessor_diagnostic_v1() -> NumericalPilotSpec:
+    """Test the exact v3 paths with only the declared pre-terminal-cash decision."""
+    degree_four = terminal_cash_polynomial_degree_diagnostic_v1(_MAX_POLYNOMIAL_DEGREE)
+    case = degree_four.cases[0]
+    return replace(
+        degree_four,
+        name="terminal-cash-predecessor-diagnostic-v1",
+        cases=(
+            replace(
+                case,
+                exercise_domain=PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
+            ),
+        ),
+    )
+
+
 def numerical_pilot_spec_sha256(spec: NumericalPilotSpec) -> str:
     """Hash the complete target-free scientific identity."""
     if type(spec) is not NumericalPilotSpec:
@@ -781,9 +812,9 @@ def _run_case(
     executor: CpuExecutor,
 ) -> NumericalPilotCaseResult:
     reference_mesh = (
-        spec.general_mesh_intervals[-1]
-        if case.exercise_domain is PilotExerciseDomain.UNIFORM_BERMUDAN
-        else None
+        None
+        if case.exercise_domain is PilotExerciseDomain.CASH_EVENT_THEOREM
+        else spec.general_mesh_intervals[-1]
     )
     schedule = _event_schedule(case, base_intervals=reference_mesh)
     deterministic = tuple(
@@ -1073,12 +1104,27 @@ def _event_schedule(
         if base_intervals is None:
             message = "general-domain schedule omitted its uniform mesh"
             raise NumericalPilotError(message)
+        if (
+            case.exercise_domain is PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR
+            and base_intervals < _MINIMUM_TERMINAL_PREDECESSOR_INTERVALS
+        ):
+            message = "terminal-cash predecessor schedule requires at least two base intervals"
+            raise NumericalPilotError(message)
         base = tuple(
             case.maturity if node == base_intervals else case.maturity * (node / base_intervals)
             for node in range(base_intervals + 1)
         )
         times = tuple(sorted({*base, *(dividend.time for dividend in case.cash_dividends)}))
-        exercise_nodes = tuple(range(len(times) - 1))
+        if case.exercise_domain is PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR:
+            preexpiry_cash_nodes = {
+                times.index(dividend.time)
+                for dividend in case.cash_dividends
+                if dividend.time < case.maturity
+            }
+            predecessor_time = base[-2]
+            exercise_nodes = tuple(sorted({*preexpiry_cash_nodes, times.index(predecessor_time)}))
+        else:
+            exercise_nodes = tuple(range(len(times) - 1))
     dividends = tuple(
         CashDividend(node=times.index(dividend.time), amount=dividend.amount)
         for dividend in case.cash_dividends
@@ -1156,6 +1202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "terminal-degree-2",
         "terminal-degree-3",
         "terminal-degree-4",
+        "terminal-predecessor-v1",
     )
     parser.add_argument("--pilot", choices=pilot_choices, required=True)
     parser.add_argument("--threads", type=int, required=True)
@@ -1183,6 +1230,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             for degree in range(_MAX_POLYNOMIAL_DEGREE + 1)
         },
+        "terminal-predecessor-v1": terminal_cash_predecessor_diagnostic_v1,
     }
     spec = specs[arguments.pilot]()
     receipt = run_numerical_pilot(
@@ -1392,5 +1440,6 @@ __all__ = [
     "project_publication_numerical_pilot_v3",
     "run_numerical_pilot",
     "terminal_cash_polynomial_degree_diagnostic_v1",
+    "terminal_cash_predecessor_diagnostic_v1",
     "write_numerical_pilot_receipt",
 ]

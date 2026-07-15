@@ -53,7 +53,10 @@ the single-dimension v2 extension are recorded in
 [ADR 0039](docs/adr/0039-terminal-cash-mesh-pilot-v2.md). Neither contains a market price target or
 legacy ranking. V2's retained high-volatility path-drift miss and the v3 path extension are in
 [ADR 0040](docs/adr/0040-high-volatility-path-pilot-v3.md). A passing pilot is not an empirical
-conclusion.
+conclusion. The stable terminal-cash policy bias across all supported global polynomial degrees and
+the frozen explicit-predecessor diagnostic are recorded in
+[ADR 0041](docs/adr/0041-terminal-cash-policy-diagnostic.md) and
+[ADR 0042](docs/adr/0042-explicit-terminal-cash-predecessor-diagnostic.md).
 
 The first production data boundary is intentionally small:
 

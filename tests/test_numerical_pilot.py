@@ -24,6 +24,7 @@ from discrete_dividend_study.numerical_pilot import (
     project_publication_numerical_pilot_v3,
     run_numerical_pilot,
     terminal_cash_polynomial_degree_diagnostic_v1,
+    terminal_cash_predecessor_diagnostic_v1,
     write_numerical_pilot_receipt,
 )
 
@@ -157,6 +158,27 @@ def test_terminal_degree_diagnostic_preserves_v3_paths_schedule_and_case_domain(
         terminal_cash_polynomial_degree_diagnostic_v1(5)
 
 
+def test_terminal_predecessor_diagnostic_changes_only_the_exercise_domain() -> None:
+    """The policy diagnostic keeps degree-four paths and makes one schedule change."""
+    degree_four = terminal_cash_polynomial_degree_diagnostic_v1(4)
+    diagnostic = terminal_cash_predecessor_diagnostic_v1()
+    assert diagnostic == replace(
+        degree_four,
+        name="terminal-cash-predecessor-diagnostic-v1",
+        cases=(
+            replace(
+                degree_four.cases[0],
+                exercise_domain=numerical_pilot.PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
+            ),
+        ),
+    )
+    assert (
+        numerical_pilot_spec_sha256(diagnostic)
+        == "f4700ffe31903ff810b2e773efe286b2f2850e6ec316ac469b471a57480e494d"
+    )
+    assert numerical_pilot_spec_sha256(diagnostic) != numerical_pilot_spec_sha256(degree_four)
+
+
 def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:
     """A theorem-specialized case cannot silently enter a terminal-cash approximation."""
     case = project_publication_numerical_pilot_v1().cases[0]
@@ -164,6 +186,16 @@ def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:
         replace(
             case,
             cash_dividends=(PilotCashDividend(time=case.maturity, amount=1.0),),
+        )
+
+
+def test_terminal_predecessor_domain_requires_terminal_cash() -> None:
+    """The terminal specialization cannot be selected for a merely pre-expiry schedule."""
+    case = project_publication_numerical_pilot_v1().cases[0]
+    with pytest.raises(NumericalPilotValueError, match="final event exactly at maturity"):
+        replace(
+            case,
+            exercise_domain=numerical_pilot.PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
         )
 
 
@@ -184,6 +216,17 @@ def test_schedule_builders_preserve_specialized_and_general_event_order() -> Non
     assert general.times == (0.0, 0.25, 0.5, 0.75, 1.0)
     assert general.exercise_nodes == (0, 1, 2, 3)
     assert general.dividends[0].node == general.expiry_node
+
+    predecessor = numerical_pilot._event_schedule(  # noqa: SLF001 - exact diagnostic identity
+        replace(
+            terminal,
+            exercise_domain=numerical_pilot.PilotExerciseDomain.TERMINAL_CASH_PREDECESSOR,
+        ),
+        base_intervals=4,
+    )
+    assert predecessor.times == general.times
+    assert predecessor.dividends == general.dividends
+    assert predecessor.exercise_nodes == (3,)
 
 
 def test_small_pilot_retains_all_levels_replications_and_random_identities() -> None:
