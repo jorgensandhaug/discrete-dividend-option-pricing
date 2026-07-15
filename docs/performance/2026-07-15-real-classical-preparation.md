@@ -46,3 +46,11 @@ The exact prepared identities are
 `ca274e8e0737abd8803f9a13b0866ad9a55c5239fa1abbd04fede45a0737b521` for grouped addressing.
 These are local engineering measurements under warm filesystem state, not pricing-throughput or
 empirical-result claims.
+
+## Supersession note
+
+This preparation checkpoint predates the recovered submitted estimator's explicit sparse-support
+policy. Its strict-policy study and prepared-input hashes remain valid historical identities, but
+they are not the reconstruction identity used for pricing. The scalar/event bytes and cohort counts
+did not change. The complete explicitly identified run is recorded in
+[the full classical reconstruction checkpoint](2026-07-15-full-classical-reconstruction.md).
