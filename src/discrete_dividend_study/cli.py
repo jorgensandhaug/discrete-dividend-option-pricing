@@ -120,7 +120,17 @@ from .project_feature_artifact import (
 from .publication_artifact import run_or_load_publication_cash_replication
 from .publication_exercise import prepare_publication_exercise_schedules
 from .publication_groups import prepare_publication_partitions, publication_partitions_sha256
-from .publication_inference_artifact import run_or_load_publication_empirical_inference
+from .publication_inference_artifact import (
+    load_publication_inference_artifact,
+    run_or_load_publication_empirical_inference,
+)
+from .publication_inference_tables import (
+    build_publication_inference_tables,
+    publication_primary_contrast_latex,
+    publication_primary_contrast_markdown,
+    publication_primary_model_latex,
+    publication_primary_model_markdown,
+)
 from .publication_result_artifact import (
     load_publication_study_result_artifact,
     run_or_load_publication_study_result,
@@ -251,9 +261,30 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "materialize-project-features": _materialize_project_features,
         "materialize-project-experiment-features": (_materialize_project_experiment_features),
         "render-classical-table": _render_classical_table,
+        "render-publication-inference-table": _render_publication_inference_table,
     }
     handler = handlers.get(arguments.command)
     return None if handler is None else handler(arguments)
+
+
+def _render_publication_inference_table(arguments: argparse.Namespace) -> int:
+    """Render one verified aggregate-only inference artifact without licensed rows."""
+    loaded = load_publication_inference_artifact(
+        _required_path(arguments.artifact, field="artifact", kind="file")
+    )
+    tables = build_publication_inference_tables(loaded)
+    renderers = {
+        ("primary-models", "markdown"): publication_primary_model_markdown,
+        ("primary-models", "latex"): publication_primary_model_latex,
+        ("primary-contrasts", "markdown"): publication_primary_contrast_markdown,
+        ("primary-contrasts", "latex"): publication_primary_contrast_latex,
+    }
+    try:
+        renderer = renderers[(arguments.table, arguments.format)]
+    except KeyError as error:  # pragma: no cover - argparse owns the closed product
+        raise StudyCliError(reason="unsupported inference table renderer") from error
+    sys.stdout.write(renderer(tables))
+    return 0
 
 
 def _materialize_fed_nominal_curve(arguments: argparse.Namespace) -> int:
@@ -1238,6 +1269,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     table.add_argument("--artifact", type=Path, required=True)
     table.add_argument("--format", choices=("latex", "markdown"), required=True)
+    inference_table = commands.add_parser(
+        "render-publication-inference-table",
+        help="render verified primary empirical inference as an aggregate-only paper table",
+    )
+    inference_table.add_argument("--artifact", type=Path, required=True)
+    inference_table.add_argument(
+        "--table",
+        choices=("primary-models", "primary-contrasts"),
+        required=True,
+    )
+    inference_table.add_argument("--format", choices=("latex", "markdown"), required=True)
     return parser
 
 
