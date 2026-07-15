@@ -117,6 +117,13 @@ from .project_feature_artifact import (
     materialize_project_feature_artifact,
 )
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
+from .study_features import (
+    StudyFeatureArtifactError,
+    StudyFeatureArtifactKind,
+    VerifiedStudyFeatureArtifact,
+    load_verified_study_feature_artifact,
+    verify_study_feature_artifact_unchanged,
+)
 from .underlying_history import UNDERLYING_HISTORY_DTYPES
 
 if TYPE_CHECKING:
@@ -147,7 +154,7 @@ class StudyCliError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class _StudyCliContext:
-    feature_artifact: Path
+    feature_artifact: VerifiedStudyFeatureArtifact
     artifact_root: Path
     paper_root: Path
     paper_revision: str
@@ -160,7 +167,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     data_result = _run_data_command(arguments)
     if data_result is not None:
         return data_result
-    feature_artifact = _required_path(arguments.features, field="features", kind="file")
+    try:
+        feature_artifact = load_verified_study_feature_artifact(
+            arguments.features,
+            StudyFeatureArtifactKind(arguments.feature_artifact_kind),
+        )
+    except (StudyFeatureArtifactError, ValueError) as error:
+        raise StudyCliError(reason=str(error)) from error
     artifact_root = _required_path(arguments.artifacts, field="artifacts", kind="directory")
     paper_root = Path(__file__).resolve().parents[2]
     engine_root = paper_root.parent / _ENGINE_REPOSITORY_NAME
@@ -828,7 +841,7 @@ def _run_classical_study(
         context.engine_revision,
     )
     try:
-        source_frame = pl.scan_parquet(context.feature_artifact, rechunk=False)
+        source_frame = context.feature_artifact.scan()
         if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS:
             frame = source_frame.select(study.input_columns()).collect()
         else:
@@ -837,6 +850,10 @@ def _run_classical_study(
         raise StudyCliError(
             reason=f"cannot materialize classical input columns: {error}"
         ) from error
+    try:
+        verify_study_feature_artifact_unchanged(context.feature_artifact)
+    except StudyFeatureArtifactError as error:
+        raise StudyCliError(reason=str(error)) from error
     resolved_after_scan = resolve_study_source_identity(
         context.feature_artifact,
         context.paper_root / "uv.lock",
@@ -906,6 +923,11 @@ def _parser() -> argparse.ArgumentParser:
         help="run or exactly resume the complete five-model rolling neural study",
     )
     neural.add_argument("--features", type=Path, required=True)
+    neural.add_argument(
+        "--feature-artifact-kind",
+        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
+        required=True,
+    )
     neural.add_argument("--artifacts", type=Path, required=True)
     neural.add_argument(
         "--profile",
@@ -920,6 +942,11 @@ def _parser() -> argparse.ArgumentParser:
         help="run the complete paired four-baseline classical reconstruction",
     )
     classical.add_argument("--features", type=Path, required=True)
+    classical.add_argument(
+        "--feature-artifact-kind",
+        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
+        required=True,
+    )
     classical.add_argument("--artifacts", type=Path, required=True)
     classical.add_argument("--threads", type=_positive_int, required=True)
     classical.add_argument(

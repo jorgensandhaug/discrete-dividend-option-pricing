@@ -599,6 +599,13 @@ from .schema import (
     forbid_columns,
     require_columns,
 )
+from .study_features import (
+    StudyFeatureArtifactError,
+    StudyFeatureArtifactKind,
+    VerifiedStudyFeatureArtifact,
+    load_verified_study_feature_artifact,
+    verify_study_feature_artifact_unchanged,
+)
 from .tabpfn_inputs import (
     PROJECT_TABPFN_BINNED_INPUT_SPEC,
     PreparedTabPfnBatch,
@@ -1001,6 +1008,8 @@ __all__ = [
     "RollingWindowSchemaError",
     "RollingWindowSpec",
     "RollingWindowSpecError",
+    "StudyFeatureArtifactError",
+    "StudyFeatureArtifactKind",
     "StudySourceIdentity",
     "SubmittedClassicalReference",
     "TabPfnBinnedInputSpec",
@@ -1018,6 +1027,7 @@ __all__ = [
     "VerifiedOratsOptionCompaction",
     "VerifiedOratsOptionProjectionSet",
     "VerifiedPinnedParquet",
+    "VerifiedStudyFeatureArtifact",
     "__version__",
     "adapt_long_form_option_quotes",
     "adapt_orats_curve",
@@ -1081,6 +1091,7 @@ __all__ = [
     "load_verified_orats_option_projection_set",
     "load_verified_project_experiment_artifact",
     "load_verified_project_feature_artifact",
+    "load_verified_study_feature_artifact",
     "materialize_federal_reserve_curve",
     "materialize_historical_dividend_projection",
     "materialize_orats_dividend_projection",
@@ -1152,6 +1163,7 @@ __all__ = [
     "verify_orats_option_compaction_unchanged",
     "verify_pinned_parquet",
     "verify_pinned_parquet_unchanged",
+    "verify_study_feature_artifact_unchanged",
     "write_classical_grouped_study_artifact",
     "write_classical_study_artifact",
     "write_neural_checkpoint",

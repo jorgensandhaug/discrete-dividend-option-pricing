@@ -357,8 +357,9 @@ runtime, parameters, and complete metric history; pickle and mutable “latest�
 read-only model tensors. `run_neural_window` then trains the explicitly profiled backend, performs
 bounded fixed-batch inference, computes the submitted pooled MAPE/RMSE and diagnostic metrics, and
 emits cross-referenced checkpoint, prediction, and canonical JSON run artifacts. Source identity is
-resolved only from caller-supplied feature and lock files plus full Git commits; no production path
-searches for “latest”, clips an invalid prediction, changes backend, or skips a failed window.
+resolved only from an explicitly typed, receipt-verified feature artifact, the caller-supplied lock
+file, and full Git commits; no production path searches for “latest”, clips an invalid prediction,
+changes backend, or skips a failed window.
 
 `prepare_project_neural_rolling_source` is the production whole-study boundary. It collects the
 minimal full horizon once, prepares each distinct model representation once, and exposes every
@@ -380,7 +381,8 @@ classical comparison has one explicit entry point:
 
 ```shell
 uv run --locked discrete-dividend-study run-classical-study \
-  --features /absolute/path/project-features.parquet \
+  --features /absolute/path/project_experiment_features.parquet \
+  --feature-artifact-kind project-experiment \
   --artifacts /absolute/path/immutable-run-artifacts \
   --threads 8 \
   --math-backend apple_accelerate \
@@ -392,8 +394,12 @@ uv run --locked discrete-dividend-study run-classical-study \
   --event-buffer-policy allow_rechunk
 ```
 
-The command lazily projects and orders only the required classical columns, then proves that every
-`(ticker, quote_date, expiry_date)` group has one exact simulated state and unique strikes before
+The command first verifies the detached producer receipt, true schema identity, bytes, and aggregate
+coverage, then lazily projects and orders only the required classical columns. The artifact kind is
+mandatory: `project-experiment` selects the 19-column mixed-source artifact and `project-full`
+selects the 42-column canonical artifact. Kinds are never inferred and a failed loader never falls
+through to the other contract. The command then proves that every `(ticker, quote_date,
+expiry_date)` group has one exact simulated state and unique strikes before
 entering the native engine. It verifies that the feature artifact and dependency lock did not
 change during preparation, and prints only aggregate metrics plus the verified content-addressed
 artifact identity. Use the explicit `contract_rows` addressing only for the independent-path audit
@@ -417,7 +423,8 @@ The complete private-data neural run remains a separate explicit command:
 
 ```shell
 uv run --locked discrete-dividend-study run-neural-study \
-  --features /absolute/path/project-features.parquet \
+  --features /absolute/path/project_experiment_features.parquet \
+  --feature-artifact-kind project-experiment \
   --artifacts /absolute/path/immutable-run-artifacts \
   --profile apple-silicon \
   --data-threads 8 \
@@ -425,5 +432,7 @@ uv run --locked discrete-dividend-study run-neural-study \
   --shuffle-root-seed 2026071402
 ```
 
-There is no automatic profile, seed, thread count, source discovery, dirty-checkout allowance, or
-resume wildcard. The portable profile must be requested explicitly as `portable-cpu`.
+There is no automatic profile, seed, thread count, artifact-kind inference, source discovery,
+dirty-checkout allowance, or resume wildcard. Parquet and receipt are rehashed after preparation;
+either changing before execution is fatal. The portable profile must be requested explicitly as
+`portable-cpu`. [ADR 0035](docs/adr/0035-verified-study-feature-boundary.md) records this boundary.

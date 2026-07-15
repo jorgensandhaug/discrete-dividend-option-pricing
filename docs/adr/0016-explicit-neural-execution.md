@@ -9,7 +9,7 @@ request is validated before model construction and fails if its exact package ve
 unavailable. The repository's portable uv environment pins PyTorch to its explicit CPU-only index,
 so the locked Linux workflow never acquires an unused CUDA stack. MLX remains a separate opt-in
 extra and uses its explicit CPU distribution on Linux. The measured Apple-silicon profile uses
-eager one-thread PyTorch CPU for the four-step LSTM and event-attention models, and compiled MLX GPU
+eager one-thread PyTorch CPU for the five-slot LSTM and event-attention models, and compiled MLX GPU
 for the binned and two scalar-yield variants. A cold 100,000-row inference sweep selected an
 explicit physical batch of 8,192 for every variant: against 128, throughput improved from roughly
 328k to 779k rows/s for LSTM, 455k to 1.09m for event attention, and 0.30-0.38m to 2.19-2.28m for the

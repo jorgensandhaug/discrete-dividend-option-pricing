@@ -689,7 +689,7 @@ _BASE_SCALAR_COLUMNS: Final = (
 )
 _TARGET_COLUMN: Final = "call_mid_price"
 _PROJECT_SEQUENCE_LAYOUT: Final = PaddedSequenceSpec(
-    capacity=4,
+    capacity=5,
     maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
     amount_scale=CashAmountScale.DIVIDE_BY_SPOT,
 )

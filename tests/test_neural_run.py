@@ -6,7 +6,7 @@ import hashlib
 import runpy
 from dataclasses import replace
 from datetime import date
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pytest
@@ -24,6 +24,10 @@ from discrete_dividend_study.neural_run import (
 from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
 from discrete_dividend_study.neural_window import PreparedNeuralWindow
 from discrete_dividend_study.rolling_windows import RollingWindow
+from discrete_dividend_study.study_features import (
+    StudyFeatureArtifactKind,
+    VerifiedStudyFeatureArtifact,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -119,23 +123,39 @@ def test_present_receipt_with_missing_result_fails_without_retraining(
         run_neural_window(request, tmp_path)
 
 
-def test_source_identity_hashes_only_explicit_regular_files(tmp_path: Path) -> None:
-    """Feature and lock paths resolve to bytes, while local paths stay out of the manifest."""
+def test_source_identity_uses_verified_artifact_receipt_and_explicit_lock(tmp_path: Path) -> None:
+    """The verified output and schema identities bind the run without serializing local paths."""
     feature = tmp_path / "features.parquet"
+    receipt = tmp_path / "features.parquet.receipt.json"
     lock = tmp_path / "uv.lock"
     feature.write_bytes(b"licensed-feature-fixture")
+    receipt.write_bytes(b"verified-receipt-fixture")
     lock.write_bytes(b"locked-dependencies")
+    artifact = VerifiedStudyFeatureArtifact(
+        kind=StudyFeatureArtifactKind.PROJECT_EXPERIMENT,
+        path=feature,
+        receipt_path=receipt,
+        request_sha256="1" * 64,
+        pipeline_sha256="2" * 64,
+        feature_schema_sha256="3" * 64,
+        output_sha256=hashlib.sha256(feature.read_bytes()).hexdigest(),
+        receipt_sha256=hashlib.sha256(receipt.read_bytes()).hexdigest(),
+        output_rows=1,
+        output_bytes=feature.stat().st_size,
+        receipt_bytes=receipt.stat().st_size,
+    )
     observed = resolve_study_source_identity(
-        feature,
+        artifact,
         lock,
         SOURCE.paper_revision,
         SOURCE.engine_revision,
     )
-    assert observed.feature_artifact_sha256 == hashlib.sha256(feature.read_bytes()).hexdigest()
+    assert observed.feature_artifact_sha256 == artifact.output_sha256
+    assert observed.feature_schema_sha256 == artifact.feature_schema_sha256
     assert observed.dependency_lock_sha256 == hashlib.sha256(lock.read_bytes()).hexdigest()
-    with pytest.raises(NeuralRunError, match="regular non-symlink"):
+    with pytest.raises(NeuralRunError, match="VerifiedStudyFeatureArtifact"):
         resolve_study_source_identity(
-            tmp_path / "missing.parquet",
+            cast("Any", feature),
             lock,
             SOURCE.paper_revision,
             SOURCE.engine_revision,

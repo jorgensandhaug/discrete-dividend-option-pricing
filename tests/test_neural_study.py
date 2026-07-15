@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import runpy
 from dataclasses import replace
 from datetime import date
@@ -23,6 +24,10 @@ from discrete_dividend_study.neural_study import (
     run_project_neural_rolling_study,
 )
 from discrete_dividend_study.rolling_windows import RollingWindow
+from discrete_dividend_study.study_features import (
+    StudyFeatureArtifactKind,
+    VerifiedStudyFeatureArtifact,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -55,8 +60,10 @@ def _study_frame() -> pl.DataFrame:
 
 def _request(tmp_path: Path) -> NeuralRollingStudyRequest:
     feature = tmp_path / "licensed-features.parquet"
+    receipt = tmp_path / "licensed-features.parquet.receipt.json"
     lock = tmp_path / "uv.lock"
     _study_frame().write_parquet(feature)
+    receipt.write_bytes(b"verified-neural-study-fixture")
     lock.write_text("version = 1\n", encoding="utf-8")
     training = replace(
         PROJECT_NEURAL_STUDY_SPEC.training,
@@ -65,7 +72,19 @@ def _request(tmp_path: Path) -> NeuralRollingStudyRequest:
         early_stopping_patience_epochs=1,
     )
     return NeuralRollingStudyRequest(
-        feature_artifact=feature,
+        feature_artifact=VerifiedStudyFeatureArtifact(
+            kind=StudyFeatureArtifactKind.PROJECT_EXPERIMENT,
+            path=feature,
+            receipt_path=receipt,
+            request_sha256="1" * 64,
+            pipeline_sha256="2" * 64,
+            feature_schema_sha256="3" * 64,
+            output_sha256=hashlib.sha256(feature.read_bytes()).hexdigest(),
+            receipt_sha256=hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            output_rows=_study_frame().height,
+            output_bytes=feature.stat().st_size,
+            receipt_bytes=receipt.stat().st_size,
+        ),
         dependency_lock=lock,
         paper_revision="a" * 40,
         engine_revision="b" * 40,
@@ -113,7 +132,7 @@ def test_complete_study_runs_resumes_pools_and_round_trips(
     assert all(result.completed_windows == 1 for result in first.study.manifest.model_results)
     assert all(result.metrics.observations == 1 for result in first.study.manifest.model_results)
     assert load_neural_rolling_study(first.study.path) == first.study
-    assert str(request.feature_artifact).encode() not in first.study.path.read_bytes()
+    assert str(request.feature_artifact.path).encode() not in first.study.path.read_bytes()
 
     def unexpected_training(*_args: object, **_kwargs: object) -> None:
         raise AssertionError
@@ -145,3 +164,21 @@ def test_tampered_complete_study_fails_by_content_address(tmp_path: Path) -> Non
     result.study.path.write_bytes(result.study.path.read_bytes() + b"tampered")
     with pytest.raises(NeuralStudyRunError, match="filename hash"):
         load_neural_rolling_study(result.study.path)
+
+
+def test_feature_receipt_mutation_after_verification_fails_before_execution(
+    tmp_path: Path,
+) -> None:
+    """A changed receipt cannot pass preparation into runtime preflight or training."""
+    request = _request(tmp_path)
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    request.feature_artifact.receipt_path.write_bytes(
+        request.feature_artifact.receipt_path.read_bytes() + b"tampered"
+    )
+    with pytest.raises(NeuralStudyRunError, match="feature receipt byte count changed"):
+        run_project_neural_rolling_study(
+            request,
+            artifact_root,
+            CpuExecutor(threads=1),
+        )

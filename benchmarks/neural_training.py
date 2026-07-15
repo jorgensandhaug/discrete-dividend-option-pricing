@@ -48,7 +48,6 @@ Array = npt.NDArray[np.generic]
 
 PARAMETER_SEED: Final = 20_261_209
 SHUFFLE_SEED: Final = 20_261_210
-EVENT_CAPACITY: Final = 4
 BIN_COUNT: Final = 12
 _POSITIVE_ARGUMENTS_ERROR: Final = "rows, epochs, and threads must be positive"
 _VARIANT_TYPE_ERROR: Final = "variant must be NeuralVariant"
@@ -208,12 +207,13 @@ def _synthetic_dividends(
         type(dividend_input) is DirectDividendLstmInput
         or type(dividend_input) is EventAttentionInput
     ):
-        lengths = np.ascontiguousarray(np.arange(rows) % (EVENT_CAPACITY + 1), dtype=np.uint32)
-        times = np.zeros((rows, EVENT_CAPACITY), dtype=np.float32)
-        amounts = np.zeros((rows, EVENT_CAPACITY), dtype=np.float32)
-        mask = np.zeros((rows, EVENT_CAPACITY), dtype=np.bool_)
+        capacity = dividend_input.layout.capacity
+        lengths = np.ascontiguousarray(np.arange(rows) % (capacity + 1), dtype=np.uint32)
+        times = np.zeros((rows, capacity), dtype=np.float32)
+        amounts = np.zeros((rows, capacity), dtype=np.float32)
+        mask = np.zeros((rows, capacity), dtype=np.bool_)
         denominator = lengths.astype(np.float32) + np.float32(1.0)
-        for event in range(EVENT_CAPACITY):
+        for event in range(capacity):
             active = lengths > event
             mask[:, event] = active
             times[:, event] = np.where(

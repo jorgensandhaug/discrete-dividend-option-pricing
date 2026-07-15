@@ -12,8 +12,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
-import polars as pl
-
 from .neural_execution import NeuralExecutionProfile, require_neural_runtime
 from .neural_rolling import (
     PROJECT_NEURAL_ROLLING_PREPARATION_SPEC,
@@ -36,6 +34,11 @@ from .project_metrics import (
     aggregate_project_pricing_metrics,
 )
 from .rolling_windows import RollingWindow
+from .study_features import (
+    StudyFeatureArtifactError,
+    VerifiedStudyFeatureArtifact,
+    verify_study_feature_artifact_unchanged,
+)
 
 if TYPE_CHECKING:
     from finoptions import CpuExecutor
@@ -131,7 +134,7 @@ def derive_neural_window_seed(
 class NeuralRollingStudyRequest:
     """Explicit licensed source, code identity, schedule, study, runtime, and seed request."""
 
-    feature_artifact: Path
+    feature_artifact: VerifiedStudyFeatureArtifact
     dependency_lock: Path
     paper_revision: str
     engine_revision: str
@@ -143,12 +146,12 @@ class NeuralRollingStudyRequest:
 
     def __post_init__(self) -> None:
         """Reject untyped high-level inputs before reading licensed data."""
-        for field, value in (
-            ("feature_artifact", self.feature_artifact),
-            ("dependency_lock", self.dependency_lock),
-        ):
-            if not isinstance(value, Path):
-                raise NeuralStudyRunError(reason=f"{field} must be pathlib.Path")
+        if type(self.feature_artifact) is not VerifiedStudyFeatureArtifact:
+            raise NeuralStudyRunError(
+                reason="feature_artifact must be VerifiedStudyFeatureArtifact"
+            )
+        if not isinstance(self.dependency_lock, Path):
+            raise NeuralStudyRunError(reason="dependency_lock must be pathlib.Path")
         if type(self.paper_revision) is not str or type(self.engine_revision) is not str:
             raise NeuralStudyRunError(reason="Git revisions must be plain strings")
         if (
@@ -285,12 +288,16 @@ def run_project_neural_rolling_study(
         request.engine_revision,
     )
     prepared_source = prepare_project_neural_rolling_source(
-        pl.scan_parquet(request.feature_artifact),
+        request.feature_artifact.scan(),
         request.windows,
         request.study,
         executor,
         request.preparation,
     )
+    try:
+        verify_study_feature_artifact_unchanged(request.feature_artifact)
+    except StudyFeatureArtifactError as error:
+        raise NeuralStudyRunError(reason=str(error)) from error
     resolved_after_scan = resolve_study_source_identity(
         request.feature_artifact,
         request.dependency_lock,

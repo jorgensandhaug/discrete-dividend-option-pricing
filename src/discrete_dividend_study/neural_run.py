@@ -52,7 +52,7 @@ from .neural_spec import (
 from .neural_training import NeuralTrainingRequest, NeuralTrainingSummary
 from .neural_window import PreparedNeuralWindow
 from .project_metrics import ProjectMetricError, ProjectPricingMetrics
-from .project_pipeline import project_feature_schema_sha256
+from .study_features import VerifiedStudyFeatureArtifact
 
 if TYPE_CHECKING:
     from .model_inputs import Float32Vector
@@ -321,18 +321,17 @@ class NeuralWindowRunResult:
 
 
 def resolve_study_source_identity(
-    feature_artifact: Path,
+    feature_artifact: VerifiedStudyFeatureArtifact,
     dependency_lock: Path,
     paper_revision: str,
     engine_revision: str,
 ) -> StudySourceIdentity:
-    """Resolve explicit immutable files and full revisions without searching for current state."""
+    """Bind a verified feature receipt, dependency lock, and explicit full revisions."""
+    if type(feature_artifact) is not VerifiedStudyFeatureArtifact:
+        raise NeuralRunError(reason="feature_artifact must be VerifiedStudyFeatureArtifact")
     return StudySourceIdentity(
-        feature_artifact_sha256=_source_file_sha256(
-            feature_artifact,
-            field="feature_artifact",
-        ),
-        feature_schema_sha256=project_feature_schema_sha256(),
+        feature_artifact_sha256=feature_artifact.output_sha256,
+        feature_schema_sha256=feature_artifact.feature_schema_sha256,
         paper_revision=paper_revision,
         engine_revision=engine_revision,
         dependency_lock_sha256=_source_file_sha256(

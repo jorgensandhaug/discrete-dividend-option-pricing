@@ -53,7 +53,7 @@ from discrete_dividend_study.torch_neural import (
 )
 
 ROWS: Final = 8
-CAPACITY: Final = 4
+CAPACITY: Final = 5
 SEED: Final = 20261207
 FORWARD_TOLERANCE: Final = 2e-6
 GRADIENT_TOLERANCE: Final = 2e-4
@@ -263,7 +263,7 @@ def _prepared_batch(variant: NeuralVariant) -> PreparedNeuralBatch:
 def _padded_dividends(
     maturities: np.ndarray[tuple[int], np.dtype[np.float32]],
 ) -> PaddedCashDividends:
-    lengths = np.array([0, 1, 2, 3, 4, 1, 4, 2], dtype=np.uint32)
+    lengths = np.array([0, 1, 2, 3, 4, 5, 1, 2], dtype=np.uint32)
     mask = np.arange(CAPACITY, dtype=np.uint32)[None, :] < lengths[:, None]
     times = np.zeros((ROWS, CAPACITY), dtype=np.float32)
     amounts = np.zeros((ROWS, CAPACITY), dtype=np.float32)

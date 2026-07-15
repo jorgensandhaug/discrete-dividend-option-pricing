@@ -110,9 +110,9 @@ def test_scalar_feature_order_and_canonical_padded_events(executor: CpuExecutor)
         batch.dividends.mask,
         np.array(
             [
-                [True, True, False, False],
-                [False, False, False, False],
-                [True, True, True, False],
+                [True, True, False, False, False],
+                [False, False, False, False, False],
+                [True, True, True, False, False],
             ],
         ),
     )
@@ -120,9 +120,9 @@ def test_scalar_feature_order_and_canonical_padded_events(executor: CpuExecutor)
         batch.dividends.times,
         np.array(
             [
-                [0.25, 0.5, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.25, 0.5, 0.75, 0.0],
+                [0.25, 0.5, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.25, 0.5, 0.75, 0.0, 0.0],
             ],
             dtype=np.float32,
         ),
@@ -131,9 +131,9 @@ def test_scalar_feature_order_and_canonical_padded_events(executor: CpuExecutor)
         batch.dividends.amounts,
         np.array(
             [
-                [0.01, 0.02, 0.0, 0.0],
-                [0.0, 0.0, 0.0, 0.0],
-                [0.01, 0.02, 0.03, 0.0],
+                [0.01, 0.02, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.01, 0.02, 0.03, 0.0, 0.0],
             ],
             dtype=np.float32,
         ),
