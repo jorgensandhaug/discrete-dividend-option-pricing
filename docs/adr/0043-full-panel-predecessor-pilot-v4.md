@@ -1,6 +1,6 @@
 # ADR 0043: Apply the passing terminal predecessor domain to the full pilot
 
-- Status: accepted for pilot execution
+- Status: accepted; full pilot passed
 - Date: 2026-07-15
 
 ## Context
@@ -33,3 +33,17 @@ The complete specification SHA-256 is
 execution. Run it with four threads and portable Rust `f64`; retain the non-overwriting receipt
 whether it passes or fails. A pass validates the synthetic numerical panel, not an empirical model
 ranking and not a real-data calendar mapping.
+
+## Outcome
+
+V4 passed all 61 predeclared gates across all eight cases in `139.202` seconds. Every finest LSM
+replication mean remained inside its deterministic-reference envelope. The largest absolute gap was
+`0.1175221163` for the long/high-volatility case against a `0.2197902107` limit; the corrected
+terminal-cash gap was `0.0304441281` against `0.1144318415`.
+
+The retained receipt SHA-256 is
+`7a625cdb1fdc39f97db8162625ac17f8d1e09a02401e3f178c3ddec59937d6f2`. Complete case values and
+execution identity are recorded in
+[`../performance/2026-07-15-target-free-pilot-v4.md`](../performance/2026-07-15-target-free-pilot-v4.md).
+This is the first passing complete synthetic numerical baseline. It does not establish empirical
+accuracy, model ranking, or publication inference.
