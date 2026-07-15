@@ -20,6 +20,7 @@ from discrete_dividend_study.numerical_pilot import (
     QuadraturePilotLevel,
     numerical_pilot_spec_sha256,
     project_publication_numerical_pilot_v1,
+    project_publication_numerical_pilot_v2,
     run_numerical_pilot,
     write_numerical_pilot_receipt,
 )
@@ -75,9 +76,26 @@ def test_project_pilot_is_target_free_and_hashes_every_declared_sequence() -> No
     assert "market_price" not in payload
     identity = numerical_pilot_spec_sha256(declared)
     assert len(identity) == _SHA256_LENGTH
+    assert identity == "e8680f30b61c68b170ec5080f8bbc98aac1a9571f17b612a187ecc075feff2fa"
     assert identity != numerical_pilot_spec_sha256(
         replace(declared, general_mesh_intervals=(*declared.general_mesh_intervals, 256))
     )
+
+
+def test_v2_changes_only_the_failed_general_mesh_dimension() -> None:
+    """V2 retains every v1 identity except its name and appended 256-interval mesh."""
+    v1 = project_publication_numerical_pilot_v1()
+    v2 = project_publication_numerical_pilot_v2()
+    assert v2 == replace(
+        v1,
+        name="project-publication-target-free-v2",
+        general_mesh_intervals=(*v1.general_mesh_intervals, 256),
+    )
+    assert (
+        numerical_pilot_spec_sha256(v2)
+        == "4f04f0530dcb1df484492ed9ae56ea658dc18811c8d50d06513ad1e1be71fc73"
+    )
+    assert numerical_pilot_spec_sha256(v2) != numerical_pilot_spec_sha256(v1)
 
 
 def test_cash_event_theorem_domain_rejects_terminal_cash() -> None:

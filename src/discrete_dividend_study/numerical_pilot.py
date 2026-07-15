@@ -13,7 +13,7 @@ import statistics
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import pairwise
@@ -662,6 +662,15 @@ def project_publication_numerical_pilot_v1() -> NumericalPilotSpec:
     )
 
 
+def project_publication_numerical_pilot_v2() -> NumericalPilotSpec:
+    """Append one general-mesh level after the retained v1 terminal-cash miss."""
+    return replace(
+        project_publication_numerical_pilot_v1(),
+        name="project-publication-target-free-v2",
+        general_mesh_intervals=(16, 32, 64, 128, 256),
+    )
+
+
 def numerical_pilot_spec_sha256(spec: NumericalPilotSpec) -> str:
     """Hash the complete target-free scientific identity."""
     if type(spec) is not NumericalPilotSpec:
@@ -1100,9 +1109,10 @@ def write_numerical_pilot_receipt(path: Path, receipt: NumericalPilotReceipt) ->
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the frozen v1 pilot and return nonzero when any numerical gate fails."""
+    """Run one frozen pilot version and return nonzero when any numerical gate fails."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--pilot", choices=("v1", "v2"), required=True)
     parser.add_argument("--threads", type=int, required=True)
     parser.add_argument(
         "--math-backend",
@@ -1118,8 +1128,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if engine_revision != pinned_engine:
         message = "checked-out engine revision differs from config/engine-revision.txt"
         raise NumericalPilotError(message)
+    spec = (
+        project_publication_numerical_pilot_v1()
+        if arguments.pilot == "v1"
+        else project_publication_numerical_pilot_v2()
+    )
     receipt = run_numerical_pilot(
-        project_publication_numerical_pilot_v1(),
+        spec,
         NumericalPilotExecution(
             threads=arguments.threads,
             math_backend=CpuMathBackend(arguments.math_backend),
@@ -1321,6 +1336,7 @@ __all__ = [
     "numerical_pilot_execution_sha256",
     "numerical_pilot_spec_sha256",
     "project_publication_numerical_pilot_v1",
+    "project_publication_numerical_pilot_v2",
     "run_numerical_pilot",
     "write_numerical_pilot_receipt",
 ]
