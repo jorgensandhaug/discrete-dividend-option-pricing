@@ -14,6 +14,7 @@ from finoptions import (
     CpuMathBackend,
     EscrowedCashDividendBatch,
     EscrowedVolatilityConvention,
+    InsufficientExerciseSupportPolicy,
     MaturityBoundary,
 )
 
@@ -86,11 +87,23 @@ def test_reconstructed_classical_identity_pins_all_four_submitted_names() -> Non
     assert study.estimator.training_paths == _PATHS
     assert study.estimator.evaluation_paths == _PATHS
     assert study.estimator.polynomial_degree == _POLYNOMIAL_DEGREE
+    assert (
+        study.estimator.insufficient_exercise_support is InsufficientExerciseSupportPolicy.CONTINUE
+    )
     assert study.cash_maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert len(classical_study_sha256(study)) == _SHA256_HEX_LENGTH
     assert classical_study_sha256(study) == classical_study_sha256(study)
     assert classical_study_sha256(
         replace(study, cash_maturity_boundary=MaturityBoundary.STRICTLY_BEFORE)
+    ) != classical_study_sha256(study)
+    assert classical_study_sha256(
+        replace(
+            study,
+            estimator=replace(
+                study.estimator,
+                insufficient_exercise_support=InsufficientExerciseSupportPolicy.FAIL,
+            ),
+        )
     ) != classical_study_sha256(study)
 
 
@@ -237,6 +250,7 @@ def test_all_four_prepared_variants_execute_through_the_native_batch_contract() 
         assert variant.metrics.observations == _ROWS
         assert np.isfinite(variant.native.prices).all()
         assert np.all(variant.native.prices >= 0.0)
+        assert not variant.native.insufficient_exercise_support_nodes.flags.writeable
         assert np.array_equal(
             variant.native.early_exercise_paths.astype(np.uint64)
             + variant.native.expiry_paths.astype(np.uint64),

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 _ROWS = 5
 _GROUPS = 2
 _SHA256_HEX_LENGTH = 64
-_ARTIFACT_FORMAT_VERSION = 3
+_ARTIFACT_FORMAT_VERSION = 4
 _SOURCE = StudySourceIdentity(
     feature_artifact_sha256="1" * 64,
     feature_schema_sha256="2" * 64,

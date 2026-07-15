@@ -32,9 +32,11 @@ from .classical_spec import (
     PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
     ClassicalExecutionSpec,
     ClassicalPopulationAddressing,
+    ClassicalSpecValueError,
     ClassicalStudySpec,
     ClassicalVariant,
     ClassicalVariantSpec,
+    _legacy_classical_study_sha256,
     classical_execution_sha256,
     classical_study_sha256,
 )
@@ -50,10 +52,12 @@ UInt32Vector = npt.NDArray[np.uint32]
 BoolVector = npt.NDArray[np.bool_]
 
 _FORMAT_V2: Final = "discrete-dividend-classical-study-artifact-v2"
-_FORMAT: Final = "discrete-dividend-classical-study-artifact-v3"
+_FORMAT_V3: Final = "discrete-dividend-classical-study-artifact-v3"
+_FORMAT: Final = "discrete-dividend-classical-study-artifact-v4"
 _LEGACY_FORMAT_VERSION: Final = 2
-_FORMAT_VERSION: Final = 3
-_SUPPORTED_FORMATS: Final = frozenset({_FORMAT_V2, _FORMAT})
+_GROUPED_FORMAT_VERSION: Final = 3
+_FORMAT_VERSION: Final = 4
+_SUPPORTED_FORMATS: Final = frozenset({_FORMAT_V2, _FORMAT_V3, _FORMAT})
 _PAPER_PACKAGE: Final = "discrete-dividend-option-pricing"
 _METADATA_KEY: Final = "classical_study"
 _ENVELOPE_KEYS: Final = frozenset({"format", "manifest", "metrics"})
@@ -67,6 +71,7 @@ _NATIVE_FIELDS: Final = (
     "origin_exercised",
     "regression_nodes",
     "no_training_support_nodes",
+    "insufficient_exercise_support_nodes",
     "minimum_in_the_money_training_paths",
     "maximum_regression_condition_numbers",
     "early_exercise_paths",
@@ -80,11 +85,15 @@ _NATIVE_DTYPES: Final = {
     "origin_exercised": np.dtype(np.bool_),
     "regression_nodes": np.dtype(np.uint32),
     "no_training_support_nodes": np.dtype(np.uint32),
+    "insufficient_exercise_support_nodes": np.dtype(np.uint32),
     "minimum_in_the_money_training_paths": np.dtype(np.uint32),
     "maximum_regression_condition_numbers": np.dtype(np.float64),
     "early_exercise_paths": np.dtype(np.uint32),
     "expiry_paths": np.dtype(np.uint32),
 }
+_LEGACY_NATIVE_FIELDS: Final = tuple(
+    field for field in _NATIVE_FIELDS if field != "insufficient_exercise_support_nodes"
+)
 
 
 class _HashWriter(Protocol):
@@ -130,9 +139,10 @@ class ClassicalStudyArtifactManifest:
         """Reject incomplete, inconsistent, or unsupported serialized run identity."""
         if type(self.format_version) is not int or self.format_version not in (
             _LEGACY_FORMAT_VERSION,
+            _GROUPED_FORMAT_VERSION,
             _FORMAT_VERSION,
         ):
-            raise ClassicalArtifactError(reason="format_version must be the plain int 2 or 3")
+            raise ClassicalArtifactError(reason="format_version must be the plain int 2, 3, or 4")
         _validate_manifest_hashes(self)
         if type(self.source) is not StudySourceIdentity:
             raise ClassicalArtifactError(reason="source must be StudySourceIdentity")
@@ -392,12 +402,26 @@ def load_classical_study_artifact(
     metadata, tensors = _read_payload(path, study)
     artifact_format = metadata["format"]
     manifest = _decode_manifest(metadata["manifest"], artifact_format=artifact_format)
-    if manifest.study_sha256 != classical_study_sha256(study):
+    try:
+        expected_study_sha256 = (
+            classical_study_sha256(study)
+            if artifact_format == _FORMAT
+            else _legacy_classical_study_sha256(study)
+        )
+    except ClassicalSpecValueError as error:
+        raise ClassicalArtifactError(reason=str(error)) from error
+    if manifest.study_sha256 != expected_study_sha256:
         raise ClassicalArtifactError(reason="artifact and requested study identities differ")
-    if set(tensors) != _expected_tensor_keys(study):
+    if set(tensors) != _expected_tensor_keys(study, artifact_format=artifact_format):
         raise ClassicalArtifactError(reason="artifact tensor keys are missing or unexpected")
     if _tensors_sha256(tensors, artifact_format=artifact_format) != manifest.tensors_sha256:
         raise ClassicalArtifactError(reason="result tensors disagree with the manifest hash")
+    _upgrade_legacy_native_diagnostics(
+        tensors,
+        study=study,
+        artifact_format=artifact_format,
+        observations=manifest.observations,
+    )
     metrics = _decode_metrics(metadata["metrics"], study)
     if _text_sha256(metadata["metrics"]) != manifest.metrics_sha256:
         raise ClassicalArtifactError(reason="metrics disagree with the manifest hash")
@@ -510,6 +534,11 @@ def _loaded_variant(
             field=key("no_training_support_nodes"),
             observations=observations,
         ),
+        insufficient_exercise_support_nodes=_loaded_uint32_vector(
+            tensors[key("insufficient_exercise_support_nodes")],
+            field=key("insufficient_exercise_support_nodes"),
+            observations=observations,
+        ),
         minimum_in_the_money_training_paths=_loaded_uint32_vector(
             tensors[key("minimum_in_the_money_training_paths")],
             field=key("minimum_in_the_money_training_paths"),
@@ -596,7 +625,7 @@ def _read_payload(
     decoded = cast("dict[str, str]", values)
     if decoded["format"] not in _SUPPORTED_FORMATS:
         raise ClassicalArtifactError(reason="artifact format identifier is unsupported")
-    if set(tensors) != _expected_tensor_keys(study):
+    if set(tensors) != _expected_tensor_keys(study, artifact_format=decoded["format"]):
         raise ClassicalArtifactError(reason="artifact tensor keys are missing or unexpected")
     return decoded, tensors
 
@@ -612,6 +641,8 @@ def _decode_manifest(
     values = cast("dict[str, Any]", payload)
     if values.get("format_version") == _LEGACY_FORMAT_VERSION and artifact_format == _FORMAT_V2:
         values["simulation_units"] = values.get("observations")
+    elif values.get("format_version") == _GROUPED_FORMAT_VERSION and artifact_format == _FORMAT_V3:
+        pass
     elif values.get("format_version") != _FORMAT_VERSION or artifact_format != _FORMAT:
         raise ClassicalArtifactError(reason="manifest and artifact format versions disagree")
     _require_exact_keys(values, ClassicalStudyArtifactManifest, field="manifest")
@@ -713,15 +744,38 @@ def _validate_vector(
         raise ClassicalArtifactError(reason=f"{field} must be finite")
 
 
-def _expected_tensor_keys(study: ClassicalStudySpec) -> set[str]:
+def _expected_tensor_keys(
+    study: ClassicalStudySpec,
+    *,
+    artifact_format: str = _FORMAT,
+) -> set[str]:
+    native_fields = _NATIVE_FIELDS if artifact_format == _FORMAT else _LEGACY_NATIVE_FIELDS
     return {
         "target",
         *(
             _tensor_key(variant.variant, field)
             for variant in study.variants
-            for field in _NATIVE_FIELDS
+            for field in native_fields
         ),
     }
+
+
+def _upgrade_legacy_native_diagnostics(
+    tensors: dict[str, np.ndarray],
+    *,
+    study: ClassicalStudySpec,
+    artifact_format: str,
+    observations: int,
+) -> None:
+    if artifact_format == _FORMAT:
+        return
+    for variant in study.variants:
+        key = _tensor_key(variant.variant, "insufficient_exercise_support_nodes")
+        if key in tensors:
+            raise ClassicalArtifactError(
+                reason="legacy artifact unexpectedly contains sparse-support diagnostics"
+            )
+        tensors[key] = np.zeros(observations, dtype=np.uint32)
 
 
 def _tensor_key(variant: ClassicalVariant, field: str) -> str:
@@ -747,7 +801,11 @@ def _tensors_sha256(
 
 
 def _request_sha256_from_manifest(manifest: ClassicalStudyArtifactManifest) -> str:
-    artifact_format = _FORMAT_V2 if manifest.format_version == _LEGACY_FORMAT_VERSION else _FORMAT
+    artifact_format = {
+        _LEGACY_FORMAT_VERSION: _FORMAT_V2,
+        _GROUPED_FORMAT_VERSION: _FORMAT_V3,
+        _FORMAT_VERSION: _FORMAT,
+    }[manifest.format_version]
     payload: dict[str, object] = {
         "source": asdict(manifest.source),
         "study_sha256": manifest.study_sha256,
@@ -764,7 +822,7 @@ def _request_sha256_from_manifest(manifest: ClassicalStudyArtifactManifest) -> s
         "engine_package_version": manifest.engine_package_version,
         "rustc_version": manifest.rustc_version,
     }
-    if manifest.format_version >= _FORMAT_VERSION:
+    if manifest.format_version >= _GROUPED_FORMAT_VERSION:
         payload["simulation_units"] = manifest.simulation_units
     return _request_sha256(payload, artifact_format=artifact_format)
 
@@ -782,7 +840,7 @@ def _execution_payload(
         "evaluation_seed": execution.evaluation_seed,
         "evaluation_domain_start": execution.evaluation_domain_start,
     }
-    if format_version >= _FORMAT_VERSION:
+    if format_version >= _GROUPED_FORMAT_VERSION:
         payload["population_addressing"] = execution.population_addressing
     return payload
 

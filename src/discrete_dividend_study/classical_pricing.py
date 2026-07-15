@@ -83,6 +83,7 @@ class ClassicalVariantPricingResult:
             self.native.origin_exercised,
             self.native.regression_nodes,
             self.native.no_training_support_nodes,
+            self.native.insufficient_exercise_support_nodes,
             self.native.minimum_in_the_money_training_paths,
             self.native.maximum_regression_condition_numbers,
             self.native.early_exercise_paths,

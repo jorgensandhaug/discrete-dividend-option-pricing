@@ -23,7 +23,7 @@ from tests.test_classical_groups import grouped_frame
 from tests.test_classical_inputs import classical_frame
 
 _GROUPS = 2
-_ARTIFACT_FORMAT_VERSION = 3
+_ARTIFACT_FORMAT_VERSION = 4
 _CLI_TEST_START = date(2015, 1, 1)
 _CLI_TEST_END_EXCLUSIVE = date(2024, 8, 11)
 _CLI_TEST_DAYS = (_CLI_TEST_END_EXCLUSIVE - _CLI_TEST_START).days

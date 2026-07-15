@@ -28,7 +28,7 @@ from tests.test_classical_inputs import classical_frame
 if TYPE_CHECKING:
     from pathlib import Path
 
-_ARTIFACT_FORMAT_VERSION = 3
+_ARTIFACT_FORMAT_VERSION = 4
 _SOURCE = StudySourceIdentity(
     feature_artifact_sha256="1" * 64,
     feature_schema_sha256="2" * 64,

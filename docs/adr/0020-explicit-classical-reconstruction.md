@@ -28,6 +28,14 @@ reconstruction estimator uses 150 base intervals, origin exercise excluded, degr
 tie rule, random seeds, domain roots, worker count, and numerical math backend are all explicit.
 Financial/estimator identity is separate from execution identity.
 
+The recovered submitted estimator attempted its degree-four regression only when at least five
+in-the-money training paths were available. The reconstruction therefore explicitly selects
+`InsufficientExerciseSupportPolicy.CONTINUE`: a node with fewer than the five required basis rows
+fits no regression and requires continuation. This is a declared stopping-policy restriction, not
+a runtime retry, adaptive degree, regularization, or silent numerical fallback. Every affected node
+is counted in the persisted diagnostics. Rank deficiency, degenerate predictors, excessive
+condition number, non-finite arithmetic, and all other numerical violations remain fatal.
+
 The ORATS source identifies forecast events by civil ex-date rather than intraday clock. When that
 date equals the option expiration date, both cash variants declare
 `MaturityBoundary.AT_OR_BEFORE`: the engine applies the cash jump before the terminal payoff. This
@@ -44,6 +52,8 @@ is a native batch call outside Polars expressions.
 ## Consequences
 
 - No variant may infer a dividend representation or volatility convention.
+- No variant may infer insufficient-support behavior or alter the declared regression after a
+  sparse node is observed.
 - No cash variant may infer, clip, move, or silently discard a terminal dividend event.
 - The four variants share row order and immutable input bytes, making comparisons paired by
   construction.

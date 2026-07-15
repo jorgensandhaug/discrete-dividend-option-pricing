@@ -14,6 +14,7 @@ from finoptions import (
     CpuMathBackend,
     DividendPolicy,
     ExerciseTieRule,
+    InsufficientExerciseSupportPolicy,
     Lsm,
     MaturityBoundary,
     OriginExercise,
@@ -21,7 +22,8 @@ from finoptions import (
     UniformExerciseMesh,
 )
 
-_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v2"
+_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v3"
+_LEGACY_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v2"
 _EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v2"
 _GROUPED_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v3"
 _MAX_U32: Final = (2**32) - 1
@@ -72,6 +74,15 @@ class ClassicalPopulationAddressing(StrEnum):
     NATURAL_STRIKE_GROUPS = "natural_strike_groups"
 
 
+def _validate_insufficient_exercise_support(value: object) -> None:
+    if type(value) is not InsufficientExerciseSupportPolicy:
+        raise ClassicalSpecValueError(
+            field="insufficient_exercise_support",
+            observed=value,
+            requirement="InsufficientExerciseSupportPolicy",
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ClassicalVariantSpec:
     """One named result and its exact dividend representation."""
@@ -115,6 +126,7 @@ class ClassicalEstimatorSpec:
     rank_tolerance: float
     condition_limit: float
     tie_rule: ExerciseTieRule
+    insufficient_exercise_support: InsufficientExerciseSupportPolicy
 
     def __post_init__(self) -> None:
         """Reject incomplete meshes, path populations, or numerical regression contracts."""
@@ -172,6 +184,7 @@ class ClassicalEstimatorSpec:
                 observed=self.tie_rule,
                 requirement="ExerciseTieRule",
             )
+        _validate_insufficient_exercise_support(self.insufficient_exercise_support)
 
     def mesh(self) -> UniformExerciseMesh:
         """Build the exact engine mesh without adding an execution choice."""
@@ -203,6 +216,7 @@ class ClassicalEstimatorSpec:
             rank_tolerance=self.rank_tolerance,
             condition_limit=self.condition_limit,
             tie_rule=self.tie_rule,
+            insufficient_exercise_support=self.insufficient_exercise_support,
         )
 
 
@@ -447,6 +461,7 @@ PROJECT_CLASSICAL_RECONSTRUCTION_SPEC: Final = ClassicalStudySpec(
         rank_tolerance=1.0e-12,
         condition_limit=1.0e8,
         tie_rule=ExerciseTieRule.STRICTLY_GREATER,
+        insufficient_exercise_support=InsufficientExerciseSupportPolicy.CONTINUE,
     ),
     spot_column="underlying_price",
     strike_column="strike",
@@ -465,14 +480,56 @@ PROJECT_CLASSICAL_RECONSTRUCTION_SPEC: Final = ClassicalStudySpec(
 
 def classical_study_sha256(study: ClassicalStudySpec) -> str:
     """Hash the complete financial/estimator identity without execution resources."""
+    return _classical_study_sha256(
+        study,
+        format_identity=_STUDY_HASH_FORMAT,
+        include_insufficient_support=True,
+    )
+
+
+def _legacy_classical_study_sha256(study: ClassicalStudySpec) -> str:
+    """Reconstruct the pre-support-policy study identity for old private artifacts."""
+    if study.estimator.insufficient_exercise_support is not InsufficientExerciseSupportPolicy.FAIL:
+        raise ClassicalSpecValueError(
+            field="insufficient_exercise_support",
+            observed=study.estimator.insufficient_exercise_support,
+            requirement="FAIL for a legacy study identity",
+        )
+    return _classical_study_sha256(
+        study,
+        format_identity=_LEGACY_STUDY_HASH_FORMAT,
+        include_insufficient_support=False,
+    )
+
+
+def _classical_study_sha256(
+    study: ClassicalStudySpec,
+    *,
+    format_identity: str,
+    include_insufficient_support: bool,
+) -> str:
     if type(study) is not ClassicalStudySpec:
         raise ClassicalSpecValueError(
             field="study",
             observed=study,
             requirement="ClassicalStudySpec",
         )
+    estimator: dict[str, object] = {
+        "base_intervals": study.estimator.base_intervals,
+        "origin_exercise": study.estimator.origin_exercise.value,
+        "training_paths": study.estimator.training_paths,
+        "evaluation_paths": study.estimator.evaluation_paths,
+        "polynomial_degree": study.estimator.polynomial_degree,
+        "rank_tolerance": study.estimator.rank_tolerance,
+        "condition_limit": study.estimator.condition_limit,
+        "tie_rule": study.estimator.tie_rule.value,
+    }
+    if include_insufficient_support:
+        estimator["insufficient_exercise_support"] = (
+            study.estimator.insufficient_exercise_support.value
+        )
     payload = {
-        "format": _STUDY_HASH_FORMAT,
+        "format": format_identity,
         "variants": [
             {
                 "variant": variant.variant.value,
@@ -481,16 +538,7 @@ def classical_study_sha256(study: ClassicalStudySpec) -> str:
             }
             for variant in study.variants
         ],
-        "estimator": {
-            "base_intervals": study.estimator.base_intervals,
-            "origin_exercise": study.estimator.origin_exercise.value,
-            "training_paths": study.estimator.training_paths,
-            "evaluation_paths": study.estimator.evaluation_paths,
-            "polynomial_degree": study.estimator.polynomial_degree,
-            "rank_tolerance": study.estimator.rank_tolerance,
-            "condition_limit": study.estimator.condition_limit,
-            "tie_rule": study.estimator.tie_rule.value,
-        },
+        "estimator": estimator,
         "input_columns": list(study.input_columns()),
         "exact_cash_policy": study.exact_cash_policy.value,
         "cash_maturity_boundary": study.cash_maturity_boundary.value,
