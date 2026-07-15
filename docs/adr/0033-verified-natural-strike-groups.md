@@ -41,13 +41,13 @@ regression change, or fallback is permitted.
 
 - Synthetic tests reject non-contiguous natural keys, a changed group volatility, and duplicate
   strikes, then execute all four dividend variants through the grouped native boundary.
-- The receipted available strict-open-horizon cohort contains 512,567 contracts and compacts to
-  74,215 exact natural states, with a mean 6.91 and maximum 38 strikes per state. Every constancy and
-  uniqueness check passes.
-- Full lazy projection and native-input preparation took 0.152 seconds on the Apple M4 Pro
-  development machine.
+- The receipt-verified recoverable submitted-test cohort contains 678,122 contracts and compacts to
+  96,666 exact natural states. Every constancy and uniqueness check passes.
+- Full receipt verification, lazy projection, deterministic sorting, materialization, source
+  reverification, 117-window coverage validation, and native-input preparation took 0.315 seconds
+  on the Apple M4 Pro development machine.
 - A licensed-data same-request benchmark is recorded in
-  [`../performance/2026-07-14-grouped-classical-prefix.md`](../performance/2026-07-14-grouped-classical-prefix.md).
+  [`../performance/2026-07-15-real-classical-preparation.md`](../performance/2026-07-15-real-classical-preparation.md).
 
 ## Consequences
 

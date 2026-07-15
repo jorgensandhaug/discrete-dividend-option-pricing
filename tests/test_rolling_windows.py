@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
@@ -10,6 +11,7 @@ import pytest
 from discrete_dividend_study.rolling_windows import (
     PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
     RollingPhase,
+    RollingTestWindowCount,
     RollingWindow,
     RollingWindowContentError,
     RollingWindowSchemaError,
@@ -18,6 +20,8 @@ from discrete_dividend_study.rolling_windows import (
     generate_rolling_windows,
     rolling_window_manifest,
     select_rolling_phase,
+    select_rolling_test_union,
+    validate_rolling_test_coverage,
     validate_rolling_window_coverage,
 )
 
@@ -85,6 +89,58 @@ def test_half_open_phase_selection_assigns_boundaries_once() -> None:
         select_rolling_phase(source, window, RollingPhase.TEST).collect().height
         == ROWS_PER_BOUNDARY_PHASE
     )
+
+
+def test_adjacent_test_union_projects_each_submitted_date_once() -> None:
+    """One lazy range is exactly the union of the submitted adjacent test partitions."""
+    windows = generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC)
+    source = pl.LazyFrame(
+        {
+            "quote_date": [
+                windows[0].test_start - timedelta(days=1),
+                windows[0].test_start,
+                windows[0].test_end - timedelta(days=1),
+                windows[1].test_start,
+                windows[-1].test_end - timedelta(days=1),
+                windows[-1].test_end,
+            ],
+            "value": list(range(6)),
+        },
+        schema={"quote_date": pl.Date, "value": pl.Int64},
+    )
+    observed = select_rolling_test_union(source, windows).collect()
+    assert observed["value"].to_list() == [1, 2, 3, 4]
+
+
+def test_test_only_coverage_counts_and_rejects_schedule_gaps() -> None:
+    """Classical pooled evaluation validates every test window without phase expansion."""
+    spec = RollingWindowSpec(
+        total_lookback_days=60,
+        validation_days=10,
+        test_days=10,
+        step_days=10,
+        first_test_start=date(2024, 3, 1),
+        latest_test_end=date(2024, 3, 21),
+    )
+    windows = generate_rolling_windows(spec)
+    source = pl.LazyFrame(
+        {
+            "quote_date": [
+                date(2024, 3, 1),
+                date(2024, 3, 2),
+                date(2024, 3, 11),
+            ],
+        },
+        schema={"quote_date": pl.Date},
+    )
+    assert validate_rolling_test_coverage(source, windows) == (
+        RollingTestWindowCount(window_id=0, test_rows=2),
+        RollingTestWindowCount(window_id=1, test_rows=1),
+    )
+
+    gapped = (windows[0], replace(windows[1], test_start=date(2024, 3, 12)))
+    with pytest.raises(RollingWindowSpecError, match="adjacent"):
+        select_rolling_test_union(source, gapped)
 
 
 def test_one_date_count_scan_validates_every_required_partition() -> None:

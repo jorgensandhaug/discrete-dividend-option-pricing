@@ -189,6 +189,14 @@ class RollingWindowCounts:
     test_rows: int
 
 
+@dataclass(frozen=True, slots=True)
+class RollingTestWindowCount:
+    """Validated test-cohort row count for one rolling window."""
+
+    window_id: int
+    test_rows: int
+
+
 def generate_rolling_windows(spec: RollingWindowSpec) -> tuple[RollingWindow, ...]:
     """Generate the complete deterministic schedule encoded by ``spec``."""
     windows: list[RollingWindow] = []
@@ -228,12 +236,88 @@ def rolling_window_manifest(spec: RollingWindowSpec) -> pl.DataFrame:
     )
 
 
+def select_rolling_test_union(
+    frame: pl.LazyFrame,
+    windows: tuple[RollingWindow, ...],
+) -> pl.LazyFrame:
+    """Select the exact union of an adjacent, non-overlapping test schedule lazily.
+
+    Submitted classical models have no fitted state, so their pooled evaluation needs each test
+    contract exactly once rather than one repeated scan per rolling window. Requiring adjacency
+    makes the single range predicate equivalent to the union of all declared test intervals.
+    """
+    _validate_adjacent_test_windows(windows)
+    return _validated_quote_dates(frame).filter(
+        (pl.col("quote_date") >= windows[0].test_start)
+        & (pl.col("quote_date") < windows[-1].test_end),
+    )
+
+
+def validate_rolling_test_coverage(
+    frame: pl.LazyFrame,
+    windows: tuple[RollingWindow, ...],
+) -> tuple[RollingTestWindowCount, ...]:
+    """Reject any empty test partition using one compact quote-date count scan."""
+    selected = select_rolling_test_union(frame, windows)
+    date_counts = selected.group_by("quote_date").len(name="rows").sort("quote_date").collect()
+    null_dates = date_counts["quote_date"].null_count()
+    if null_dates:
+        raise RollingWindowContentError(violations=(("null_quote_dates", null_dates),))
+    dates = date_counts["quote_date"].to_list()
+    counts = date_counts["rows"].to_list()
+    prefix = [0]
+    for count in counts:
+        prefix.append(prefix[-1] + count)
+
+    resolved: list[RollingTestWindowCount] = []
+    empty_test = 0
+    for window in windows:
+        left = bisect_left(dates, window.test_start)
+        right = bisect_left(dates, window.test_end)
+        test_rows = prefix[right] - prefix[left]
+        empty_test += test_rows == 0
+        resolved.append(RollingTestWindowCount(window.window_id, test_rows))
+    if empty_test:
+        raise RollingWindowContentError(
+            violations=(("empty_test_partitions", empty_test),),
+        )
+    return tuple(resolved)
+
+
 def _validated_quote_dates(frame: pl.LazyFrame) -> pl.LazyFrame:
     validated = require_columns(frame, ("quote_date",))
     observed = validated.collect_schema()["quote_date"]
     if observed != pl.Date:
         raise RollingWindowSchemaError(observed=str(observed))
     return validated
+
+
+def _validate_adjacent_test_windows(windows: tuple[RollingWindow, ...]) -> None:
+    if type(windows) is not tuple or not windows:
+        raise RollingWindowSpecError(
+            field="windows",
+            observed=type(windows).__name__ if type(windows) is not tuple else len(windows),
+            requirement="a nonempty tuple of RollingWindow values",
+        )
+    for expected_id, window in enumerate(windows):
+        if type(window) is not RollingWindow or window.window_id != expected_id:
+            raise RollingWindowSpecError(
+                field="windows",
+                observed=(expected_id, type(window).__name__, getattr(window, "window_id", None)),
+                requirement="ordered RollingWindow values with contiguous zero-based ids",
+            )
+        if expected_id and windows[expected_id - 1].test_end != window.test_start:
+            previous = windows[expected_id - 1]
+            raise RollingWindowSpecError(
+                field="test_bounds",
+                observed=(
+                    previous.window_id,
+                    previous.test_end,
+                    window.window_id,
+                    window.test_start,
+                ),
+                requirement="adjacent non-overlapping half-open test intervals",
+            )
 
 
 def select_rolling_phase(
@@ -318,6 +402,7 @@ def validate_rolling_window_coverage(
 __all__ = [
     "PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC",
     "RollingPhase",
+    "RollingTestWindowCount",
     "RollingWindow",
     "RollingWindowContentError",
     "RollingWindowCounts",
@@ -329,5 +414,7 @@ __all__ = [
     "generate_rolling_windows",
     "rolling_window_manifest",
     "select_rolling_phase",
+    "select_rolling_test_union",
+    "validate_rolling_test_coverage",
     "validate_rolling_window_coverage",
 ]

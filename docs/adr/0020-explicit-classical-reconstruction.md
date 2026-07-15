@@ -28,6 +28,14 @@ reconstruction estimator uses 150 base intervals, origin exercise excluded, degr
 tie rule, random seeds, domain roots, worker count, and numerical math backend are all explicit.
 Financial/estimator identity is separate from execution identity.
 
+The ORATS source identifies forecast events by civil ex-date rather than intraday clock. When that
+date equals the option expiration date, both cash variants declare
+`MaturityBoundary.AT_OR_BEFORE`: the engine applies the cash jump before the terminal payoff. This
+preserves the economic order of ex-date trading and expiry without shifting the supplied event,
+inventing an epsilon, or silently dropping it. Events after maturity fail. The maturity boundary is
+part of the typed study and its canonical hash, and is passed explicitly to both exact-cash and
+escrowed-cash engine requests.
+
 One materialized Polars boundary converts the shared scalar columns and target to a single
 Fortran-ordered Float64 allocation whose columns are directly borrowable by the native engine.
 Event child values stay zero-copy unless the caller explicitly permits a rechunk. Stateful pricing
@@ -36,6 +44,7 @@ is a native batch call outside Polars expressions.
 ## Consequences
 
 - No variant may infer a dividend representation or volatility convention.
+- No cash variant may infer, clip, move, or silently discard a terminal dividend event.
 - The four variants share row order and immutable input bytes, making comparisons paired by
   construction.
 - Historical submitted metrics are qualitative reconstruction references; immutable new runs name

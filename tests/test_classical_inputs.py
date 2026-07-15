@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date
+
 import numpy as np
 import polars as pl
 import pytest
@@ -11,6 +14,7 @@ from finoptions import (
     CpuMathBackend,
     EscrowedCashDividendBatch,
     EscrowedVolatilityConvention,
+    MaturityBoundary,
 )
 
 from discrete_dividend_study.classical_inputs import (
@@ -40,6 +44,7 @@ def classical_frame() -> pl.DataFrame:
     """Return valid exact-schema rows spanning cash, empty, and multiple-event schedules."""
     return pl.DataFrame(
         {
+            "quote_date": [date(2015, 1, 2), date(2020, 1, 2), date(2024, 8, 9)],
             "underlying_price": [100.0, 120.0, 90.0],
             "strike": [90.0, 105.0, 80.0],
             "yte": [1.0, 0.75, 0.5],
@@ -52,6 +57,7 @@ def classical_frame() -> pl.DataFrame:
             "forecasted_discrete_amounts": [[1.0, 1.0], [], [0.5]],
         },
         schema={
+            "quote_date": pl.Date,
             "underlying_price": pl.Float32,
             "strike": pl.Float32,
             "yte": pl.Float64,
@@ -80,8 +86,12 @@ def test_reconstructed_classical_identity_pins_all_four_submitted_names() -> Non
     assert study.estimator.training_paths == _PATHS
     assert study.estimator.evaluation_paths == _PATHS
     assert study.estimator.polynomial_degree == _POLYNOMIAL_DEGREE
+    assert study.cash_maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert len(classical_study_sha256(study)) == _SHA256_HEX_LENGTH
     assert classical_study_sha256(study) == classical_study_sha256(study)
+    assert classical_study_sha256(
+        replace(study, cash_maturity_boundary=MaturityBoundary.STRICTLY_BEFORE)
+    ) != classical_study_sha256(study)
 
 
 def test_one_float64_allocation_and_one_ragged_schedule_feed_every_variant() -> None:
@@ -105,9 +115,11 @@ def test_one_float64_allocation_and_one_ragged_schedule_feed_every_variant() -> 
     historical = prepared.dividends_for(ClassicalVariant.HISTORICAL_YIELD)
     assert type(exact) is CashDividendBatch
     assert exact.schedules is prepared.cash_dividends
+    assert exact.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert type(escrowed) is EscrowedCashDividendBatch
     assert escrowed.schedules is prepared.cash_dividends
     assert escrowed.volatility_convention is EscrowedVolatilityConvention.SPOT_MATCHED_AT_ORIGIN
+    assert escrowed.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert type(forecast) is ContinuousDividendYieldBatch
     assert forecast.annualized_decimals is prepared.forecast_yields
     assert type(historical) is ContinuousDividendYieldBatch
@@ -164,8 +176,8 @@ def test_schema_and_financial_content_fail_before_native_pricing() -> None:
         )
 
 
-def test_cash_events_must_be_strictly_ordered_inside_the_open_contract_horizon() -> None:
-    """Preparation rejects ambiguous terminal events and coalesced times without moving either."""
+def test_cash_event_maturity_boundary_is_explicit_and_never_repairs_source_times() -> None:
+    """The study admits declared terminal cash but rejects excluded or post-expiry events."""
     at_maturity = classical_frame().with_columns(
         pl.Series(
             "forecasted_years_to_discrete_ex_dates",
@@ -173,11 +185,28 @@ def test_cash_events_must_be_strictly_ordered_inside_the_open_contract_horizon()
             dtype=pl.List(pl.Float64),
         ),
     )
+    admitted = prepare_project_classical_inputs(at_maturity)
+    assert admitted.cash_dividends.times.tolist() == [0.25, 1.0, 0.25]
+
+    strict_study = replace(
+        PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
+        cash_maturity_boundary=MaturityBoundary.STRICTLY_BEFORE,
+    )
     with pytest.raises(
         ClassicalInputContentError,
-        match="cash_dividend_rows_at_or_after_maturity",
+        match="cash_dividend_schedules_at_excluded_maturity",
     ):
-        prepare_project_classical_inputs(at_maturity)
+        prepare_project_classical_inputs(at_maturity, strict_study)
+
+    after_maturity = at_maturity.with_columns(
+        pl.Series(
+            "forecasted_years_to_discrete_ex_dates",
+            [[0.25, 1.01], [], [0.25]],
+            dtype=pl.List(pl.Float64),
+        ),
+    )
+    with pytest.raises(ClassicalInputContentError, match="cash_dividend_schedules_after_maturity"):
+        prepare_project_classical_inputs(after_maturity)
 
     coalesced = classical_frame().with_columns(
         pl.Series(

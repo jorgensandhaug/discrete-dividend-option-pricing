@@ -116,7 +116,13 @@ from .project_feature_artifact import (
     ProjectFeatureSources,
     materialize_project_feature_artifact,
 )
-from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
+from .rolling_windows import (
+    PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
+    RollingWindowError,
+    generate_rolling_windows,
+    select_rolling_test_union,
+    validate_rolling_test_coverage,
+)
 from .study_features import (
     StudyFeatureArtifactError,
     StudyFeatureArtifactKind,
@@ -840,10 +846,11 @@ def _run_classical_study(
         context.paper_revision,
         context.engine_revision,
     )
+    windows = generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC)
     try:
-        source_frame = context.feature_artifact.scan()
+        source_frame = select_rolling_test_union(context.feature_artifact.scan(), windows)
         if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS:
-            frame = source_frame.select(study.input_columns()).collect()
+            frame = source_frame.select("quote_date", *study.input_columns()).collect()
         else:
             frame = build_project_classical_grouped_frame(source_frame, study).collect()
     except pl.exceptions.PolarsError as error:
@@ -862,10 +869,14 @@ def _run_classical_study(
     )
     if resolved_after_scan != source:
         raise StudyCliError(reason="source or dependency lock changed during preparation")
+    try:
+        test_counts = validate_rolling_test_coverage(frame.lazy(), windows)
+    except (pl.exceptions.PolarsError, RollingWindowError) as error:
+        raise StudyCliError(reason=f"invalid classical test cohort: {error}") from error
     event_buffer_policy = EventBufferPolicy(arguments.event_buffer_policy)
     if execution.population_addressing is ClassicalPopulationAddressing.CONTRACT_ROWS:
         row_inputs = prepare_project_classical_inputs(
-            frame,
+            frame.drop("quote_date"),
             study,
             event_buffer_policy=event_buffer_policy,
         )
@@ -898,6 +909,9 @@ def _run_classical_study(
         "rows": artifact.manifest.observations,
         "simulation_units": artifact.manifest.simulation_units,
         "population_addressing": artifact.manifest.execution.population_addressing.value,
+        "test_windows": len(test_counts),
+        "test_start": windows[0].test_start.isoformat(),
+        "test_end_exclusive": windows[-1].test_end.isoformat(),
         "metrics": {
             variant.variant.variant.value: asdict(variant.metrics) for variant in result.variants
         },

@@ -9,7 +9,7 @@ from typing import Final, cast
 import numpy as np
 import numpy.typing as npt
 import polars as pl
-from finoptions import RaggedCashDividends
+from finoptions import MaturityBoundary, RaggedCashDividends
 
 Float64Vector = npt.NDArray[np.float64]
 Int64Vector = npt.NDArray[np.int64]
@@ -126,6 +126,63 @@ def extract_ragged_cash_dividends(
     return RaggedCashDividends(offsets=offsets, times=time_values, amounts=amount_values)
 
 
+def cash_event_violations(
+    schedule: RaggedCashDividends,
+    maturities: Float64Vector,
+    maturity_boundary: MaturityBoundary,
+) -> tuple[tuple[str, int], ...]:
+    """Report exact cash-event domain violations without mutating source schedules.
+
+    Callers validate the typed native buffers and row counts before this shared numerical check.
+    Equal terminal times are admitted only by ``AT_OR_BEFORE``; events after maturity always fail.
+    """
+    times = schedule.times
+    amounts = schedule.amounts
+    violations: list[tuple[str, int]] = []
+    for field, array in (("cash_dividend_times", times), ("cash_dividend_amounts", amounts)):
+        count = int(np.count_nonzero(~np.isfinite(array)))
+        if count:
+            violations.append((f"nonfinite_{field}", count))
+    nonpositive_times = int(np.count_nonzero(times <= 0.0))
+    if nonpositive_times:
+        violations.append(("nonpositive_cash_dividend_times", nonpositive_times))
+    negative_amounts = int(np.count_nonzero(np.signbit(amounts)))
+    if negative_amounts:
+        violations.append(("negative_cash_dividend_amounts", negative_amounts))
+    if times.size > 1:
+        nonincreasing = times[1:] <= times[:-1]
+        boundaries = schedule.offsets[1:-1]
+        internal = boundaries[(boundaries > 0) & (boundaries < times.size)] - 1
+        nonincreasing[internal] = False
+        count = int(np.count_nonzero(nonincreasing))
+        if count:
+            violations.append(("nonincreasing_cash_dividend_times", count))
+    violations.extend(_cash_event_maturity_violations(schedule, maturities, maturity_boundary))
+    return tuple(violations)
+
+
+def _cash_event_maturity_violations(
+    schedule: RaggedCashDividends,
+    maturities: Float64Vector,
+    maturity_boundary: MaturityBoundary,
+) -> tuple[tuple[str, int], ...]:
+    nonempty = schedule.offsets[1:] > schedule.offsets[:-1]
+    if not np.any(nonempty):
+        return ()
+    last_events = schedule.offsets[1:][nonempty] - 1
+    terminal_times = schedule.times[last_events]
+    contract_maturities = maturities[nonempty]
+    violations: list[tuple[str, int]] = []
+    after_maturity = int(np.count_nonzero(terminal_times > contract_maturities))
+    if after_maturity:
+        violations.append(("cash_dividend_schedules_after_maturity", after_maturity))
+    if maturity_boundary is MaturityBoundary.STRICTLY_BEFORE:
+        at_maturity = int(np.count_nonzero(terminal_times == contract_maturities))
+        if at_maturity:
+            violations.append(("cash_dividend_schedules_at_excluded_maturity", at_maturity))
+    return tuple(violations)
+
+
 def _validate_extract_request(
     frame: object,
     times_column: object,
@@ -221,5 +278,6 @@ __all__ = [
     "EventBufferError",
     "EventBufferPolicy",
     "EventBufferTypeError",
+    "cash_event_violations",
     "extract_ragged_cash_dividends",
 ]

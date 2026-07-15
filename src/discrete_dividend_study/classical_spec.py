@@ -15,12 +15,13 @@ from finoptions import (
     DividendPolicy,
     ExerciseTieRule,
     Lsm,
+    MaturityBoundary,
     OriginExercise,
     RandomStream,
     UniformExerciseMesh,
 )
 
-_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v1"
+_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v2"
 _EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v2"
 _GROUPED_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v3"
 _MAX_U32: Final = (2**32) - 1
@@ -222,6 +223,7 @@ class ClassicalStudySpec:
     cash_times_column: str
     cash_amounts_column: str
     exact_cash_policy: DividendPolicy
+    cash_maturity_boundary: MaturityBoundary
 
     def __post_init__(self) -> None:
         """Require every baseline once and every source semantic explicitly."""
@@ -269,6 +271,12 @@ class ClassicalStudySpec:
                 field="exact_cash_policy",
                 observed=self.exact_cash_policy,
                 requirement="DividendPolicy",
+            )
+        if type(self.cash_maturity_boundary) is not MaturityBoundary:
+            raise ClassicalSpecValueError(
+                field="cash_maturity_boundary",
+                observed=self.cash_maturity_boundary,
+                requirement="MaturityBoundary",
             )
 
     def variant(self, identity: ClassicalVariant) -> ClassicalVariantSpec:
@@ -451,6 +459,7 @@ PROJECT_CLASSICAL_RECONSTRUCTION_SPEC: Final = ClassicalStudySpec(
     cash_times_column="forecasted_years_to_discrete_ex_dates",
     cash_amounts_column="forecasted_discrete_amounts",
     exact_cash_policy=DividendPolicy.LIQUIDATOR,
+    cash_maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
 )
 
 
@@ -484,6 +493,7 @@ def classical_study_sha256(study: ClassicalStudySpec) -> str:
         },
         "input_columns": list(study.input_columns()),
         "exact_cash_policy": study.exact_cash_policy.value,
+        "cash_maturity_boundary": study.cash_maturity_boundary.value,
     }
     encoded = json.dumps(
         payload,

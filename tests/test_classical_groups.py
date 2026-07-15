@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from finoptions import (
     ContinuousDividendYieldBatch,
     CpuMathBackend,
     EscrowedCashDividendBatch,
+    MaturityBoundary,
 )
 
 from discrete_dividend_study.classical_artifact import (
@@ -27,6 +29,7 @@ from discrete_dividend_study.classical_groups import (
 from discrete_dividend_study.classical_inputs import ClassicalInputContentError
 from discrete_dividend_study.classical_pricing import run_project_classical_grouped_study
 from discrete_dividend_study.classical_spec import (
+    PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
     ClassicalExecutionSpec,
     ClassicalPopulationAddressing,
     ClassicalVariant,
@@ -128,7 +131,9 @@ def test_lazy_projection_and_materialized_compaction_preserve_exact_row_order() 
         assert array.flags.c_contiguous
         assert not array.flags.writeable
 
-    assert type(prepared.dividends_for(ClassicalVariant.EXACT_CASH)) is CashDividendBatch
+    exact = prepared.dividends_for(ClassicalVariant.EXACT_CASH)
+    assert type(exact) is CashDividendBatch
+    assert exact.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert (
         type(prepared.dividends_for(ClassicalVariant.ESCROWED_CASH_SPOT_MATCHED))
         is EscrowedCashDividendBatch
@@ -136,6 +141,37 @@ def test_lazy_projection_and_materialized_compaction_preserve_exact_row_order() 
     assert type(prepared.dividends_for(ClassicalVariant.FORECAST_YIELD)) is (
         ContinuousDividendYieldBatch
     )
+
+
+def test_grouped_terminal_cash_boundary_admits_equality_and_rejects_later_events() -> None:
+    """Group compaction enforces the same explicit terminal ordering as row preparation."""
+    at_maturity = grouped_frame().with_columns(
+        pl.when(pl.col("ticker") == "AAA")
+        .then(pl.lit([0.25, 1.0], dtype=pl.List(pl.Float64)))
+        .otherwise(pl.col("forecasted_years_to_discrete_ex_dates"))
+        .alias("forecasted_years_to_discrete_ex_dates")
+    )
+    prepared = prepare_project_classical_strike_groups(at_maturity)
+    assert prepared.cash_dividends.times.tolist() == [0.25, 1.0, 0.25]
+
+    strict_study = replace(
+        PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
+        cash_maturity_boundary=MaturityBoundary.STRICTLY_BEFORE,
+    )
+    with pytest.raises(
+        ClassicalInputContentError,
+        match="cash_dividend_schedules_at_excluded_maturity",
+    ):
+        prepare_project_classical_strike_groups(at_maturity, strict_study)
+
+    after_maturity = at_maturity.with_columns(
+        pl.when(pl.col("ticker") == "AAA")
+        .then(pl.lit([0.25, 1.01], dtype=pl.List(pl.Float64)))
+        .otherwise(pl.col("forecasted_years_to_discrete_ex_dates"))
+        .alias("forecasted_years_to_discrete_ex_dates")
+    )
+    with pytest.raises(ClassicalInputContentError, match="cash_dividend_schedules_after_maturity"):
+        prepare_project_classical_strike_groups(after_maturity)
 
 
 def test_noncontiguous_nonconstant_and_duplicate_contract_groups_fail_without_repair() -> None:

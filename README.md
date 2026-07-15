@@ -395,11 +395,13 @@ uv run --locked discrete-dividend-study run-classical-study \
 ```
 
 The command first verifies the detached producer receipt, true schema identity, bytes, and aggregate
-coverage, then lazily projects and orders only the required classical columns. The artifact kind is
-mandatory: `project-experiment` selects the 19-column mixed-source artifact and `project-full`
-selects the 42-column canonical artifact. Kinds are never inferred and a failed loader never falls
-through to the other contract. The command then proves that every `(ticker, quote_date,
-expiry_date)` group has one exact simulated state and unique strikes before
+coverage, derives the frozen 117-window submitted schedule, and lazily selects its exact adjacent
+test union `[2015-01-01, 2024-08-11)`. Every declared test partition must remain nonempty. It then
+projects and orders only the required classical columns. The artifact kind is mandatory:
+`project-experiment` selects the 19-column mixed-source artifact and `project-full` selects the
+42-column canonical artifact. Kinds are never inferred and a failed loader never falls through to
+the other contract. The command then proves that every `(ticker, quote_date, expiry_date)` group has
+one exact simulated state and unique strikes before
 entering the native engine. It verifies that the feature artifact and dependency lock did not
 change during preparation, and prints only aggregate metrics plus the verified content-addressed
 artifact identity. Use the explicit `contract_rows` addressing only for the independent-path audit
@@ -407,6 +409,10 @@ comparator; execution topology is never inferred or silently changed. `require_z
 available when the Parquet list buffers are already contiguous; rechunking is never implicit.
 Use `rust_std_f64` instead on non-macOS systems; backend identity is mandatory and embedded in the
 artifact rather than selected from the host automatically.
+
+Both cash-dividend variants declare `at_or_before` maturity semantics: when a source ex-date equals
+expiration, the engine applies the cash event before terminal payoff. Events after maturity fail;
+no default, clipping, time shift, event deletion, or numerical epsilon is available.
 
 Render a verified aggregate-only table directly from an immutable artifact; the output includes the
 source artifact hash and no licensed row-level values or machine-local paths:

@@ -579,6 +579,7 @@ from .quote_filters import (
 from .rolling_windows import (
     PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
     RollingPhase,
+    RollingTestWindowCount,
     RollingWindow,
     RollingWindowContentError,
     RollingWindowCounts,
@@ -590,6 +591,8 @@ from .rolling_windows import (
     generate_rolling_windows,
     rolling_window_manifest,
     select_rolling_phase,
+    select_rolling_test_union,
+    validate_rolling_test_coverage,
     validate_rolling_window_coverage,
 )
 from .schema import (
@@ -1000,6 +1003,7 @@ __all__ = [
     "QuoteNumericPrecision",
     "QuoteSchemaError",
     "RollingPhase",
+    "RollingTestWindowCount",
     "RollingWindow",
     "RollingWindowContentError",
     "RollingWindowCounts",
@@ -1155,10 +1159,12 @@ __all__ = [
     "select_project_as_submitted_features",
     "select_project_experiment_features",
     "select_rolling_phase",
+    "select_rolling_test_union",
     "slice_prepared_neural_batch",
     "slice_prepared_tabpfn_batch",
     "trainable_parameter_count",
     "validate_neural_training_summary",
+    "validate_rolling_test_coverage",
     "validate_rolling_window_coverage",
     "verify_orats_option_compaction_unchanged",
     "verify_pinned_parquet",
