@@ -1,6 +1,6 @@
 # ADR 0045: Full-panel compact exact-schedule pilot v5
 
-- Status: accepted before execution
+- Status: accepted and executed
 - Date: 2026-07-15
 
 ## Context
@@ -29,3 +29,15 @@ The pre-execution v5 specification SHA-256 is
 Execute the complete portable four-worker panel once and retain every level and replication in a
 non-overwriting receipt. A pass makes v5 the numerical baseline for the exact-schedule publication
 estimator. A miss remains evidence and does not authorize tuning this frozen specification.
+
+## Evidence
+
+The four-worker portable execution passed all 60 applicable gates across all eight cases in 93.220
+seconds. The other seven cases are numerically identical to v4 after excluding wall-clock fields.
+The compact terminal case's q3 reference was `11.3257173321` and its p4 mean was `11.3274465278`, a
+gap of `0.0017291957` against a `0.1166120170` limit. The largest full-panel gap remains the unchanged
+long/high-volatility case at `0.1175221163` against `0.2197902107`.
+
+The canonical receipt SHA-256 is
+`a8e05bba21db9cdf24beac3bdf5e20dbbc5777b9799a858e81135257945285ea`. Complete results are in
+[`2026-07-15-target-free-pilot-v5.md`](../performance/2026-07-15-target-free-pilot-v5.md).

@@ -41,10 +41,10 @@ automatically:
 
 ```shell
 python3 tools/dev.py -- publication-numerical-pilot \
-  --pilot v4 \
+  --pilot v5 \
   --threads 4 \
   --math-backend rust_std_f64 \
-  --output artifacts/numerical-pilot/v4-portable.json
+  --output artifacts/numerical-pilot/v5-portable.json
 ```
 
 The frozen synthetic panel, tolerances, and limits are recorded in
@@ -61,7 +61,11 @@ diagnostic passed without changing its basis, paths, tolerances, cash time, or t
 production code must still receive the real predecessor explicitly from calendar semantics. The
 single-change full-panel v4 specification is frozen in
 [ADR 0043](docs/adr/0043-full-panel-predecessor-pilot-v4.md); it passed all 61 frozen gates. This is
-a synthetic numerical baseline, not an empirical conclusion.
+a retained synthetic numerical baseline, not an empirical conclusion. The compact-grid diagnostic
+and single-change full-panel v5 are recorded in
+[ADR 0044](docs/adr/0044-compact-explicit-terminal-predecessor-diagnostic.md) and
+[ADR 0045](docs/adr/0045-full-panel-compact-pilot-v5.md). V5 passed all 60 applicable gates and is
+the current target-free numerical baseline; it does not establish an empirical ranking.
 
 The first production data boundary is intentionally small:
 
