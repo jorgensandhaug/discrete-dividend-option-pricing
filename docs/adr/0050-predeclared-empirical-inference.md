@@ -57,12 +57,13 @@ the declared domain. Two consecutive Random123 output words are packed low-word 
 `u64` draw.
 
 Circular origins use Lemire's unsigned 64-bit multiply-high mapping with rejection, not a biased
-modulo. Geometric lengths use an explicitly digital inverse CDF: map the top 53 bits of a `u64`
-word to the open-unit value `(bits + 1) / (2^53 + 1)`, then compute
+modulo. Geometric lengths use an explicitly digital inverse CDF: map the top 52 bits of a `u64`
+word to the exactly representable open-unit midpoint `(bits + 0.5) / 2^52`, then compute
 `1 + floor(log1p(-u) / log1p(-1/L))` with the Rust `libm` implementation. `L = 1` is the exact
-one-panel case. The last block is truncated so every bootstrap draw contains exactly as many panel
-positions as the observed cohort. These mapping details are part of the hashed specification;
-thread scheduling cannot alter a replication stream.
+one-panel case and consumes no length word. Each block draws its origin first and then its length;
+a rejected Lemire word consumes the next `u64` until acceptance. The last block is truncated so
+every bootstrap draw contains exactly as many panel positions as the observed cohort. These mapping
+details are part of the hashed specification; thread scheduling cannot alter a replication stream.
 
 Two-sided confidence level is 0.95. Intervals use the centered basic-bootstrap construction with
 Hyndman--Fan type-7 linear sample quantiles. Two-sided p-values use the centered bootstrap

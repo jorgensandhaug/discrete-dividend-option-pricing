@@ -73,7 +73,7 @@ class PublicationBootstrapOriginSampler(StrEnum):
 class PublicationBootstrapBlockLengthSampler(StrEnum):
     """Exact digital inverse-CDF convention used for geometric block lengths."""
 
-    INVERSE_CDF_OPEN_F64_53_LIBM = "inverse_cdf_open_f64_53_libm_log1p"
+    INVERSE_CDF_OPEN_F64_52_MIDPOINT_LIBM = "inverse_cdf_open_f64_52_midpoint_libm_log1p"
 
 
 class PublicationBootstrapQuantile(StrEnum):
@@ -248,12 +248,14 @@ def _validate_bootstrap_random_mapping(spec: PublicationStationaryBootstrapSpec)
         )
     if (
         spec.block_length_sampler
-        is not PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM
+        is not PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_52_MIDPOINT_LIBM
     ):
         raise PublicationInferenceSpecValueError(
             field="block_length_sampler",
             observed=spec.block_length_sampler,
-            requirement="PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM",
+            requirement=(
+                "PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_52_MIDPOINT_LIBM"
+            ),
         )
 
 
@@ -446,7 +448,9 @@ PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC: Final = PublicationEmpiricalInfere
         replication_path_start=0,
         random_generator=PublicationBootstrapRandomGenerator.PHILOX_4X32_10,
         origin_sampler=PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION,
-        block_length_sampler=(PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM),
+        block_length_sampler=(
+            PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_52_MIDPOINT_LIBM
+        ),
         mean_block_length=_PRIMARY_BLOCK_LENGTH,
         sensitivity_mean_block_lengths=(5.0, 10.0, _PRIMARY_BLOCK_LENGTH, 40.0, 60.0),
         confidence_level=0.95,
@@ -505,14 +509,17 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
             "philox_u64_packing": "first_u32_low_then_second_u32_high",
             "origin_sampler": spec.bootstrap.origin_sampler.value,
             "block_length_sampler": spec.bootstrap.block_length_sampler.value,
+            "block_draw_order": "origin_u64_then_block_length_u64",
+            "origin_rejection_stream_rule": "consume_next_u64_until_lemire_accepts",
             "block_uniform_open_mapping": (
-                "u_equals_one_plus_top_53_bits_of_u64_divided_by_one_plus_two_pow_53"
+                "u_equals_top_52_bits_of_u64_plus_one_half_divided_by_two_pow_52"
             ),
             "block_inverse_cdf": (
                 "one_plus_floor_libm_log1p_minus_u_divided_by_"
                 "libm_log1p_minus_reciprocal_mean_length"
             ),
             "block_length_parameterization": "restart_probability_equals_reciprocal_mean_length",
+            "unit_mean_block_stream_rule": "block_length_is_one_without_consuming_a_u64",
             "block_length_terminal_rule": "truncate_final_block_to_exactly_panel_count_draws",
             "mean_block_length": float(spec.bootstrap.mean_block_length).hex(),
             "sensitivity_mean_block_lengths": [

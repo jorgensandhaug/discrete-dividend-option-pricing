@@ -53,7 +53,7 @@ def test_empirical_inference_identity_is_complete_and_frozen_before_results() ->
     assert spec.bootstrap.origin_sampler is PublicationBootstrapOriginSampler.LEMIRE_U64_REJECTION
     assert (
         spec.bootstrap.block_length_sampler
-        is PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_53_LIBM
+        is PublicationBootstrapBlockLengthSampler.INVERSE_CDF_OPEN_F64_52_MIDPOINT_LIBM
     )
     assert spec.bootstrap.mean_block_length == _PRIMARY_BLOCK_LENGTH
     assert spec.bootstrap.sensitivity_mean_block_lengths == (5.0, 10.0, 20.0, 40.0, 60.0)
