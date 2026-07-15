@@ -10,6 +10,8 @@ from discrete_dividend_study.publication_inference import (
 )
 from discrete_dividend_study.publication_inference_tables import (
     PublicationInferenceTables,
+    publication_calendar_year_contrast_frame,
+    publication_calendar_year_model_frame,
     publication_primary_contrast_frame,
     publication_primary_contrast_latex,
     publication_primary_contrast_markdown,
@@ -23,6 +25,8 @@ from tests.test_publication_inference import _inputs, _test_spec
 
 _PRIMARY_CONTRASTS = 12
 _SENSITIVITY_CONTRASTS = 108
+_CALENDAR_YEAR_COHORTS = 5
+_METRICS = 6
 
 
 def _tables() -> PublicationInferenceTables:
@@ -42,6 +46,8 @@ def test_primary_frames_are_complete_typed_and_aggregate_only() -> None:
     models = publication_primary_model_frame(tables)
     contrasts = publication_primary_contrast_frame(tables)
     sensitivity = publication_sensitivity_contrast_frame(tables)
+    calendar_models = publication_calendar_year_model_frame(tables)
+    calendar_contrasts = publication_calendar_year_contrast_frame(tables)
     assert models.height == len(PublicationVariant)
     assert models.schema == {
         "variant": pl.String,
@@ -61,6 +67,13 @@ def test_primary_frames_are_complete_typed_and_aggregate_only() -> None:
     assert sensitivity.get_column("holm_adjusted_p_value").null_count() == (
         _SENSITIVITY_CONTRASTS - _PRIMARY_CONTRASTS
     )
+    assert calendar_models.height == _CALENDAR_YEAR_COHORTS * len(PublicationVariant) * _METRICS
+    assert calendar_contrasts.height == _CALENDAR_YEAR_COHORTS * 6 * _METRICS
+    assert calendar_models.select("cohort", "year").unique().height == _CALENDAR_YEAR_COHORTS
+    exact = calendar_models.filter(
+        pl.col("variant") == PublicationVariant.CASH_JUMP_LIQUIDATOR.value
+    )
+    assert exact.get_column("estimate").max() == 0.0
 
 
 def test_renderers_are_deterministic_provenance_bound_fragments() -> None:

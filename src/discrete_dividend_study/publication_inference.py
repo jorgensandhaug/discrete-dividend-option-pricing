@@ -46,6 +46,7 @@ _STATISTICS: Final = 1 + len(PublicationVariant) * _STATISTICS_PER_VARIANT
 _PERCENT_SCALE: Final = 100.0
 _MATRIX_DIMENSIONS: Final = 2
 _NONNEGATIVE_ADDITIVE_OFFSETS: Final = (0, 1, 2, 5)
+_MAX_ISO_YEAR: Final = 9_999
 
 
 @dataclass(slots=True)
@@ -127,6 +128,7 @@ class PublicationCohortPanelStatistics:
     observations: int
     quote_date_panels: int
     point_metrics: tuple[ProjectPricingMetrics, ...]
+    panel_years: Int64Vector
     additive_statistics: Float64Matrix
 
     def __post_init__(self) -> None:
@@ -147,6 +149,19 @@ class PublicationCohortPanelStatistics:
             )
         ):
             raise PublicationInferenceError(reason="cohort point metrics are incomplete")
+        _validate_int64_vector(
+            self.panel_years,
+            field="panel_years",
+            length=self.quote_date_panels,
+        )
+        if self.panel_years.flags.writeable:
+            raise PublicationInferenceError(reason="panel years must be immutable")
+        if (
+            np.any(self.panel_years < 1)
+            or np.any(self.panel_years > _MAX_ISO_YEAR)
+            or np.any(np.diff(self.panel_years) < 0)
+        ):
+            raise PublicationInferenceError(reason="panel years must be sorted ISO calendar years")
         _validate_float64_matrix(
             self.additive_statistics,
             field="additive_statistics",
@@ -392,12 +407,18 @@ def prepare_publication_inference_panels(
         )
         statistics = _additive_panel_statistics(ordered_indices, starts, predictions)
         statistics.flags.writeable = False
+        panel_years = np.ascontiguousarray(
+            ordered_dates[starts].astype("datetime64[Y]").astype(np.int64) + 1970,
+            dtype=np.int64,
+        )
+        panel_years.flags.writeable = False
         results.append(
             PublicationCohortPanelStatistics(
                 cohort=cohort,
                 observations=int(indices.size),
                 quote_date_panels=int(starts.size),
                 point_metrics=point_metrics,
+                panel_years=panel_years,
                 additive_statistics=statistics,
             )
         )
@@ -676,6 +697,26 @@ def _validate_float64_vector(
         raise PublicationInferenceError(reason=f"{field} has an invalid length")
     if not np.isfinite(array).all():
         raise PublicationInferenceError(reason=f"{field} must be finite")
+
+
+def _validate_int64_vector(
+    value: object,
+    *,
+    field: str,
+    length: int,
+) -> None:
+    if type(value) is not np.ndarray:
+        raise PublicationInferenceError(reason=f"{field} must be a plain numpy.ndarray")
+    array = cast("npt.NDArray[np.generic]", value)
+    if (
+        array.dtype != np.dtype(np.int64)
+        or array.ndim != 1
+        or not array.flags.c_contiguous
+        or array.size != length
+    ):
+        raise PublicationInferenceError(
+            reason=f"{field} must be a C-contiguous Int64 vector of length {length}"
+        )
 
 
 def _validate_float64_matrix(

@@ -52,9 +52,10 @@ if TYPE_CHECKING:
     import polars as pl
 
 Float64Matrix = npt.NDArray[np.float64]
+Int64Vector = npt.NDArray[np.int64]
 
-_FORMAT: Final = "discrete-dividend-publication-empirical-inference-v1"
-_FORMAT_VERSION: Final = 1
+_FORMAT: Final = "discrete-dividend-publication-empirical-inference-v2"
+_FORMAT_VERSION: Final = 2
 _METADATA_KEY: Final = "publication_empirical_inference"
 _ENVELOPE_KEYS: Final = frozenset({"format", "manifest", "summary"})
 _REQUEST_DIRECTORY: Final = "publication-inference-requests"
@@ -63,6 +64,8 @@ _RECEIPT_KEYS: Final = frozenset({"format", "request_sha256", "artifact_sha256"}
 _PAPER_PACKAGE: Final = "discrete-dividend-option-pricing"
 _SHA256_LENGTH: Final = 64
 _FLOAT64: Final = np.dtype(np.float64)
+_INT64: Final = np.dtype(np.int64)
+_VECTOR_DIMENSIONS: Final = 1
 _MATRIX_DIMENSIONS: Final = 2
 _FILE_HASH_BLOCK_BYTES: Final = 1024 * 1024
 
@@ -408,6 +411,7 @@ def _result_tensors(result: PublicationEmpiricalInferenceResult) -> dict[str, np
     tensors = {}
     for cohort_index, cohort in enumerate(result.cohorts):
         tensors[_panel_tensor_key(cohort_index)] = cohort.panels.additive_statistics
+        tensors[_panel_year_tensor_key(cohort_index)] = cohort.panels.panel_years
         for block_index, configuration in enumerate(cohort.bootstrap):
             tensors[_bootstrap_tensor_key(cohort_index, block_index)] = configuration.additive_sums
     return tensors
@@ -495,6 +499,11 @@ def _decode_result(
             observations=cohort_manifest.observations,
             quote_date_panels=cohort_manifest.quote_date_panels,
             point_metrics=metrics,
+            panel_years=_loaded_int64_vector(
+                tensors[_panel_year_tensor_key(cohort_index)],
+                field="panel years",
+                length=cohort_manifest.quote_date_panels,
+            ),
             additive_statistics=panels,
         )
         configurations = tuple(
@@ -775,6 +784,7 @@ def _request_sha256(payload: dict[str, object]) -> str:
 def _expected_tensor_keys(manifest: PublicationInferenceManifest) -> set[str]:
     return {
         *(_panel_tensor_key(index) for index in range(len(manifest.cohorts))),
+        *(_panel_year_tensor_key(index) for index in range(len(manifest.cohorts))),
         *(
             _bootstrap_tensor_key(cohort_index, block_index)
             for cohort_index in range(len(manifest.cohorts))
@@ -785,6 +795,10 @@ def _expected_tensor_keys(manifest: PublicationInferenceManifest) -> set[str]:
 
 def _panel_tensor_key(cohort_index: int) -> str:
     return f"cohort_{cohort_index}.panel_statistics"
+
+
+def _panel_year_tensor_key(cohort_index: int) -> str:
+    return f"cohort_{cohort_index}.panel_years"
 
 
 def _bootstrap_tensor_key(cohort_index: int, block_index: int) -> str:
@@ -1011,6 +1025,7 @@ def _require_result_exact(
         if (
             left.panels.cohort != right.panels.cohort
             or left.panels.point_metrics != right.panels.point_metrics
+            or not np.array_equal(left.panels.panel_years, right.panels.panel_years)
             or not np.array_equal(
                 left.panels.additive_statistics,
                 right.panels.additive_statistics,
@@ -1044,6 +1059,27 @@ def _loaded_matrix(
             reason=f"{field} must be a finite C-contiguous Float64 matrix of shape {shape!r}"
         )
     result = np.ascontiguousarray(tensor, dtype=np.float64).copy()
+    result.flags.writeable = False
+    return result
+
+
+def _loaded_int64_vector(
+    tensor: np.ndarray,
+    *,
+    field: str,
+    length: int,
+) -> Int64Vector:
+    if (
+        type(tensor) is not np.ndarray
+        or tensor.dtype != _INT64
+        or tensor.ndim != _VECTOR_DIMENSIONS
+        or tensor.shape != (length,)
+        or not tensor.flags.c_contiguous
+    ):
+        raise PublicationInferenceArtifactError(
+            reason=f"{field} must be a C-contiguous Int64 vector of length {length}"
+        )
+    result = np.ascontiguousarray(tensor, dtype=np.int64).copy()
     result.flags.writeable = False
     return result
 

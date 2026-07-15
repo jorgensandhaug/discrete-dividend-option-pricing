@@ -85,6 +85,11 @@ def test_prepares_exact_available_case_and_sensitivity_panels() -> None:
     assert np.array_equal(panels[0].additive_statistics[:, 0], np.array([6.0, 4.0, 4.0]))
     assert np.array_equal(panels[1].additive_statistics[:, 0], np.array([5.0, 3.0, 4.0]))
     assert np.array_equal(panels[2].additive_statistics[:, 0], np.array([6.0, 4.0]))
+    assert tuple(panel.panel_years.tolist() for panel in panels) == (
+        [2019, 2019, 2020],
+        [2019, 2019, 2020],
+        [2019, 2019],
+    )
     assert panels[0].point_metrics[0].rmse == 0.0
     assert panels[0].point_metrics[1].mae == 1.0
     assert len(publication_additive_statistic_names()) == _ADDITIVE_STATISTICS

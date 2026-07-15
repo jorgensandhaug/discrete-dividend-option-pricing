@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Final
 
+import numpy as np
 import polars as pl
 
 from .publication_inference import (
+    PublicationCohortPanelStatistics,
     PublicationContrastInference,
     PublicationEmpiricalInferenceResult,
     PublicationMetricInterval,
+    publication_additive_statistic_names,
 )
 from .publication_inference_artifact import LoadedPublicationInferenceArtifact
 from .publication_inference_spec import PublicationEmpiricalMetric
@@ -27,6 +31,21 @@ _METRIC_LABELS: Final = {
     PublicationEmpiricalMetric.MAPE_PERCENT: "MAPE (%)",
     PublicationEmpiricalMetric.RMSE: "RMSE",
 }
+_ADDITIVE_FIELD_BY_METRIC: Final = {
+    PublicationEmpiricalMetric.MAE: "absolute_error_sum",
+    PublicationEmpiricalMetric.MAPE_PERCENT: "absolute_relative_error_sum",
+    PublicationEmpiricalMetric.RMSE: "squared_error_sum",
+    PublicationEmpiricalMetric.BIAS: "signed_error_sum",
+    PublicationEmpiricalMetric.RELATIVE_BIAS: "relative_signed_error_sum",
+    PublicationEmpiricalMetric.SMAPE_PERCENT: "symmetric_absolute_relative_error_sum",
+}
+_PERCENT_METRICS: Final = frozenset(
+    (
+        PublicationEmpiricalMetric.MAPE_PERCENT,
+        PublicationEmpiricalMetric.SMAPE_PERCENT,
+    )
+)
+_PERCENT_SCALE: Final = 100.0
 _LATEX_ESCAPE_TABLE: Final = str.maketrans(
     {
         "\\": r"\textbackslash{}",
@@ -208,6 +227,91 @@ def publication_sensitivity_contrast_frame(tables: PublicationInferenceTables) -
     )
 
 
+def publication_calendar_year_model_frame(tables: PublicationInferenceTables) -> pl.DataFrame:
+    """Return predeclared aggregate model diagnostics for every observed calendar year."""
+    _validate_tables(tables)
+    rows: list[dict[str, object]] = []
+    for cohort in tables.result.cohorts:
+        for year, date_panels, statistics in _calendar_year_statistics(cohort.panels):
+            observations = int(statistics[0])
+            for variant in PublicationVariant:
+                rows.extend(
+                    {
+                        "cohort": cohort.panels.cohort.name,
+                        "year": year,
+                        "observations": observations,
+                        "quote_date_panels": date_panels,
+                        "variant": variant.value,
+                        "variant_label": _variant_label(variant),
+                        "metric": metric.value,
+                        "estimate": _metric_from_additive_statistics(
+                            statistics,
+                            variant,
+                            metric,
+                        ),
+                    }
+                    for metric in PublicationEmpiricalMetric
+                )
+    return pl.DataFrame(
+        rows,
+        schema={
+            "cohort": pl.String,
+            "year": pl.Int32,
+            "observations": pl.UInt64,
+            "quote_date_panels": pl.UInt64,
+            "variant": pl.String,
+            "variant_label": pl.String,
+            "metric": pl.String,
+            "estimate": pl.Float64,
+        },
+    )
+
+
+def publication_calendar_year_contrast_frame(tables: PublicationInferenceTables) -> pl.DataFrame:
+    """Return paired left-minus-right diagnostics within every observed calendar year."""
+    _validate_tables(tables)
+    rows: list[dict[str, object]] = []
+    for cohort in tables.result.cohorts:
+        for year, date_panels, statistics in _calendar_year_statistics(cohort.panels):
+            observations = int(statistics[0])
+            for contrast in tables.result.spec.contrasts:
+                rows.extend(
+                    {
+                        "cohort": cohort.panels.cohort.name,
+                        "year": year,
+                        "observations": observations,
+                        "quote_date_panels": date_panels,
+                        "left_variant": contrast.left.value,
+                        "right_variant": contrast.right.value,
+                        "metric": metric.value,
+                        "estimate_left_minus_right": _metric_from_additive_statistics(
+                            statistics,
+                            contrast.left,
+                            metric,
+                        )
+                        - _metric_from_additive_statistics(
+                            statistics,
+                            contrast.right,
+                            metric,
+                        ),
+                    }
+                    for metric in PublicationEmpiricalMetric
+                )
+    return pl.DataFrame(
+        rows,
+        schema={
+            "cohort": pl.String,
+            "year": pl.Int32,
+            "observations": pl.UInt64,
+            "quote_date_panels": pl.UInt64,
+            "left_variant": pl.String,
+            "right_variant": pl.String,
+            "metric": pl.String,
+            "estimate_left_minus_right": pl.Float64,
+        },
+    )
+
+
 def publication_primary_model_markdown(tables: PublicationInferenceTables) -> str:
     """Render the four-model primary result as deterministic Markdown."""
     frame = publication_primary_model_frame(tables)
@@ -375,6 +479,35 @@ def _primary_contrasts(
     return selected
 
 
+def _calendar_year_statistics(
+    panels: PublicationCohortPanelStatistics,
+) -> tuple[tuple[int, int, np.ndarray], ...]:
+    years = panels.panel_years
+    unique, starts = np.unique(years, return_index=True)
+    grouped = np.add.reduceat(panels.additive_statistics, starts, axis=0)
+    ends = np.concatenate((starts[1:], np.array([years.size], dtype=np.int64)))
+    return tuple(
+        (int(year), int(end - start), statistics)
+        for year, start, end, statistics in zip(unique, starts, ends, grouped, strict=True)
+    )
+
+
+def _metric_from_additive_statistics(
+    statistics: np.ndarray,
+    variant: PublicationVariant,
+    metric: PublicationEmpiricalMetric,
+) -> float:
+    names = publication_additive_statistic_names()
+    field = _ADDITIVE_FIELD_BY_METRIC[metric]
+    total = float(statistics[names.index(f"{variant.value}.{field}")])
+    value = total / float(statistics[0])
+    if metric is PublicationEmpiricalMetric.RMSE:
+        return math.sqrt(value)
+    if metric in _PERCENT_METRICS:
+        return value * _PERCENT_SCALE
+    return value
+
+
 def _validate_tables(value: object) -> None:
     if type(value) is not PublicationInferenceTables:
         raise PublicationInferenceTableError(reason="tables must be PublicationInferenceTables")
@@ -400,6 +533,8 @@ __all__ = [
     "PublicationInferenceTableError",
     "PublicationInferenceTables",
     "build_publication_inference_tables",
+    "publication_calendar_year_contrast_frame",
+    "publication_calendar_year_model_frame",
     "publication_primary_contrast_frame",
     "publication_primary_contrast_latex",
     "publication_primary_contrast_markdown",
