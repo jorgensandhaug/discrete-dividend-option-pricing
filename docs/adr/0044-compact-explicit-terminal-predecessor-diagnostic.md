@@ -1,6 +1,6 @@
 # ADR 0044: Compact explicit terminal-predecessor diagnostic
 
-- Status: accepted before execution
+- Status: accepted and executed
 - Date: 2026-07-15
 
 ## Context
@@ -36,3 +36,16 @@ kernels after schedule construction.
 Run the diagnostic before changing the full eight-case pilot. A pass authorizes freezing a v5 that
 changes only the terminal case from the redundant predecessor domain to the compact domain; a miss
 is retained and investigated without tuning this diagnostic.
+
+## Evidence
+
+The four-thread portable execution passed all seven predeclared gates in 0.157 seconds. The q3
+reference was `11.3257173321`; the p4 mean was `11.3274465278`, an absolute gap of `0.0017291957`
+against a `0.1166120170` limit. The p3-to-p4 paired drift was `0.0098633845` against a
+`0.1159309121` limit. Every replication fitted exactly one exercise policy; the p4 mean native
+standard error was `0.0493553254`.
+
+The canonical receipt SHA-256 is
+`7358175cd0b91002c659ba39bf2ae90c9d80211dcd3cd5968b0b99669f55d8de`. The complete retained
+sequence is recorded in
+[`2026-07-15-compact-terminal-predecessor-diagnostic.md`](../performance/2026-07-15-compact-terminal-predecessor-diagnostic.md).
