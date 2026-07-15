@@ -495,6 +495,9 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
         ],
         "bootstrap": {
             "resampling_unit": "complete_ordered_observed_quote_date_panel",
+            "panel_order": "strictly_increasing_observed_quote_date",
+            "within_panel_row_order": "stable_publication_source_row_order",
+            "panel_additive_reduction": "ordered_float64_numpy_add_reduceat_under_locked_runtime",
             "stationary_geometric_blocks": True,
             "circular": True,
             "replications": spec.bootstrap.replications,
@@ -533,8 +536,11 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
         },
         "multiplicity": spec.multiplicity.value,
         "multiplicity_family": "six_pairwise_contrasts_times_two_primary_metrics",
+        "multiplicity_tie_order": "canonical_contrast_order_then_primary_metric_order",
         "family_wise_error_rate": float(spec.family_wise_error_rate).hex(),
         "metric_weighting": "row_weighted_ratio_over_resampled_date_panels",
+        "point_metric_reduction": "source_order_project_float64_chunked_reduction",
+        "contrast_direction": "left_metric_minus_right_metric",
         "publication_predictions": "complete_replication_mean_cash_and_deterministic_yields",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
