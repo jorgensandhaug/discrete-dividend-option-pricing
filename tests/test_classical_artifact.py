@@ -82,7 +82,7 @@ def test_complete_artifact_round_trip_is_exact_relocatable_and_idempotent(tmp_pa
 
     apple_execution = replace(
         execution,
-        math_backend=CpuMathBackend.APPLE_ACCELERATE_VFORCE,
+        math_backend=CpuMathBackend.APPLE_ACCELERATE,
     )
     assert classical_execution_sha256(apple_execution) != classical_execution_sha256(execution)
     grouped_execution = replace(

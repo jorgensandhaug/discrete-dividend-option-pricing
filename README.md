@@ -348,7 +348,7 @@ uv run --locked discrete-dividend-study run-classical-study \
   --features /absolute/path/project-features.parquet \
   --artifacts /absolute/path/immutable-run-artifacts \
   --threads 8 \
-  --math-backend apple_accelerate_vforce \
+  --math-backend apple_accelerate \
   --training-seed 2026071401 \
   --training-domain-start 0 \
   --evaluation-seed 2026071402 \
