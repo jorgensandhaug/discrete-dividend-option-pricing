@@ -1,0 +1,267 @@
+{
+  "feature": {
+    "coverage": [
+      {
+        "quote_date_max": "2024-09-27",
+        "quote_date_min": "2011-01-03",
+        "rows": 97533,
+        "ticker": "DUK"
+      },
+      {
+        "quote_date_max": "2024-09-27",
+        "quote_date_min": "2011-01-03",
+        "rows": 75648,
+        "ticker": "EPD"
+      },
+      {
+        "quote_date_max": "2019-11-07",
+        "quote_date_min": "2011-01-03",
+        "rows": 23526,
+        "ticker": "ETR"
+      },
+      {
+        "quote_date_max": "2024-09-27",
+        "quote_date_min": "2011-01-03",
+        "rows": 230679,
+        "ticker": "MO"
+      },
+      {
+        "quote_date_max": "2024-09-27",
+        "quote_date_min": "2011-01-03",
+        "rows": 173795,
+        "ticker": "SO"
+      },
+      {
+        "quote_date_max": "2024-09-27",
+        "quote_date_min": "2011-01-03",
+        "rows": 293328,
+        "ticker": "VZ"
+      }
+    ],
+    "feature_schema_sha256": "eae3db69d3ed5fe303cec4bc48cb6804dd04e0d5a56768ccbdd14017791610ba",
+    "option_plan": {
+      "compacted_tickers": [
+        "ETR"
+      ],
+      "end_date_exclusive": "2024-09-28",
+      "long_form_tickers": [
+        "DUK",
+        "EPD",
+        "MO",
+        "SO",
+        "VZ"
+      ],
+      "start_date": "2011-01-01"
+    },
+    "output_bytes": 6957440,
+    "output_rows": 894509,
+    "output_sha256": "aa778e3e1b362ffc32ac6ff273ca7d751438990eb0e935045340809ff6068808",
+    "pipeline_sha256": "c3b0adfa99f0bfd323e1c8d165a7a9a58b0cbd3592db8999012effd5c8960637",
+    "receipt_sha256": "b985a49b0d7807e4615568d3fd6d302b9c039fc4ac9f64fe88571fd7f0e684d0",
+    "request_sha256": "6b5e8683f6d5530fc90e39e7e0c68cb848c48dd7ba4612f3a44ab3f105e1fa59"
+  },
+  "format": "discrete-dividend-option-pricing-reproduction-receipt-v1",
+  "inference": {
+    "artifact_sha256": "0fe2e85baefd1befc22476c92b7595659aeac4528e9899a191b0abb09c57b2f3",
+    "bootstrap_configurations": [
+      {
+        "design": "circular_stationary",
+        "mean_block_length": 5.0
+      },
+      {
+        "design": "circular_stationary",
+        "mean_block_length": 10.0
+      },
+      {
+        "design": "circular_stationary",
+        "mean_block_length": 20.0
+      },
+      {
+        "design": "circular_stationary",
+        "mean_block_length": 40.0
+      },
+      {
+        "design": "circular_stationary",
+        "mean_block_length": 60.0
+      },
+      {
+        "design": "calendar_year_stratified_circular_stationary",
+        "mean_block_length": 20.0
+      }
+    ],
+    "bootstrap_domains": [
+      2000000,
+      2000001,
+      2000002,
+      2000003,
+      2000004,
+      2100000,
+      2000005,
+      2000006,
+      2000007,
+      2000008,
+      2000009,
+      2100001,
+      2000010,
+      2000011,
+      2000012,
+      2000013,
+      2000014,
+      2100002
+    ],
+    "bootstrap_replications": 19999,
+    "cohorts": [
+      {
+        "name": "available_case_six_ticker_full_horizon",
+        "observations": 678122,
+        "quote_date_panels": 2400
+      },
+      {
+        "name": "five_ticker_full_horizon_without_etr",
+        "observations": 665773,
+        "quote_date_panels": 2400
+      },
+      {
+        "name": "six_ticker_common_horizon_through_etr",
+        "observations": 318160,
+        "quote_date_panels": 1214
+      }
+    ],
+    "executor": {
+      "math_backend": "rust_std_f64",
+      "threads": 14
+    },
+    "feature_receipt_sha256": "b985a49b0d7807e4615568d3fd6d302b9c039fc4ac9f64fe88571fd7f0e684d0",
+    "inference_spec_sha256": "8f38e488f592263ac76faaa6d35a9c14c20720dd8f482026a00bda3a9faebe60",
+    "observations": 678122,
+    "partitions_sha256": "241fe825ca8fde1dbba5136b590bb1b33b447e19b86fdf367d1da8cd4879b2b4",
+    "publication_result_request_sha256": "3ad2a65d6e6f366721a0ae121e0e83248e05f2da21cc512336a3efde45edd57c",
+    "publication_result_sha256": "0490c1344d7607040d27767bc35f0a18baad80fa2f633c91a0c10b349620b687",
+    "request_sha256": "7957611d8fa111192689065d0442dcdadd26ab9f7e8e31d79f815d1742f3af48",
+    "source": {
+      "dependency_lock_sha256": "ac68c50663ed220805a1732ffaa2df79ccedbc28a37c64045ae6787e7ee19418",
+      "engine_revision": "bd9d2466df42735aa5d7fdef8ec57a84a9e08496",
+      "feature_artifact_sha256": "aa778e3e1b362ffc32ac6ff273ca7d751438990eb0e935045340809ff6068808",
+      "feature_schema_sha256": "eae3db69d3ed5fe303cec4bc48cb6804dd04e0d5a56768ccbdd14017791610ba",
+      "paper_revision": "aa630920357cb36a9f40b38d064b4c90f08eafd5"
+    },
+    "study_sha256": "7bb17895094282441382d22c9d8710df2c73820c2c39d128df2357d9d80741bf",
+    "summary_sha256": "522b58cef764141bca3093e616e61a477e25403aa5262ff55913af0d28d28b65",
+    "tensors_sha256": "35140270c6246d17fb7936191c4d53e9444d901445296cee960bf389a96d2eca"
+  },
+  "pricing": {
+    "artifact_sha256": "0490c1344d7607040d27767bc35f0a18baad80fa2f633c91a0c10b349620b687",
+    "cash_replications": [
+      {
+        "artifact_sha256": "da492870cddbf9b381b8284ed4fe067868827269849b65a745939d7e7d72e016",
+        "execution_sha256": "4db6e73f0c7ecc4b20173680bab3a9f5104550a6247abfc0f9f96379d060c0e5",
+        "index": 0,
+        "request_sha256": "a5801095a803c9df57eca5998d16896d2d888a41ead8af37766220cc60316db8"
+      },
+      {
+        "artifact_sha256": "9e8ecb9f5656d71b40ba2b9def635fab2d58a2542fae253b8b11a26b95784773",
+        "execution_sha256": "d130c59bf5f4f5e0313200a6f436286f8c583f1fc91bebbe8e19b0dfdf7b2b47",
+        "index": 1,
+        "request_sha256": "79cd46e1476268e1b75b0a0c6a7bbb420420381e5b88f9a8a80cda8a32de41a5"
+      },
+      {
+        "artifact_sha256": "f9c71377602116944df01f36136490b744609a1eb941bd56ca623fae9b450784",
+        "execution_sha256": "16960ff9459aef5a2f136bb456847e254bcaeef5df7d31a46d27042410860b53",
+        "index": 2,
+        "request_sha256": "dc5b13066c499aa29ce595f94bf83ac0141e6318dd2c9c58b6a38f771595cc8c"
+      },
+      {
+        "artifact_sha256": "8a855e06d631d7c88ea81920ebb7c068f3af5c95cbdbf42fcd7b59270bb9d043",
+        "execution_sha256": "1cb50a2ee63e29c6b1834e7ca755cdf6dcb8f538a6cae992553506565b2bb291",
+        "index": 3,
+        "request_sha256": "b302191faf05c71054ec33fdfd86e35f499a053a72a7e60d02b268bfb4a8b31e"
+      },
+      {
+        "artifact_sha256": "d54e58586aaadb1b3e0e7feea370695f6463616139f0876b5fecea2c52db2916",
+        "execution_sha256": "fa43a5f90e9e1a1538931b058e932ee4c0526bd71e124e3c0093f65b500b27a7",
+        "index": 4,
+        "request_sha256": "938b7c33a596997577c8a24d37ea9276c8d58976f8ad16a28fed30990bdf7a2c"
+      },
+      {
+        "artifact_sha256": "90cdf7ee408e38ef0ab5964099603a412a08a030b77b5550fd3b5870964882ba",
+        "execution_sha256": "7e6e2971f3ad33d07c3418281b51428564bed86ae3f6f8c421fba9f9b52e277e",
+        "index": 5,
+        "request_sha256": "6c26d4be2d9b11baaf4b2e16a65d8d74b268d1c3440b617108ec2d776d9c7958"
+      },
+      {
+        "artifact_sha256": "f83e27243e50b7b184e44c697873f7fa74f77a12f1cd94611a77929dfa1d3988",
+        "execution_sha256": "58aab957c20a6fa769e7dc32ad17ce54f87ea513b055da73c50e626628aadb3b",
+        "index": 6,
+        "request_sha256": "6559d901e6fc861568f17fa86e1085bf19b0a563ee43ccb3346ac67c001ff02c"
+      },
+      {
+        "artifact_sha256": "e501a873b7acc7ef7f0cdc39a3666c66e99d65c2a61207f0aa1548f039cf7f24",
+        "execution_sha256": "bdb6b0931d6ab6903de4527bfa7494408022ee7f19fb05c93646d79107b3552e",
+        "index": 7,
+        "request_sha256": "556f6aae7bfc76db18fa5a047337cb7fdc98810de51881bfb541ecb87dc83712"
+      },
+      {
+        "artifact_sha256": "3488de2a44e0d374303114fe31e13cb92474313bcef4c7163add263cc237673b",
+        "execution_sha256": "e4be27ac76b523b4ded266e79e98f72f0d58251e05c641ced1a24f8e3d45d50a",
+        "index": 8,
+        "request_sha256": "6c114e25e817e62929ea9d49e68c60e0f892ed04e2fbd690d490c8dede5680f4"
+      },
+      {
+        "artifact_sha256": "064d8afa8f12b819d67753b624e8fc6b0b967fae4e62acd3d504de570d88be53",
+        "execution_sha256": "1ac68de09d8d5bc06204646a05f4e31da0c55c7f05cb2bedd051f5d23dfc7666",
+        "index": 9,
+        "request_sha256": "e0d984f376ab4d31a1cef83307132fe58d6d700361cad9d51783039f1a348c90"
+      },
+      {
+        "artifact_sha256": "0183f4cc110676e8ca6e36a4bb7132c89cc3116b3285fbd556b0fa09a3a06d41",
+        "execution_sha256": "d08c2e20f055e5a3888ad597cdd6f735adbee6e810696919b9a27cfcc8734e27",
+        "index": 10,
+        "request_sha256": "e30cddbd30b3eb0f1dbb1891fa014008ca81812fa297ec1d3cec39e339536b8d"
+      },
+      {
+        "artifact_sha256": "6e23c14ead1ea7cabe684adf4d605c7e9512e56f1eb21a0fee643fb2fe8429c9",
+        "execution_sha256": "af40d293cf125a2df50ac4e9a4487c656bb713d87961c0ce86ea95dedcdb6b81",
+        "index": 11,
+        "request_sha256": "420cd6b3a1793ce5a608aebcf0f1dde4d725e03f29c6d142563030f5d83cf786"
+      }
+    ],
+    "deterministic_execution": {
+      "math_backend": "apple_accelerate",
+      "threads": 14
+    },
+    "deterministic_execution_sha256": "b8502608f53bc3db5299f8d5eb840c43cbf3c5bd8da6bf460a6a4a8f05ba4900",
+    "exact_groups": 94906,
+    "general_groups": 1760,
+    "metrics_sha256": "f96e04b35eaabe2e6ebe53aa050f2b8a1be54b34253bfdd538e5a7f6afe2ec66",
+    "observations": 678122,
+    "partitions_sha256": "241fe825ca8fde1dbba5136b590bb1b33b447e19b86fdf367d1da8cd4879b2b4",
+    "replication_plan_sha256": "9af652fa4c15a364323083a929812cdedf53194bdd06b6906ca353e8eec0497e",
+    "request_sha256": "3ad2a65d6e6f366721a0ae121e0e83248e05f2da21cc512336a3efde45edd57c",
+    "simulation_units": 96666,
+    "source": {
+      "dependency_lock_sha256": "ac68c50663ed220805a1732ffaa2df79ccedbc28a37c64045ae6787e7ee19418",
+      "engine_revision": "cd14031a8b1cd03b8258c73c739155a4161f88bc",
+      "feature_artifact_sha256": "aa778e3e1b362ffc32ac6ff273ca7d751438990eb0e935045340809ff6068808",
+      "feature_schema_sha256": "eae3db69d3ed5fe303cec4bc48cb6804dd04e0d5a56768ccbdd14017791610ba",
+      "paper_revision": "6507dbb62f78fd3227d8318c93f21548cbf11a27"
+    },
+    "study_sha256": "7bb17895094282441382d22c9d8710df2c73820c2c39d128df2357d9d80741bf",
+    "tensors_sha256": "334081b59dc4003ca1901cd5c29288aef8ff820c4f10c5de0f5ac16d43c0951b",
+    "variants": [
+      "cash_jump_liquidator",
+      "escrowed_cash_spot_matched",
+      "forecast_yield",
+      "historical_yield"
+    ]
+  },
+  "tables": {
+    "primary-contrasts.tex": "1b123f02a1b416c756b28b26cbcda61d1db8611c88f6f77a2e5771ead40b283e",
+    "primary-models.tex": "ebc95609b5d3daef93c17efa700e8043b374d297693fa4b460ee760ea5738fa9"
+  },
+  "verification": {
+    "inference_engine_gate_revision": "bd9d2466df42735aa5d7fdef8ec57a84a9e08496",
+    "inference_paper_gate_revision": "aa630920357cb36a9f40b38d064b4c90f08eafd5",
+    "rustc_version": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "uv_version": "uv 0.11.28 (Homebrew 2026-07-07 aarch64-apple-darwin)"
+  }
+}

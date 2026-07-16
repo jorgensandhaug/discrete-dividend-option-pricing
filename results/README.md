@@ -6,6 +6,10 @@ committed because it binds licensed targets and predictions. Lower MAPE and RMSE
 negative paired contrast favors the model on the left. `Reject` is the predeclared two-sided Holm
 decision over six model pairs and two primary metrics.
 
+The machine-readable [reproduction receipt](reproduction-receipt.json) binds the verified feature
+artifact, every cash replication, final pricing and inference payloads, code revisions, execution
+identities, and the committed table bytes without exposing provider rows or local paths.
+
 | Variant | N | Date panels | MAPE (%) [95% CI] | RMSE [95% CI] |
 |---|---:|---:|---:|---:|
 | Cash jump (liquidator) | 678122 | 2400 | 4.499252 [3.559918, 5.125044] | 0.517789 [0.306943, 0.716231] |
