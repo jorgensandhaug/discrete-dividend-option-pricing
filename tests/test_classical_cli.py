@@ -14,6 +14,10 @@ from finoptions import CpuMathBackend
 
 from discrete_dividend_study.classical_artifact import load_classical_study_artifact
 from discrete_dividend_study.cli import StudyCliError, main
+from discrete_dividend_study.local_resources import (
+    PROJECT_INTERACTIVE_RESOURCE_BUDGET,
+    acquire_local_heavy_process_lease,
+)
 from discrete_dividend_study.rolling_windows import RollingWindowSpec
 from discrete_dividend_study.study_features import (
     StudyFeatureArtifactKind,
@@ -36,6 +40,44 @@ _CLI_TEST_ROLLING_SPEC = RollingWindowSpec(
     latest_test_end=_CLI_TEST_END_EXCLUSIVE,
 )
 _CLI_TEST_WINDOWS = 1
+
+
+def test_heavy_command_rejects_overlap_before_reading_features(tmp_path: Path) -> None:
+    """A competing local phase fails before source or framework initialization."""
+    lock = tmp_path / "heavy-process.lock"
+    with (
+        acquire_local_heavy_process_lease(lock, PROJECT_INTERACTIVE_RESOURCE_BUDGET),
+        pytest.raises(StudyCliError, match="another heavy local process"),
+    ):
+        main(
+            (
+                "run-classical-study",
+                "--local-resource-lock",
+                str(lock),
+                "--features",
+                str(tmp_path / "must-not-be-read.parquet"),
+                "--feature-artifact-kind",
+                "project-experiment",
+                "--artifacts",
+                str(tmp_path / "must-not-be-read"),
+                "--threads",
+                "1",
+                "--math-backend",
+                "rust_std_f64",
+                "--training-seed",
+                "7",
+                "--training-domain-start",
+                "100",
+                "--evaluation-seed",
+                "11",
+                "--evaluation-domain-start",
+                "10000",
+                "--population-addressing",
+                "contract_rows",
+                "--event-buffer-policy",
+                "allow_rechunk",
+            ),
+        )
 
 
 def test_classical_command_rejects_bare_parquet_without_receipt(tmp_path: Path) -> None:

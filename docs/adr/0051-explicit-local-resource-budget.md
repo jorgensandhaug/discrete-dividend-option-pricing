@@ -41,6 +41,13 @@ an absolute regular non-symlink file on an existing local directory. Cluster and
 schedules require distinct named budgets and admission controls; they must not reuse the interactive
 identifier with higher concurrency.
 
+The four heavy study CLI commands acquire this lease before reading the feature artifact or
+initializing a model. By default they share a user-specific file in the operating system's temporary
+directory, so separate checkouts still contend on one local admission point. Advanced orchestrators
+may pass one absolute `--local-resource-lock`; changing that path does not change financial or
+artifact identity. Direct Python callers must hold the same context manager across their complete
+heavy phase.
+
 ## Consequences
 
 - The workstation remains usable while long reproduction phases progress.

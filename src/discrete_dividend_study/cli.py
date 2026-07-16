@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -46,6 +48,11 @@ from .historical_dividend_projection import (
     historical_dividend_projection_spec_sha256,
     load_verified_historical_dividend_projection,
     materialize_historical_dividend_projection,
+)
+from .local_resources import (
+    PROJECT_INTERACTIVE_RESOURCE_BUDGET,
+    LocalResourceBudgetError,
+    acquire_local_heavy_process_lease,
 )
 from .market_calendar import load_project_xnys_calendar
 from .neural_execution import (
@@ -173,6 +180,14 @@ _DOMAIN_MESSAGE: Final = "domain must be an unsigned 32-bit integer"
 _ISO_DATE_MESSAGE: Final = "date must use exact ISO YYYY-MM-DD syntax"
 _MINIMUM_ARCHIVE_YEAR: Final = 2007
 _MAXIMUM_ARCHIVE_YEAR: Final = 9999
+_HEAVY_STUDY_COMMANDS: Final = frozenset(
+    {
+        "run-classical-study",
+        "run-neural-study",
+        "run-publication-cash-replications",
+        "run-publication-empirical-inference",
+    },
+)
 
 
 @dataclass(slots=True)
@@ -212,6 +227,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     data_result = _run_data_command(arguments)
     if data_result is not None:
         return data_result
+    if arguments.command not in _HEAVY_STUDY_COMMANDS:
+        raise StudyCliError(reason="an explicit supported command is required")
+    lock = _local_resource_lock(arguments.local_resource_lock)
+    try:
+        with acquire_local_heavy_process_lease(
+            lock,
+            PROJECT_INTERACTIVE_RESOURCE_BUDGET,
+        ):
+            return _run_heavy_study_command(arguments)
+    except LocalResourceBudgetError as error:
+        raise StudyCliError(reason=str(error)) from error
+
+
+def _run_heavy_study_command(arguments: argparse.Namespace) -> int:
+    """Resolve and execute one heavy command while its caller owns local admission."""
     try:
         feature_artifact = load_verified_study_feature_artifact(
             arguments.features,
@@ -245,6 +275,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "run-publication-empirical-inference":
         return _run_publication_empirical_inference(arguments, context)
     raise StudyCliError(reason="an explicit supported command is required")
+
+
+def _local_resource_lock(value: object) -> Path:
+    if value is None:
+        user_id = os.getuid()
+        return Path(tempfile.gettempdir()) / f"discrete-dividend-study-{user_id}.lock"
+    if not isinstance(value, Path):
+        raise StudyCliError(reason="local-resource-lock must be pathlib.Path")
+    return value
 
 
 def _run_data_command(arguments: argparse.Namespace) -> int | None:
@@ -1174,9 +1213,12 @@ def _parser() -> argparse.ArgumentParser:
     _add_dividend_data_commands(commands)
     _add_curve_data_command(commands)
     _add_project_feature_command(commands)
+    heavy_parent = argparse.ArgumentParser(add_help=False)
+    _add_local_resource_lock_argument(heavy_parent)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",
+        parents=(heavy_parent,),
     )
     neural.add_argument("--features", type=Path, required=True)
     neural.add_argument(
@@ -1196,6 +1238,7 @@ def _parser() -> argparse.ArgumentParser:
     classical = commands.add_parser(
         "run-classical-study",
         help="run the complete paired four-baseline classical reconstruction",
+        parents=(heavy_parent,),
     )
     classical.add_argument("--features", type=Path, required=True)
     classical.add_argument(
@@ -1227,6 +1270,7 @@ def _parser() -> argparse.ArgumentParser:
     publication = commands.add_parser(
         "run-publication-cash-replications",
         help="run or exactly resume all frozen stochastic publication replications",
+        parents=(heavy_parent,),
     )
     publication.add_argument("--features", type=Path, required=True)
     publication.add_argument(
@@ -1249,6 +1293,7 @@ def _parser() -> argparse.ArgumentParser:
     inference = commands.add_parser(
         "run-publication-empirical-inference",
         help="run or exactly resume frozen paired date-panel publication inference",
+        parents=(heavy_parent,),
     )
     inference.add_argument("--features", type=Path, required=True)
     inference.add_argument(
@@ -1282,6 +1327,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     inference_table.add_argument("--format", choices=("latex", "markdown"), required=True)
     return parser
+
+
+def _add_local_resource_lock_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--local-resource-lock",
+        type=Path,
+        default=None,
+        help="absolute shared local lock path; defaults to the current user's temporary directory",
+    )
 
 
 def _add_option_data_commands(
