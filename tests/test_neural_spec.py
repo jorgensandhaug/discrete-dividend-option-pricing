@@ -9,7 +9,9 @@ import pytest
 from finoptions import CashAmountScale, MaturityBoundary, TimeBinClosure
 
 from discrete_dividend_study.neural_spec import (
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
     PROJECT_NEURAL_STUDY_SPEC,
+    AttentionSlotPolicy,
     BinnedDividendInput,
     DirectDividendLstmInput,
     DividendBinOrder,
@@ -141,6 +143,7 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
         )
     assert lstm.gate_order is LstmGateOrder.INPUT_FORGET_CELL_OUTPUT
     assert lstm.sequence_order is EventSequenceOrder.FARTHEST_TO_NEAREST
+    assert embedding.slot_policy is AttentionSlotPolicy.MASK_INVALID_EVENTS
 
     bin_input = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.BINS).dividend_input
     assert type(bin_input) is BinnedDividendInput
@@ -151,6 +154,26 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
     assert bins.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert bins.amount_scale is CashAmountScale.DIVIDE_BY_SPOT
     assert bin_input.order is DividendBinOrder.FARTHEST_TO_NEAREST
+
+
+def test_submitted_embedding_slot_policy_is_explicitly_distinct_from_corrected() -> None:
+    """The recovered fixed-capacity softmax cannot be mistaken for masked attention."""
+    corrected = PROJECT_NEURAL_STUDY_SPEC
+    submitted = PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC
+    corrected_input = corrected.model(NeuralVariant.EMBEDDING).dividend_input
+    submitted_input = submitted.model(NeuralVariant.EMBEDDING).dividend_input
+    assert type(corrected_input) is EventAttentionInput
+    assert type(submitted_input) is EventAttentionInput
+    assert corrected_input.slot_policy is AttentionSlotPolicy.MASK_INVALID_EVENTS
+    assert submitted_input.slot_policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING
+    assert (
+        submitted.model(NeuralVariant.EMBEDDING).dividend_representation
+        is DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION
+    )
+    assert neural_study_sha256(submitted) != neural_study_sha256(corrected)
+    for variant in NeuralVariant:
+        if variant is not NeuralVariant.EMBEDDING:
+            assert submitted.model(variant) == corrected.model(variant)
 
 
 def test_framework_independent_parameter_counts_are_frozen() -> None:

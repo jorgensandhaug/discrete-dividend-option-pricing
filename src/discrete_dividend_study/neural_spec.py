@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
-from typing import Final
+from typing import Final, cast
 
 from finoptions import (
     CashAmountScale,
@@ -50,6 +50,7 @@ class DividendRepresentation(StrEnum):
 
     PADDED_LSTM = "padded_lstm"
     MASKED_EVENT_ATTENTION = "masked_event_attention"
+    FIXED_CAPACITY_EVENT_ATTENTION = "fixed_capacity_event_attention"
     FIXED_TIME_BINS = "fixed_time_bins"
     FORECAST_YIELD = "forecast_yield"
     HISTORICAL_YIELD = "historical_yield"
@@ -103,6 +104,13 @@ class DividendBinOrder(StrEnum):
     """Declared order in which fixed maturity bins enter a neural trunk."""
 
     FARTHEST_TO_NEAREST = "farthest_to_nearest"
+
+
+class AttentionSlotPolicy(StrEnum):
+    """Declared treatment of invalid fixed-capacity event-attention slots."""
+
+    MASK_INVALID_EVENTS = "mask_invalid_events"
+    INCLUDE_ZERO_PADDING = "include_zero_padding"
 
 
 class EventFeature(StrEnum):
@@ -322,13 +330,14 @@ class DirectDividendLstmInput:
 
 @dataclass(frozen=True, slots=True)
 class EventAttentionInput:
-    """Chronological event embeddings consumed with the exact native validity mask."""
+    """Chronological event embeddings with an explicit fixed-capacity slot policy."""
 
     layout: PaddedSequenceSpec
     include_option_maturity: bool
     embedding_width: int
     embedding_layers: int
     embedding_activation: Activation
+    slot_policy: AttentionSlotPolicy
 
     def __post_init__(self) -> None:
         """Reject a malformed masked event encoder."""
@@ -349,6 +358,12 @@ class EventAttentionInput:
                 field="embedding.embedding_activation",
                 observed=self.embedding_activation,
                 requirement="Activation.RELU",
+            )
+        if type(self.slot_policy) is not AttentionSlotPolicy:
+            raise NeuralSpecValueError(
+                field="embedding.slot_policy",
+                observed=self.slot_policy,
+                requirement="an AttentionSlotPolicy",
             )
 
     @property
@@ -454,18 +469,25 @@ class NeuralModelSpec:
                 requirement="a nonempty unique tuple[str, ...]",
             )
         expected = _representation_for_input(self.dividend_input)
-        variant_representation = {
-            NeuralVariant.LSTM: DividendRepresentation.PADDED_LSTM,
-            NeuralVariant.EMBEDDING: DividendRepresentation.MASKED_EVENT_ATTENTION,
-            NeuralVariant.BINS: DividendRepresentation.FIXED_TIME_BINS,
-            NeuralVariant.FORECAST_YIELD: DividendRepresentation.FORECAST_YIELD,
-            NeuralVariant.HISTORICAL_YIELD: DividendRepresentation.HISTORICAL_YIELD,
+        variant_representations = {
+            NeuralVariant.LSTM: frozenset({DividendRepresentation.PADDED_LSTM}),
+            NeuralVariant.EMBEDDING: frozenset(
+                {
+                    DividendRepresentation.MASKED_EVENT_ATTENTION,
+                    DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION,
+                },
+            ),
+            NeuralVariant.BINS: frozenset({DividendRepresentation.FIXED_TIME_BINS}),
+            NeuralVariant.FORECAST_YIELD: frozenset({DividendRepresentation.FORECAST_YIELD}),
+            NeuralVariant.HISTORICAL_YIELD: frozenset(
+                {DividendRepresentation.HISTORICAL_YIELD},
+            ),
         }[self.variant]
-        if expected is not variant_representation:
+        if expected not in variant_representations:
             raise NeuralSpecValueError(
                 field="model.dividend_input",
                 observed=expected,
-                requirement=f"{variant_representation!r} for {self.variant.value}",
+                requirement=f"one of {variant_representations!r} for {self.variant.value}",
             )
         if type(self.dividend_input) is DividendYieldInput and (
             self.scalar_columns[-1] != self.dividend_input.column
@@ -632,7 +654,12 @@ def _representation_for_input(dividend_input: DividendInput) -> DividendRepresen
     if type(dividend_input) is DirectDividendLstmInput:
         return DividendRepresentation.PADDED_LSTM
     if type(dividend_input) is EventAttentionInput:
-        return DividendRepresentation.MASKED_EVENT_ATTENTION
+        return {
+            AttentionSlotPolicy.MASK_INVALID_EVENTS: DividendRepresentation.MASKED_EVENT_ATTENTION,
+            AttentionSlotPolicy.INCLUDE_ZERO_PADDING: (
+                DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION
+            ),
+        }[dividend_input.slot_policy]
     if type(dividend_input) is BinnedDividendInput:
         return DividendRepresentation.FIXED_TIME_BINS
     if type(dividend_input) is DividendYieldInput:
@@ -795,6 +822,7 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
                 embedding_width=8,
                 embedding_layers=1,
                 embedding_activation=Activation.RELU,
+                slot_policy=AttentionSlotPolicy.MASK_INVALID_EVENTS,
             ),
         ),
         NeuralModelSpec(
@@ -830,10 +858,33 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
     ),
 )
 
+_SUBMITTED_EMBEDDING_MODEL = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.EMBEDDING)
+_SUBMITTED_EMBEDDING_INPUT = cast(
+    "EventAttentionInput",
+    _SUBMITTED_EMBEDDING_MODEL.dividend_input,
+)
+PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC: Final = replace(
+    PROJECT_NEURAL_STUDY_SPEC,
+    models=tuple(
+        replace(
+            model,
+            dividend_input=replace(
+                _SUBMITTED_EMBEDDING_INPUT,
+                slot_policy=AttentionSlotPolicy.INCLUDE_ZERO_PADDING,
+            ),
+        )
+        if model.variant is NeuralVariant.EMBEDDING
+        else model
+        for model in PROJECT_NEURAL_STUDY_SPEC.models
+    ),
+)
+
 
 __all__ = [
+    "PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC",
     "PROJECT_NEURAL_STUDY_SPEC",
     "Activation",
+    "AttentionSlotPolicy",
     "BinnedDividendInput",
     "DirectDividendLstmInput",
     "DividendRepresentation",

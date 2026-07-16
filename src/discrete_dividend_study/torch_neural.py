@@ -25,6 +25,7 @@ from .neural_execution import (
 )
 from .neural_parameters import NeuralParameter
 from .neural_spec import (
+    AttentionSlotPolicy,
     BinnedDividendInput,
     DirectDividendLstmInput,
     DividendBinOrder,
@@ -177,7 +178,12 @@ class TorchProjectModel(nn.Module):
             for layer in self.embedding:
                 embedded = torch.relu(layer(embedded))
             logits = self.attention(embedded).squeeze(-1)
-            encoded = _masked_attention_sum(embedded, logits, batch.event_mask)
+            encoded = _attention_sum(
+                embedded,
+                logits,
+                batch.event_mask,
+                dividend_input.slot_policy,
+            )
             trunk = torch.cat((trunk, encoded), dim=1)
         elif type(dividend_input) is BinnedDividendInput:
             if batch.binned_amounts is None:
@@ -417,6 +423,21 @@ def _masked_attention_sum(
         torch.ones_like(denominator),
     )
     return (weights.unsqueeze(-1) * embedded).sum(dim=1)
+
+
+def _attention_sum(
+    embedded: torch.Tensor,
+    logits: torch.Tensor,
+    mask: torch.Tensor,
+    policy: AttentionSlotPolicy,
+) -> torch.Tensor:
+    """Apply exactly the declared valid-event or submitted fixed-capacity softmax."""
+    if policy is AttentionSlotPolicy.MASK_INVALID_EVENTS:
+        return _masked_attention_sum(embedded, logits, mask)
+    if policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING:
+        weights = torch.softmax(logits, dim=1)
+        return (weights.unsqueeze(-1) * embedded).sum(dim=1)
+    raise NeuralBackendContractError(reason=f"unsupported attention slot policy {policy!r}")
 
 
 def _load_parameters(network: TorchProjectModel, parameters: NeuralParameterSet) -> None:

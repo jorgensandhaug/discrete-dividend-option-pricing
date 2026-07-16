@@ -20,6 +20,7 @@ from .neural_backend import (
 from .neural_execution import NeuralBackend, NeuralExecutionSpec, NeuralRuntimeIdentity
 from .neural_parameters import NeuralParameter
 from .neural_spec import (
+    AttentionSlotPolicy,
     BinnedDividendInput,
     DirectDividendLstmInput,
     DividendBinOrder,
@@ -207,10 +208,11 @@ class MlxProjectModel(nn.Module):
         for layer in self.embedding:
             embedded = mx.maximum(layer(embedded), 0.0)
         logits = self.attention(embedded).squeeze(-1)
-        return _masked_attention_sum(
+        return _attention_sum(
             embedded,
             logits,
             batch.event_mask,
+            dividend_input.slot_policy,
         )
 
 
@@ -467,6 +469,21 @@ def _masked_attention_sum(
         mx.ones_like(denominator),
     )
     return mx.sum(weights[..., None] * embedded, axis=1)
+
+
+def _attention_sum(
+    embedded: mx.array,
+    logits: mx.array,
+    mask: mx.array,
+    policy: AttentionSlotPolicy,
+) -> mx.array:
+    """Apply exactly the declared valid-event or submitted fixed-capacity softmax."""
+    if policy is AttentionSlotPolicy.MASK_INVALID_EVENTS:
+        return _masked_attention_sum(embedded, logits, mask)
+    if policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING:
+        weights = mx.softmax(logits, axis=1)
+        return mx.sum(weights[..., None] * embedded, axis=1)
+    raise NeuralBackendContractError(reason=f"unsupported attention slot policy {policy!r}")
 
 
 def _load_parameters(network: MlxProjectModel, parameters: NeuralParameterSet) -> None:

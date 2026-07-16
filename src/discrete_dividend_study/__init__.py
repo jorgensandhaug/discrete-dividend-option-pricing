@@ -240,7 +240,9 @@ from .neural_run import (
     write_neural_window_run,
 )
 from .neural_spec import (
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
     PROJECT_NEURAL_STUDY_SPEC,
+    AttentionSlotPolicy,
     DividendRepresentation,
     EventFeature,
     LstmGateOrder,
@@ -864,6 +866,7 @@ __all__ = [
     "PROJECT_AS_SUBMITTED_FILTER",
     "PROJECT_AS_SUBMITTED_FORECAST_DIVIDEND_SPEC",
     "PROJECT_AS_SUBMITTED_HISTORICAL_DIVIDEND_SPEC",
+    "PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC",
     "PROJECT_AS_SUBMITTED_NSS_RATE_SPEC",
     "PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC",
     "PROJECT_AS_SUBMITTED_TICKERS",
@@ -909,6 +912,7 @@ __all__ = [
     "AdaptedLongFormOptionQuotes",
     "AdaptedOratsCurve",
     "ArtifactFileIdentity",
+    "AttentionSlotPolicy",
     "ClassicalArtifactError",
     "ClassicalComparisonError",
     "ClassicalComparisonRow",
