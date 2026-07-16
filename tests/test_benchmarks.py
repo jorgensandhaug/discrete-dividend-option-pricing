@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from benchmarks._support import BenchmarkPlatformError, normalize_max_rss_bytes
 from benchmarks.neural_rolling_preparation import main as rolling_preparation_main
-from benchmarks.neural_training import synthetic_neural_batch
+from benchmarks.neural_training import (
+    ExecutionChoice,
+    resolve_benchmark_execution,
+    synthetic_neural_batch,
+)
 from benchmarks.tabpfn_preparation import main as tabpfn_preparation_main
+from discrete_dividend_study.neural_execution import NeuralBackend, NeuralDevice
 from discrete_dividend_study.neural_spec import NeuralVariant
 
 SYNTHETIC_ROWS = 7
@@ -19,6 +25,31 @@ RSS_SAMPLE = 123
 TABPFN_FEATURE_COLUMNS = 18
 TABPFN_FLOAT32_BYTES = 4
 TABPFN_ROWS = 1000
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_neural_benchmark_recipe_uses_importable_package_module() -> None:
+    """The documented recipe must preserve the repository root on Python's import path."""
+    justfile = (REPOSITORY_ROOT / "justfile").read_text()
+    assert "python -m benchmarks.neural_training" in justfile
+    assert "python benchmarks/neural_training.py" not in justfile
+
+
+def test_benchmark_execution_choice_is_explicit_and_backend_stable() -> None:
+    """Alternative measurements resolve the requested backend rather than the host default."""
+    variant = NeuralVariant.EMBEDDING
+    cpu = resolve_benchmark_execution(ExecutionChoice.TORCH_CPU, variant, 3)
+    gpu = resolve_benchmark_execution(ExecutionChoice.MLX_GPU, variant, 3)
+    assert (cpu.backend, cpu.device, cpu.cpu_threads) == (
+        NeuralBackend.PYTORCH,
+        NeuralDevice.CPU,
+        3,
+    )
+    assert (gpu.backend, gpu.device, gpu.cpu_threads) == (
+        NeuralBackend.MLX,
+        NeuralDevice.MLX_GPU,
+        None,
+    )
 
 
 @pytest.mark.parametrize("variant", list(NeuralVariant))

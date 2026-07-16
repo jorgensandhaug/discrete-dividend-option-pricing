@@ -9,13 +9,18 @@ request is validated before model construction and fails if its exact package ve
 unavailable. The repository's portable uv environment pins PyTorch to its explicit CPU-only index,
 so the locked Linux workflow never acquires an unused CUDA stack. MLX remains a separate opt-in
 extra and uses its explicit CPU distribution on Linux. The measured Apple-silicon profile uses
-eager one-thread PyTorch CPU for the five-slot LSTM and event-attention models, and compiled MLX GPU
-for the binned and two scalar-yield variants. A cold 100,000-row inference sweep selected an
-explicit physical batch of 8,192 for every variant: against 128, throughput improved from roughly
-328k to 779k rows/s for LSTM, 455k to 1.09m for event attention, and 0.30-0.38m to 2.19-2.28m for the
-three MLX models in isolated processes. The portable profile explicitly requests eager one-thread PyTorch CPU and the same
-bounded inference geometry for all variants. A CUDA profile is not admitted until it is measured on
-the target cluster.
+eager one-thread PyTorch CPU for the direct five-event LSTM and compiled MLX GPU for event
+attention, binned cash and both scalar-yield models. The verified study has 161,731--240,524
+training rows per window, with a median of 198,653. At the representative 200,000/6,000-row,
+ten-epoch geometry, PyTorch was 3.3% faster for direct LSTM, while MLX reduced event-attention wall
+time by 26.9% and peak memory by 21.5%. MLX also reduced binned-cash and scalar-yield training time
+by 25.1% and 28.3%, with about 20% lower peak memory. The roughly 6,000-row final inference pass is
+milliseconds for either backend and does not reverse the training decision. The immutable Apple
+profile therefore advances from `v3` to `v4`; old requests retain their original identity and are
+never reinterpreted. The portable profile still requests eager one-thread PyTorch CPU and the same
+bounded inference geometry for all variants. A CUDA profile is not admitted until it is measured
+on the target cluster. Complete measurements are recorded in
+[the retained performance note](../performance/2026-07-16-production-scale-neural-apple-profile.md).
 
 Framework initialization is not part of experiment identity. NumPy PCG64DXSM produces one
 read-only, content-hashed float32 parameter set from an unsigned 64-bit seed, with explicit draw

@@ -20,11 +20,11 @@ test:
 full: check test
     uv build
 
-bench-neural variant="nn_bin" rows="100000" validation_rows="10000" epochs="10":
-    python3 tools/dev.py -- python benchmarks/neural_training.py --variant {{variant}} --rows {{rows}} --validation-rows {{validation_rows}} --epochs {{epochs}}
+bench-neural variant="nn_bin" rows="100000" validation_rows="10000" epochs="10" execution="profile" threads="1":
+    python3 tools/dev.py -- python -m benchmarks.neural_training --variant {{variant}} --rows {{rows}} --validation-rows {{validation_rows}} --epochs {{epochs}} --execution {{execution}} --threads {{threads}}
 
-bench-inference variant="nn_bin" rows="100000" batch_size="8192":
-    python3 tools/dev.py -- python -m benchmarks.neural_inference --variant {{variant}} --rows {{rows}} --batch-size {{batch_size}}
+bench-inference variant="nn_bin" rows="100000" batch_size="8192" execution="profile" threads="1":
+    python3 tools/dev.py -- python -m benchmarks.neural_inference --variant {{variant}} --rows {{rows}} --batch-size {{batch_size}} --execution {{execution}} --threads {{threads}}
 
 bench-rolling-preparation strategy="full_horizon" rows="100000" windows="12" threads="1":
     python3 tools/dev.py -- python -m benchmarks.neural_rolling_preparation --strategy {{strategy}} --rows {{rows}} --windows {{windows}} --threads {{threads}}

@@ -101,7 +101,12 @@ def main() -> None:
     )
     study = replace(PROJECT_NEURAL_STUDY_SPEC, training=training)
     parameters = initialize_neural_parameters(study, training_batch.model, PARAMETER_SEED)
-    execution = _execution(ExecutionChoice(arguments.execution), variant, arguments.threads)
+    execution_choice = ExecutionChoice(arguments.execution)
+    execution = resolve_benchmark_execution(
+        execution_choice,
+        variant,
+        arguments.threads,
+    )
     request = NeuralTrainingRequest(
         study=study,
         parameters=parameters,
@@ -129,6 +134,12 @@ def main() -> None:
                 "device": execution.device.value,
                 "elapsed_seconds": elapsed,
                 "epochs": completed,
+                "execution_choice": execution_choice.value,
+                "execution_profile": (
+                    PROJECT_APPLE_SILICON_EXECUTION_PROFILE.name
+                    if execution_choice is ExecutionChoice.PROFILE
+                    else None
+                ),
                 "machine": platform.machine(),
                 "max_rss_bytes": max_rss_bytes(),
                 "rows": arguments.rows,
@@ -239,11 +250,12 @@ def _synthetic_dividends(
     return None
 
 
-def _execution(
+def resolve_benchmark_execution(
     choice: ExecutionChoice,
     variant: NeuralVariant,
     threads: int,
 ) -> NeuralExecutionSpec:
+    """Resolve one explicit benchmark backend without automatic fallback."""
     if choice is ExecutionChoice.PROFILE:
         return PROJECT_APPLE_SILICON_EXECUTION_PROFILE.for_variant(variant)
     if choice is ExecutionChoice.TORCH_CPU:
