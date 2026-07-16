@@ -61,7 +61,7 @@ from .neural_execution import (
     NeuralExecutionProfile,
 )
 from .neural_run import resolve_study_source_identity
-from .neural_spec import PROJECT_NEURAL_STUDY_SPEC
+from .neural_spec import PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC
 from .neural_study import (
     NeuralRollingStudyRequest,
     load_neural_rolling_study,
@@ -925,7 +925,7 @@ def _run_neural_study(
             paper_revision=context.paper_revision,
             engine_revision=context.engine_revision,
             windows=generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC),
-            study=PROJECT_NEURAL_STUDY_SPEC,
+            study=PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
             execution_profile=profile,
             seed_plan=project_neural_seed_plan(
                 arguments.parameter_root_seed,

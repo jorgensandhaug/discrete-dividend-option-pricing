@@ -436,7 +436,8 @@ block length holds the observed year composition fixed as a temporal-stability d
 not enter the primary Holm family. This layer consumes the completed pricing artifact; it never
 changes or reruns a pricing method.
 
-`PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
+`PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project
+neural variants used by the primary command.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared
 float32 scalar, target, and dividend representation. Cash-event children stay zero-copy when Polars
 storage permits it; any rechunk is an explicit caller policy, and every invalid layout fails before

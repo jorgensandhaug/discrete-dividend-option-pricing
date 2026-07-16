@@ -21,7 +21,7 @@ differ only in how dividends enter the model:
 | Model | Dividend representation |
 |---|---|
 | Direct cash dividends (LSTM) | Ordered event sequence with exact logical length |
-| Direct cash dividends (attention) | Masked set of learned event embeddings |
+| Direct cash dividends (attention) | Fixed-capacity learned event attention |
 | Direct cash dividends (12 bins) | Fixed maturity-bucket vector |
 | Forecast continuous yield | One scalar derived from forecast dividends |
 | Historical continuous yield | One trailing realized-dividend scalar |
@@ -31,8 +31,9 @@ reserves the final 30 days for validation, evaluates on the following 30 days, a
 days. Metrics are pooled over observations after every window completes; window RMSE values are
 never averaged.
 
-The complete framework-neutral identity—including event order, masks, features, architecture,
-initialization, loss, optimizer, scheduler, batching, and early stopping—is defined in
+The authoritative submitted framework-neutral identity—including event order, slot policy,
+features, architecture, initialization, loss, optimizer, scheduler, batching, and early stopping—is
+defined as `PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC` in
 [`neural_spec.py`](src/discrete_dividend_study/neural_spec.py). PyTorch and MLX implement that one
 identity and are tested against the same canonical parameters, forward outputs, and gradients.
 

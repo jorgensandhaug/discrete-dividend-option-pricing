@@ -8,7 +8,11 @@ from typing import Final
 import polars as pl
 
 from .neural_run import NeuralRunWindow
-from .neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant, neural_study_sha256
+from .neural_spec import (
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
+    NeuralVariant,
+    neural_study_sha256,
+)
 from .neural_study import NeuralRollingStudyArtifact
 from .project_metrics import ProjectPricingMetrics
 from .rolling_windows import PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC, generate_rolling_windows
@@ -65,7 +69,7 @@ class NeuralTableRow:
             raise NeuralTableError(reason="row variant must be NeuralVariant")
         if self.label != _MODEL_LABELS[self.variant]:
             raise NeuralTableError(reason="row label differs from the canonical public label")
-        model = PROJECT_NEURAL_STUDY_SPEC.model(self.variant)
+        model = PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC.model(self.variant)
         if self.submitted_result_name != model.submitted_result_name:
             raise NeuralTableError(reason="row result name differs from the submitted identity")
         expected_windows = len(generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC))
@@ -108,7 +112,7 @@ def build_neural_publication_table(
     if type(artifact) is not NeuralRollingStudyArtifact:
         raise NeuralTableError(reason="artifact must be NeuralRollingStudyArtifact")
     manifest = artifact.manifest
-    if manifest.study_sha256 != neural_study_sha256(PROJECT_NEURAL_STUDY_SPEC):
+    if manifest.study_sha256 != neural_study_sha256(PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC):
         raise NeuralTableError(
             reason="artifact study identity differs from the submitted model spec"
         )

@@ -12,7 +12,7 @@ import pytest
 from discrete_dividend_study.cli import main as cli_main
 from discrete_dividend_study.neural_run import NeuralRunWindow, StudySourceIdentity
 from discrete_dividend_study.neural_spec import (
-    PROJECT_NEURAL_STUDY_SPEC,
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
     NeuralVariant,
     neural_study_sha256,
 )
@@ -83,7 +83,7 @@ def _artifact() -> NeuralRollingStudyArtifact:
     seed_plan = project_neural_seed_plan(101, 202)
     runs: list[NeuralStudyRunReference] = []
     results: list[NeuralModelStudyResult] = []
-    for model_index, model in enumerate(PROJECT_NEURAL_STUDY_SPEC.models):
+    for model_index, model in enumerate(PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC.models):
         model_runs = tuple(
             NeuralStudyRunReference(
                 variant=model.variant.value,
@@ -128,7 +128,7 @@ def _artifact() -> NeuralRollingStudyArtifact:
             engine_revision="b" * 40,
             dependency_lock_sha256="3" * 64,
         ),
-        study_sha256=neural_study_sha256(PROJECT_NEURAL_STUDY_SPEC),
+        study_sha256=neural_study_sha256(PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC),
         execution_profile="test-profile",
         seed_plan=seed_plan,
         windows=windows,
