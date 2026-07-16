@@ -56,6 +56,11 @@ from .local_resources import (
     acquire_local_heavy_process_lease,
 )
 from .market_calendar import load_project_xnys_calendar
+from .neural_cohort import (
+    NeuralCohortError,
+    build_project_neural_cohort_manifest,
+    write_neural_cohort_artifact,
+)
 from .neural_execution import (
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
     PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
@@ -188,6 +193,7 @@ _MINIMUM_ARCHIVE_YEAR: Final = 2007
 _MAXIMUM_ARCHIVE_YEAR: Final = 9999
 _HEAVY_STUDY_COMMANDS: Final = frozenset(
     {
+        "freeze-neural-cohort",
         "run-classical-study",
         "run-neural-study",
         "run-publication-cash-replications",
@@ -277,6 +283,8 @@ def _run_heavy_study_command(arguments: argparse.Namespace) -> int:
         paper_revision=paper_revision,
         engine_revision=engine_revision,
     )
+    if arguments.command == "freeze-neural-cohort":
+        return _freeze_neural_cohort(arguments, context)
     if arguments.command == "run-neural-study":
         return _run_neural_study(arguments, context)
     if arguments.command == "run-classical-study":
@@ -944,6 +952,61 @@ def _run_neural_study(
     return 0
 
 
+def _freeze_neural_cohort(
+    arguments: argparse.Namespace,
+    context: _StudyCliContext,
+) -> int:
+    """Prepare every model view and persist one aggregate-only cohort identity."""
+    source = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    try:
+        manifest = build_project_neural_cohort_manifest(
+            context.feature_artifact,
+            source,
+            CpuExecutor(threads=arguments.data_threads),
+        )
+    except NeuralCohortError as error:
+        raise StudyCliError(reason=str(error)) from error
+    source_after = resolve_study_source_identity(
+        context.feature_artifact,
+        context.paper_root / "uv.lock",
+        context.paper_revision,
+        context.engine_revision,
+    )
+    if source_after != source:
+        raise StudyCliError(reason="source or dependency lock changed during cohort preparation")
+    try:
+        artifact = write_neural_cohort_artifact(context.artifact_root, manifest)
+    except NeuralCohortError as error:
+        raise StudyCliError(reason=str(error)) from error
+    summary = {
+        "artifact_path": str(artifact.path),
+        "artifact_rows": manifest.artifact_rows,
+        "cohort_sha256": artifact.sha256,
+        "models": tuple(
+            {
+                "prepared_batch_sha256": model.prepared_batch_sha256,
+                "variant": model.variant,
+            }
+            for model in manifest.models
+        ),
+        "prepared_horizon_rows": manifest.prepared_horizon_rows,
+        "test_union_rows": manifest.test_union_rows,
+        "tickers": tuple(
+            {"test_rows": item.test_rows, "ticker": item.ticker} for item in manifest.tickers
+        ),
+        "windows": len(manifest.windows),
+    }
+    sys.stdout.write(
+        json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    )
+    return 0
+
+
 def _render_classical_table(arguments: argparse.Namespace) -> int:
     artifact = _required_path(arguments.artifact, field="artifact", kind="file")
     comparison = build_classical_publication_comparison(load_classical_study_artifact(artifact))
@@ -1243,6 +1306,19 @@ def _parser() -> argparse.ArgumentParser:
     _add_project_feature_command(commands)
     heavy_parent = argparse.ArgumentParser(add_help=False)
     _add_local_resource_lock_argument(heavy_parent)
+    cohort = commands.add_parser(
+        "freeze-neural-cohort",
+        help="verify and freeze the aggregate-only five-model cohort identity",
+        parents=(heavy_parent,),
+    )
+    cohort.add_argument("--features", type=Path, required=True)
+    cohort.add_argument(
+        "--feature-artifact-kind",
+        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
+        required=True,
+    )
+    cohort.add_argument("--artifacts", type=Path, required=True)
+    cohort.add_argument("--data-threads", type=_positive_int, required=True)
     neural = commands.add_parser(
         "run-neural-study",
         help="run or exactly resume the complete five-model rolling neural study",

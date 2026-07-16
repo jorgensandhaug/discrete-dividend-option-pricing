@@ -24,7 +24,22 @@ Those stages are strict and content-addressed. If an organization writes its own
 it must preserve the final ordered schema and produce the verified feature artifact and receipt
 expected by the study loader.
 
-## 3. Run the rolling neural experiment
+## 3. Freeze the neural cohort
+
+```shell
+uv run --locked discrete-dividend-study freeze-neural-cohort \
+  --features /private/features/project_experiment_features.parquet \
+  --feature-artifact-kind project-experiment \
+  --artifacts /private/artifacts/neural \
+  --data-threads 4
+```
+
+This command verifies the feature bytes and receipt, source-code and dependency identities, the
+complete rolling schedule, every nonempty phase, submitted ticker coverage, and the exact prepared
+tensor bytes for all five models. It writes only an aggregate content-addressed manifest. Any
+invalid input fails before training.
+
+## 4. Run the rolling neural experiment
 
 ```shell
 uv run --locked discrete-dividend-study run-neural-study \
@@ -45,7 +60,7 @@ The command validates the entire schedule and all requested runtimes before trai
 the same request resumes completed windows; changing data, code, dependencies, configuration,
 seeds, backend, or rolling phase creates a different request identity.
 
-## 4. Render aggregate results
+## 5. Render aggregate results
 
 ```shell
 uv run --locked discrete-dividend-study render-neural-table \
@@ -57,12 +72,13 @@ The renderer requires every expected model and window and rejects mixed cohorts 
 specification. Output contains only aggregate metrics and source hashes, not licensed rows or
 machine-local paths.
 
-## 5. Archive a run
+## 6. Archive a run
 
 Retain together:
 
 - the exact Git revision and `uv.lock`;
 - the feature Parquet and receipt;
+- the cohort manifest;
 - the complete study manifest and referenced window artifacts;
 - the selected execution profile and seeds; and
 - the aggregate rendered tables.

@@ -46,8 +46,19 @@ are included for users licensed to access the corresponding source fields.
 
 ## Reproduce the study
 
-Given a verified feature artifact and its receipt, run all five models over the complete 117-window
-schedule:
+Given a verified feature artifact and its receipt, freeze the exact five-model input cohort before
+training:
+
+```shell
+uv run --locked discrete-dividend-study freeze-neural-cohort \
+  --features /private/features/project_experiment_features.parquet \
+  --feature-artifact-kind project-experiment \
+  --artifacts /private/artifacts/neural \
+  --data-threads 4
+```
+
+The aggregate-only cohort artifact hashes every prepared model representation and all 117 phase
+row counts without copying licensed observations into the repository. Then run the complete study:
 
 ```shell
 uv run --locked discrete-dividend-study run-neural-study \
@@ -81,6 +92,7 @@ data, configuration, seeds, software revisions, and runtime identity match. See
 - `neural_spec.py`: typed architecture and training configuration.
 - `torch_neural.py` and `mlx_neural.py`: backend implementations of that configuration.
 - `project_pipeline.py`: point-in-time feature construction and filtering.
+- `neural_cohort.py`: fail-fast schedule, coverage, and prepared-tensor admission.
 - `neural_study.py`: rolling execution and exact resume.
 - `finoptions-engine`: the separately versioned Rust pricing and simulation dependency.
 
