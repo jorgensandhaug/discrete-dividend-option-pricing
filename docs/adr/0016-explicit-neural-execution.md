@@ -26,9 +26,12 @@ Framework initialization is not part of experiment identity. NumPy PCG64DXSM pro
 read-only, content-hashed float32 parameter set from an unsigned 64-bit seed, with explicit draw
 order, shapes, and names. Both frameworks load that same set before use. The LSTM matrices use
 input-forget-cell-output gate order; event features are ordered as option maturity, chronological
-dividend time, and cash amount divided by spot. Sequence state is selected at the last real event,
-never after padding. Masked attention assigns an exactly zero event representation to an empty
-schedule, avoiding an undefined all-masked softmax.
+dividend time, and cash amount divided by spot in storage. The recurrent model reverses the logical
+event prefix from farthest to nearest before evaluation, then selects sequence state at the nearest
+real event, never after padding. Masked attention assigns an exactly zero event representation to
+an empty schedule, avoiding an undefined all-masked softmax.
+The binned model likewise retains chronological interval construction but reverses the completed
+twelve-bin vector from farthest to nearest before concatenating it to the scalar trunk.
 
 AdamW learning rate, beta coefficients, epsilon, decoupled weight decay, and bias correction are
 all study values. Neither framework may supply an optimizer default. Validation-plateau scheduling,

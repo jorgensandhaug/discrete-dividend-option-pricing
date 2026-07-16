@@ -12,9 +12,11 @@ from discrete_dividend_study.neural_spec import (
     PROJECT_NEURAL_STUDY_SPEC,
     BinnedDividendInput,
     DirectDividendLstmInput,
+    DividendBinOrder,
     DividendRepresentation,
     EventAttentionInput,
     EventFeature,
+    EventSequenceOrder,
     LstmGateOrder,
     NeuralSpecValueError,
     NeuralVariant,
@@ -138,6 +140,7 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
             EventFeature.DIVIDEND_AMOUNT_OVER_SPOT,
         )
     assert lstm.gate_order is LstmGateOrder.INPUT_FORGET_CELL_OUTPUT
+    assert lstm.sequence_order is EventSequenceOrder.FARTHEST_TO_NEAREST
 
     bin_input = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.BINS).dividend_input
     assert type(bin_input) is BinnedDividendInput
@@ -147,6 +150,7 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
     assert bins.closure is TimeBinClosure.LEFT_OPEN_RIGHT_CLOSED
     assert bins.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
     assert bins.amount_scale is CashAmountScale.DIVIDE_BY_SPOT
+    assert bin_input.order is DividendBinOrder.FARTHEST_TO_NEAREST
 
 
 def test_framework_independent_parameter_counts_are_frozen() -> None:

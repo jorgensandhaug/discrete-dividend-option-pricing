@@ -93,6 +93,18 @@ class LstmGateOrder(StrEnum):
     INPUT_FORGET_CELL_OUTPUT = "input_forget_cell_output"
 
 
+class EventSequenceOrder(StrEnum):
+    """Declared order in which a recurrent encoder consumes dividend events."""
+
+    FARTHEST_TO_NEAREST = "farthest_to_nearest"
+
+
+class DividendBinOrder(StrEnum):
+    """Declared order in which fixed maturity bins enter a neural trunk."""
+
+    FARTHEST_TO_NEAREST = "farthest_to_nearest"
+
+
 class EventFeature(StrEnum):
     """Canonical feature order inside one discrete-dividend event."""
 
@@ -264,9 +276,10 @@ class TrainingSpec:
 
 @dataclass(frozen=True, slots=True)
 class DirectDividendLstmInput:
-    """Chronological sequence consumed with exact lengths, never padded state updates."""
+    """Reverse-chronological sequence consumed with exact logical lengths."""
 
     layout: PaddedSequenceSpec
+    sequence_order: EventSequenceOrder
     include_option_maturity: bool
     hidden_size: int
     layers: int
@@ -280,6 +293,12 @@ class DirectDividendLstmInput:
                 field="lstm.layout",
                 observed=self.layout,
                 requirement="a PaddedSequenceSpec",
+            )
+        if self.sequence_order is not EventSequenceOrder.FARTHEST_TO_NEAREST:
+            raise NeuralSpecValueError(
+                field="lstm.sequence_order",
+                observed=self.sequence_order,
+                requirement="EventSequenceOrder.FARTHEST_TO_NEAREST",
             )
         _require_plain_bool(self.include_option_maturity, field="lstm.include_option_maturity")
         _require_positive_int(self.hidden_size, field="lstm.hidden_size")
@@ -343,9 +362,10 @@ class EventAttentionInput:
 
 @dataclass(frozen=True, slots=True)
 class BinnedDividendInput:
-    """Chronological fixed-width cash-dividend bins concatenated to scalar features."""
+    """Fixed-width cash-dividend bins with an explicit neural-trunk order."""
 
     layout: DividendBinSpec
+    order: DividendBinOrder
 
     def __post_init__(self) -> None:
         """Reject a non-native bin identity."""
@@ -354,6 +374,12 @@ class BinnedDividendInput:
                 field="bins.layout",
                 observed=self.layout,
                 requirement="a DividendBinSpec",
+            )
+        if self.order is not DividendBinOrder.FARTHEST_TO_NEAREST:
+            raise NeuralSpecValueError(
+                field="bins.order",
+                observed=self.order,
+                requirement="DividendBinOrder.FARTHEST_TO_NEAREST",
             )
 
 
@@ -750,6 +776,7 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
             target_column=_TARGET_COLUMN,
             dividend_input=DirectDividendLstmInput(
                 layout=_PROJECT_SEQUENCE_LAYOUT,
+                sequence_order=EventSequenceOrder.FARTHEST_TO_NEAREST,
                 include_option_maturity=True,
                 hidden_size=8,
                 layers=1,
@@ -775,7 +802,10 @@ PROJECT_NEURAL_STUDY_SPEC: Final = NeuralStudySpec(
             submitted_result_name="R2_AT_NN_FD_12B",
             scalar_columns=_BASE_SCALAR_COLUMNS,
             target_column=_TARGET_COLUMN,
-            dividend_input=BinnedDividendInput(layout=_PROJECT_BIN_LAYOUT),
+            dividend_input=BinnedDividendInput(
+                layout=_PROJECT_BIN_LAYOUT,
+                order=DividendBinOrder.FARTHEST_TO_NEAREST,
+            ),
         ),
         NeuralModelSpec(
             variant=NeuralVariant.FORECAST_YIELD,

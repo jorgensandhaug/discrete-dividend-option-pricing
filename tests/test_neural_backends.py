@@ -22,6 +22,12 @@ from discrete_dividend_study.mlx_neural import (
     mlx_smape_objective,
     prepare_mlx_neural_batch,
 )
+from discrete_dividend_study.mlx_neural import (
+    _order_dividend_bins as order_mlx_dividend_bins,
+)
+from discrete_dividend_study.mlx_neural import (
+    _order_lstm_events as order_mlx_lstm_events,
+)
 from discrete_dividend_study.model_inputs import PreparedNeuralBatch
 from discrete_dividend_study.neural_backend import NeuralBackendContractError
 from discrete_dividend_study.neural_batching import (
@@ -37,6 +43,8 @@ from discrete_dividend_study.neural_execution import (
 from discrete_dividend_study.neural_parameters import initialize_neural_parameters
 from discrete_dividend_study.neural_spec import (
     PROJECT_NEURAL_STUDY_SPEC,
+    BinnedDividendInput,
+    DirectDividendLstmInput,
     ModelPrecision,
     NeuralVariant,
 )
@@ -50,6 +58,12 @@ from discrete_dividend_study.torch_neural import (
     torch_parameter_name_to_canonical,
     torch_prediction_numpy,
     torch_smape_objective,
+)
+from discrete_dividend_study.torch_neural import (
+    _order_dividend_bins as order_torch_dividend_bins,
+)
+from discrete_dividend_study.torch_neural import (
+    _order_lstm_events as order_torch_lstm_events,
 )
 
 ROWS: Final = 8
@@ -148,6 +162,92 @@ def test_empty_event_schedules_have_finite_zero_weight_attention() -> None:
     mlx_batch = prepare_mlx_neural_batch(prepared, mlx_model)
     assert np.isfinite(torch_prediction_numpy(torch_model, torch_batch)[0]).all()
     assert np.isfinite(mlx_prediction_numpy(mlx_model, mlx_batch)[0]).all()
+
+
+def test_lstm_consumes_real_events_farthest_to_nearest() -> None:
+    """Both backends expose the submitted reverse-chronological recurrent contract."""
+    prepared = _prepared_batch(NeuralVariant.LSTM)
+    model = prepared.model
+    parameters = initialize_neural_parameters(PROJECT_NEURAL_STUDY_SPEC, model, SEED)
+    torch_model = build_torch_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=model,
+        parameters=parameters,
+        execution=_PYTORCH_CPU_1,
+    )
+    mlx_model = build_mlx_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=model,
+        parameters=parameters,
+        execution=_MLX_CPU,
+    )
+    torch_batch = prepare_torch_neural_batch(prepared, torch_model)
+    mlx_batch = prepare_mlx_neural_batch(prepared, mlx_model)
+    assert torch_batch.event_times is not None
+    assert torch_batch.event_lengths is not None
+    assert mlx_batch.event_times is not None
+    assert mlx_batch.event_lengths is not None
+
+    assert isinstance(model.dividend_input, DirectDividendLstmInput)
+    order = model.dividend_input.sequence_order
+    torch_ordered = order_torch_lstm_events(
+        torch_batch.event_times[:, :, None],
+        torch_batch.event_lengths,
+        order,
+    )[:, :, 0].detach().cpu().numpy()
+    mlx_ordered_array = order_mlx_lstm_events(
+        mlx_batch.event_times[:, :, None],
+        mlx_batch.event_lengths,
+        order,
+    )[:, :, 0]
+    mx.eval(mlx_ordered_array)
+    mlx_ordered = np.array(mlx_ordered_array, copy=True)
+    assert isinstance(prepared.dividends, PaddedCashDividends)
+    expected = prepared.dividends.times.copy()
+    for row, length_value in enumerate(prepared.dividends.lengths):
+        length = int(length_value)
+        expected[row, :length] = expected[row, :length][::-1]
+    np.testing.assert_array_equal(torch_ordered, expected)
+    np.testing.assert_array_equal(mlx_ordered, expected)
+
+
+def test_binned_model_consumes_months_farthest_to_nearest() -> None:
+    """Both backends expose the submitted reverse monthly-bin input contract."""
+    prepared = _prepared_batch(NeuralVariant.BINS)
+    assert isinstance(prepared.dividends, BinnedCashDividends)
+    model = prepared.model
+    parameters = initialize_neural_parameters(PROJECT_NEURAL_STUDY_SPEC, model, SEED)
+    torch_model = build_torch_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=model,
+        parameters=parameters,
+        execution=_PYTORCH_CPU_1,
+    )
+    mlx_model = build_mlx_project_model(
+        study=PROJECT_NEURAL_STUDY_SPEC,
+        model=model,
+        parameters=parameters,
+        execution=_MLX_CPU,
+    )
+    torch_batch = prepare_torch_neural_batch(prepared, torch_model)
+    mlx_batch = prepare_mlx_neural_batch(prepared, mlx_model)
+    assert torch_batch.binned_amounts is not None
+    assert mlx_batch.binned_amounts is not None
+    bin_input = model.dividend_input
+    assert isinstance(bin_input, BinnedDividendInput)
+    torch_ordered = order_torch_dividend_bins(
+        torch_batch.binned_amounts,
+        bin_input.order,
+    ).detach().cpu().numpy()
+    mlx_ordered_array = order_mlx_dividend_bins(
+        mlx_batch.binned_amounts,
+        bin_input.order,
+    )
+    mx.eval(mlx_ordered_array)
+    mlx_ordered = np.array(mlx_ordered_array, copy=True)
+    expected = prepared.dividends.amounts[:, ::-1]
+    np.testing.assert_array_equal(torch_ordered, expected)
+    np.testing.assert_array_equal(mlx_ordered, expected)
 
 
 @pytest.mark.parametrize("variant", list(NeuralVariant))

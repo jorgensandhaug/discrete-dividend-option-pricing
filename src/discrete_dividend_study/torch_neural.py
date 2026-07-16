@@ -27,9 +27,11 @@ from .neural_parameters import NeuralParameter
 from .neural_spec import (
     BinnedDividendInput,
     DirectDividendLstmInput,
+    DividendBinOrder,
     DividendYieldInput,
     EventAttentionInput,
     EventFeature,
+    EventSequenceOrder,
     NeuralModelSpec,
     NeuralStudySpec,
     TrainingSpec,
@@ -152,6 +154,11 @@ class TorchProjectModel(nn.Module):
             events = _event_tensor(batch, dividend_input.event_features)
             if self.lstm is None or batch.event_lengths is None:
                 raise NeuralBackendContractError(reason="LSTM inputs or module are absent")
+            events = _order_lstm_events(
+                events,
+                batch.event_lengths,
+                dividend_input.sequence_order,
+            )
             hidden, _ = self.lstm(events)
             indices = torch.clamp(batch.event_lengths - 1, min=0).view(-1, 1, 1)
             indices = indices.expand(-1, 1, dividend_input.hidden_size)
@@ -175,7 +182,8 @@ class TorchProjectModel(nn.Module):
         elif type(dividend_input) is BinnedDividendInput:
             if batch.binned_amounts is None:
                 raise NeuralBackendContractError(reason="binned inputs are absent")
-            trunk = torch.cat((trunk, batch.binned_amounts), dim=1)
+            bins = _order_dividend_bins(batch.binned_amounts, dividend_input.order)
+            trunk = torch.cat((trunk, bins), dim=1)
         for layer in self.mlp:
             trunk = torch.nn.functional.leaky_relu(
                 layer(trunk),
@@ -356,6 +364,34 @@ def _event_tensor(
         else:
             raise NeuralBackendContractError(reason=f"unsupported event feature {feature!r}")
     return torch.stack(columns, dim=2)
+
+
+def _order_lstm_events(
+    events: torch.Tensor,
+    lengths: torch.Tensor,
+    order: EventSequenceOrder,
+) -> torch.Tensor:
+    """Return right-padded events in the exact order consumed by the project LSTM."""
+    if order is not EventSequenceOrder.FARTHEST_TO_NEAREST:
+        raise NeuralBackendContractError(reason=f"unsupported LSTM event order {order!r}")
+    positions = torch.arange(events.shape[1], dtype=torch.int64, device=events.device)
+    positions = positions.view(1, -1).expand(events.shape[0], -1)
+    reverse = torch.where(
+        positions < lengths[:, None],
+        lengths[:, None] - 1 - positions,
+        positions,
+    )
+    return torch.gather(events, 1, reverse[:, :, None].expand_as(events))
+
+
+def _order_dividend_bins(
+    bins: torch.Tensor,
+    order: DividendBinOrder,
+) -> torch.Tensor:
+    """Return monthly cash bins in the exact order consumed by the project MLP."""
+    if order is not DividendBinOrder.FARTHEST_TO_NEAREST:
+        raise NeuralBackendContractError(reason=f"unsupported dividend-bin order {order!r}")
+    return torch.flip(bins, dims=[1])
 
 
 def _masked_attention_sum(

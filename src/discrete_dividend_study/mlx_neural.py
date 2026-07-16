@@ -22,9 +22,11 @@ from .neural_parameters import NeuralParameter
 from .neural_spec import (
     BinnedDividendInput,
     DirectDividendLstmInput,
+    DividendBinOrder,
     DividendYieldInput,
     EventAttentionInput,
     EventFeature,
+    EventSequenceOrder,
     NeuralModelSpec,
     NeuralStudySpec,
     TrainingSpec,
@@ -163,7 +165,8 @@ class MlxProjectModel(nn.Module):
         if type(dividend_input) is BinnedDividendInput:
             if batch.binned_amounts is None:
                 raise NeuralBackendContractError(reason="binned inputs are absent")
-            return mx.concatenate((batch.scalar_features, batch.binned_amounts), axis=1)
+            bins = _order_dividend_bins(batch.binned_amounts, dividend_input.order)
+            return mx.concatenate((batch.scalar_features, bins), axis=1)
         return batch.scalar_features
 
     def _encode_lstm(
@@ -175,7 +178,11 @@ class MlxProjectModel(nn.Module):
         events = _event_tensor(batch, dividend_input.event_features)
         if batch.event_lengths is None:
             raise NeuralBackendContractError(reason="LSTM lengths are absent")
-        hidden = events
+        hidden = _order_lstm_events(
+            events,
+            batch.event_lengths,
+            dividend_input.sequence_order,
+        )
         for layer in self.lstm:
             hidden, _ = layer(hidden)
         rows = mx.arange(batch.scalar_features.shape[0])
@@ -410,6 +417,34 @@ def _event_tensor(
         else:
             raise NeuralBackendContractError(reason=f"unsupported event feature {feature!r}")
     return mx.stack(columns, axis=2)
+
+
+def _order_lstm_events(
+    events: mx.array,
+    lengths: mx.array,
+    order: EventSequenceOrder,
+) -> mx.array:
+    """Return right-padded events in the exact order consumed by the project LSTM."""
+    if order is not EventSequenceOrder.FARTHEST_TO_NEAREST:
+        raise NeuralBackendContractError(reason=f"unsupported LSTM event order {order!r}")
+    positions = mx.broadcast_to(mx.arange(events.shape[1])[None, :], events.shape[:2])
+    reverse = mx.where(
+        positions < lengths[:, None],
+        lengths[:, None] - 1 - positions,
+        positions,
+    )
+    rows = mx.broadcast_to(mx.arange(events.shape[0])[:, None], events.shape[:2])
+    return events[rows, reverse]
+
+
+def _order_dividend_bins(
+    bins: mx.array,
+    order: DividendBinOrder,
+) -> mx.array:
+    """Return monthly cash bins in the exact order consumed by the project MLP."""
+    if order is not DividendBinOrder.FARTHEST_TO_NEAREST:
+        raise NeuralBackendContractError(reason=f"unsupported dividend-bin order {order!r}")
+    return bins[:, ::-1]
 
 
 def _masked_attention_sum(
