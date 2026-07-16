@@ -36,10 +36,12 @@ when its inputs change. Ruff and ty define the Python quality boundary; Clippy a
 suite are owned by the engine repository.
 
 Heavy local phases use the typed `project_interactive_one_phase_v1` resource budget: one process at
-a time, bounded data and hidden CPU thread pools, low OS priority, and no automatic restart. A
-cluster or dedicated host must declare a different budget rather than silently increasing local
-parallelism. Heavy CLI commands acquire the shared local lease automatically and fail immediately
-if another study phase owns it. See [ADR 0051](docs/adr/0051-explicit-local-resource-budget.md).
+a time, at most eight estimator threads, four data threads, two hidden threads per numerical pool, OS
+nice increment 10, and no automatic restart. The installed command acquires the shared lease and
+applies this budget before importing Polars, NumPy, the engine, PyTorch, or MLX. An over-budget or
+overlapping request fails instead of silently changing its estimator. A cluster or dedicated host
+must declare a different budget. See
+[ADR 0051](docs/adr/0051-explicit-local-resource-budget.md).
 
 ## Reproduce the publication study
 
@@ -54,7 +56,7 @@ uv run --locked discrete-dividend-study run-publication-cash-replications \
   --features /private/features/project_experiment_features.parquet \
   --feature-artifact-kind project-experiment \
   --artifacts /private/artifacts/publication \
-  --threads 14 \
+  --threads 8 \
   --math-backend apple_accelerate \
   --event-buffer-policy require_zero_copy
 ```
@@ -67,7 +69,7 @@ uv run --locked discrete-dividend-study run-publication-empirical-inference \
   --feature-artifact-kind project-experiment \
   --artifacts /private/artifacts/publication \
   --publication-result /private/artifacts/publication/result.safetensors \
-  --threads 14 \
+  --threads 8 \
   --event-buffer-policy require_zero_copy
 ```
 

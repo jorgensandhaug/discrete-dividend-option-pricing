@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-discrete-dividend-study = "discrete_dividend_study.cli:main"
+discrete-dividend-study = "_discrete_dividend_study_launcher:main"
 publication-numerical-pilot = "discrete_dividend_study.numerical_pilot:main"
 
 [project.optional-dependencies]
@@ -52,7 +52,7 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.build-backend]
-module-name = "discrete_dividend_study"
+module-name = ["discrete_dividend_study", "_discrete_dividend_study_launcher"]
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]

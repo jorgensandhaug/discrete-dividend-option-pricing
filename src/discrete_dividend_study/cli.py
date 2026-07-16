@@ -222,7 +222,7 @@ class _PreparedPublicationContext:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run one explicit command and return zero only after verified artifact completion."""
+    """Run a command directly; installed heavy commands use the pre-import launcher instead."""
     arguments = _parser().parse_args(argv)
     data_result = _run_data_command(arguments)
     if data_result is not None:
@@ -238,6 +238,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_heavy_study_command(arguments)
     except LocalResourceBudgetError as error:
         raise StudyCliError(reason=str(error)) from error
+
+
+def _main_after_local_resource_admission(argv: Sequence[str] | None = None) -> int:
+    """Run one heavy command whose launcher already owns the lease and process budget."""
+    arguments = _parser().parse_args(argv)
+    if arguments.command not in _HEAVY_STUDY_COMMANDS:
+        raise StudyCliError(reason="pre-import admission is valid only for a heavy study command")
+    return _run_heavy_study_command(arguments)
 
 
 def _run_heavy_study_command(arguments: argparse.Namespace) -> int:

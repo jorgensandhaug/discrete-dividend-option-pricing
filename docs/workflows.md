@@ -414,7 +414,7 @@ uv run --locked discrete-dividend-study run-publication-cash-replications \
   --features /path/to/verified-project-features.parquet \
   --feature-artifact-kind project-experiment \
   --artifacts /path/to/private-publication-artifacts \
-  --threads 14 \
+  --threads 8 \
   --math-backend apple_accelerate \
   --event-buffer-policy require_zero_copy
 ```
@@ -526,7 +526,7 @@ uv run --locked discrete-dividend-study run-neural-study \
   --feature-artifact-kind project-experiment \
   --artifacts /absolute/path/immutable-run-artifacts \
   --profile apple-silicon \
-  --data-threads 8 \
+  --data-threads 4 \
   --parameter-root-seed 2026071401 \
   --shuffle-root-seed 2026071402
 ```

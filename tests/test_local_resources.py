@@ -16,7 +16,9 @@ from discrete_dividend_study.local_resources import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-_PROJECT_DATA_THREADS = 2
+_PROJECT_DATA_THREADS = 4
+_PROJECT_COMPUTE_THREADS = 8
+_PROJECT_HIDDEN_THREADS = 2
 _PROJECT_NICE_INCREMENT = 10
 
 
@@ -24,17 +26,18 @@ def test_project_interactive_budget_is_one_nonrestarting_heavy_phase() -> None:
     """The workstation profile cannot authorize a local process swarm."""
     budget = PROJECT_INTERACTIVE_RESOURCE_BUDGET
     assert budget.max_heavy_processes == 1
+    assert budget.compute_threads == _PROJECT_COMPUTE_THREADS
     assert budget.data_threads == _PROJECT_DATA_THREADS
-    assert budget.hidden_cpu_threads == 1
+    assert budget.hidden_cpu_threads == _PROJECT_HIDDEN_THREADS
     assert budget.nice_increment == _PROJECT_NICE_INCREMENT
     assert budget.automatic_restart is False
     assert budget.thread_environment() == {
-        "MKL_NUM_THREADS": "1",
-        "NUMEXPR_NUM_THREADS": "1",
-        "OMP_NUM_THREADS": "1",
-        "OPENBLAS_NUM_THREADS": "1",
-        "POLARS_MAX_THREADS": "2",
-        "VECLIB_MAXIMUM_THREADS": "1",
+        "MKL_NUM_THREADS": "2",
+        "NUMEXPR_NUM_THREADS": "2",
+        "OMP_NUM_THREADS": "2",
+        "OPENBLAS_NUM_THREADS": "2",
+        "POLARS_MAX_THREADS": "4",
+        "VECLIB_MAXIMUM_THREADS": "2",
     }
 
 
@@ -43,7 +46,7 @@ def test_environment_resolution_is_explicit_and_nonmutating() -> None:
     base = {"PATH": "/bin", "OMP_NUM_THREADS": "64"}
     resolved = PROJECT_INTERACTIVE_RESOURCE_BUDGET.resolve_environment(base)
     assert base["OMP_NUM_THREADS"] == "64"
-    assert resolved["OMP_NUM_THREADS"] == "1"
+    assert resolved["OMP_NUM_THREADS"] == "2"
     assert resolved["PATH"] == "/bin"
 
 
@@ -78,6 +81,7 @@ def test_heavy_process_lease_requires_exclusive_budget(tmp_path: Path) -> None:
     parallel = LocalResourceBudget(
         name="parallel",
         max_heavy_processes=2,
+        compute_threads=4,
         data_threads=2,
         hidden_cpu_threads=1,
         nice_increment=10,
@@ -94,6 +98,7 @@ def test_heavy_process_lease_requires_exclusive_budget(tmp_path: Path) -> None:
     ("field", "value"),
     [
         ("max_heavy_processes", 0),
+        ("compute_threads", 0),
         ("data_threads", True),
         ("hidden_cpu_threads", 0),
         ("nice_increment", 20),
@@ -105,6 +110,7 @@ def test_invalid_budget_values_fail_without_coercion(field: str, value: object) 
     arguments: dict[str, object] = {
         "name": "invalid",
         "max_heavy_processes": 1,
+        "compute_threads": 4,
         "data_threads": 2,
         "hidden_cpu_threads": 1,
         "nice_increment": 10,
