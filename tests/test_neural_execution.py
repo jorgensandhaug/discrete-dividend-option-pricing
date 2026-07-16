@@ -21,22 +21,16 @@ PROFILE_INFERENCE_BATCH_SIZE = 8192
 
 
 def test_apple_profile_uses_measured_per_model_policies() -> None:
-    """Direct LSTM uses measured CPU while the other four models use compiled MLX GPU."""
+    """Every model uses the measured compiled MLX GPU policy on Apple silicon."""
     profile = PROJECT_APPLE_SILICON_EXECUTION_PROFILE
-    assert profile.name == "project_apple_silicon_m4_pro_v4"
+    assert profile.name == "project_apple_silicon_m4_pro_v5"
     for variant in NeuralVariant:
         execution = profile.for_variant(variant)
         assert execution.inference_batch_size == PROFILE_INFERENCE_BATCH_SIZE
-        if variant is NeuralVariant.LSTM:
-            assert execution.backend is NeuralBackend.PYTORCH
-            assert execution.device is NeuralDevice.CPU
-            assert execution.compilation is CompilationMode.EAGER
-            assert execution.cpu_threads == 1
-        else:
-            assert execution.backend is NeuralBackend.MLX
-            assert execution.device is NeuralDevice.MLX_GPU
-            assert execution.compilation is CompilationMode.COMPILED
-            assert execution.cpu_threads is None
+        assert execution.backend is NeuralBackend.MLX
+        assert execution.device is NeuralDevice.MLX_GPU
+        assert execution.compilation is CompilationMode.COMPILED
+        assert execution.cpu_threads is None
 
 
 def test_portable_profile_never_infers_an_accelerator() -> None:
