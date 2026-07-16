@@ -1,24 +1,40 @@
 # Discrete-dividend option pricing
 
-A reproducible reconstruction and publication extension of the project-thesis comparison between
-explicit cash-dividend and continuous-yield option-pricing models. The repository owns licensed
-data adapters, point-in-time feature construction, frozen study specifications, immutable result
-artifacts, empirical inference, and publication tables. Generic pricing kernels live in the
-private sibling `finoptions-engine` at an exact pinned revision.
+A reproducible implementation of the project-thesis study on learning American call-option prices
+from forecast discrete cash dividends. The central experiment asks whether preserving the timing and
+size of individual dividend events improves neural pricing relative to replacing the schedule with a
+single continuous-yield feature.
+
+The repository contains the licensed-data adapters, point-in-time feature pipeline, five frozen
+neural models, rolling evaluation, immutable result artifacts, and aggregate-only paper tables.
+Generic pricing kernels live in the sibling `finoptions-engine` repository at an exact pinned
+revision.
 
 This repository is private and pre-release. Raw or derived licensed rows, targets, predictions,
 credentials, and machine-local paths are never committed.
 
-## Result
+## Study
 
-On 678,122 submitted-test observations across 2,400 quote-date panels, both explicit cash models
-have lower MAPE than both continuous-yield approximations. The cash-jump model also has lower RMSE
-than both yield models after the predeclared Holm correction. The liquidator and spot-matched
-escrowed-cash conventions are not statistically distinguishable from each other.
+All models use the same market inputs, target, rolling windows, optimizer, and scalar network. They
+differ only in how dividends enter the model:
 
-The exact aggregate estimates, confidence intervals, paired tests, and LaTeX fragments are in
-[results](results/README.md). All values are bound to verified inference artifact
-`0fe2e85baefd1befc22476c92b7595659aeac4528e9899a191b0abb09c57b2f3`.
+| Model | Dividend representation |
+|---|---|
+| Direct cash dividends (LSTM) | Ordered event sequence with exact logical length |
+| Direct cash dividends (attention) | Masked set of learned event embeddings |
+| Direct cash dividends (12 bins) | Fixed maturity-bucket vector |
+| Forecast continuous yield | One scalar derived from forecast dividends |
+| Historical continuous yield | One trailing realized-dividend scalar |
+
+The submitted schedule contains 117 rolling experiments. Each window uses a three-year lookback,
+reserves the final 30 days for validation, evaluates on the following 30 days, and advances by 30
+days. Metrics are pooled over observations after every window completes; window RMSE values are
+never averaged.
+
+The complete framework-neutral identity—including event order, masks, features, architecture,
+initialization, loss, optimizer, scheduler, batching, and early stopping—is defined in
+[`neural_spec.py`](src/discrete_dividend_study/neural_spec.py). PyTorch and MLX implement that one
+identity and are tested against the same canonical parameters, forward outputs, and gradients.
 
 ## Quick start
 
@@ -31,88 +47,90 @@ just check
 just full
 ```
 
-The state-aware launcher synchronizes the locked environment and rebuilds the native sibling only
-when its inputs change. Ruff and ty define the Python quality boundary; Clippy and the Rust test
-suite are owned by the engine repository.
+The development launcher synchronizes the locked environment and rebuilds the native sibling only
+when its inputs change. Ruff and ty define the Python quality boundary; Clippy and Rust tests are
+owned by the engine repository.
 
-Heavy local phases use the typed `project_interactive_one_phase_v1` resource budget: one process at
-a time, at most eight estimator threads, four data threads, two hidden threads per numerical pool, OS
-nice increment 10, and no automatic restart. The installed command acquires the shared lease and
-applies this budget before importing Polars, NumPy, the engine, PyTorch, or MLX. An over-budget or
-overlapping request fails instead of silently changing its estimator. A cluster or dedicated host
-must declare a different budget. See
-[ADR 0051](docs/adr/0051-explicit-local-resource-budget.md).
+## Reproduce the neural study
 
-## Reproduce the publication study
-
-First materialize a verified `project-experiment` feature artifact from licensed inputs. The
-manifest-first acquisition, cleaning, support-data, and feature commands are documented in the
+First materialize one verified project feature artifact from licensed inputs. The provider adapters,
+cleaning stages, support-data contracts, and exact commands are documented in the
 [workflow reference](docs/workflows.md). No notebook defines a production transformation.
 
-Run or exactly resume the 12 paired cash-LSM replications and the deterministic yield methods:
+Run or exactly resume all five models and all 117 rolling windows:
 
 ```shell
-uv run --locked discrete-dividend-study run-publication-cash-replications \
+uv run --locked discrete-dividend-study run-neural-study \
   --features /private/features/project_experiment_features.parquet \
   --feature-artifact-kind project-experiment \
-  --artifacts /private/artifacts/publication \
-  --threads 8 \
-  --math-backend apple_accelerate \
-  --event-buffer-policy require_zero_copy
+  --artifacts /private/artifacts/neural \
+  --profile apple-silicon \
+  --data-threads 4 \
+  --parameter-root-seed 2026071401 \
+  --shuffle-root-seed 2026071402
 ```
 
-Then run the frozen date-panel bootstrap against the verified complete pricing result:
+The command validates the complete schedule and every runtime before training. Each model/window
+result is immutable and content-addressed, so an interrupted run resumes only when its exact request
+receipt matches. A changed source, code revision, dependency lock, model specification, seed,
+backend, or rolling phase is a different request.
+
+Render a paper table only from the verified complete 585-run study manifest:
 
 ```shell
-uv run --locked discrete-dividend-study run-publication-empirical-inference \
-  --features /private/features/project_experiment_features.parquet \
-  --feature-artifact-kind project-experiment \
-  --artifacts /private/artifacts/publication \
-  --publication-result /private/artifacts/publication/result.safetensors \
-  --threads 8 \
-  --event-buffer-policy require_zero_copy
-```
-
-Render aggregate-only output without exposing licensed rows:
-
-```shell
-uv run --locked discrete-dividend-study render-publication-inference-table \
-  --artifact /private/artifacts/publication/inference.safetensors \
-  --table primary-models \
+uv run --locked discrete-dividend-study render-neural-table \
+  --artifact /private/artifacts/neural/studies/<sha256>.study.json \
   --format markdown
 ```
 
-Every expensive stage is content-addressed and resumes only through a verified immutable request
-receipt. A dirty checkout, changed dependency lock, altered source, missing cohort, invalid event,
-or mismatched engine revision fails before execution.
+The renderer rejects partial schedules and artifacts produced by another model specification. Its
+output contains aggregate metrics and the source artifact hash, never licensed observations or
+machine-local paths.
+
+## Performance and local resources
+
+The Apple-Silicon profile uses the explicitly selected native backend for each model. The portable
+CPU profile is separately named; a missing backend is an error and never triggers substitution.
+Project-shaped synthetic benchmarks measure preparation, training, inference, throughput, and peak
+memory without provider data.
+
+Interactive heavy work uses one process at a time, at most eight estimator threads, four data
+threads, and two hidden threads per numerical pool. The installed launcher obtains the shared lease
+and applies the budget before importing Polars, NumPy, the engine, PyTorch, or MLX. Overlapping or
+over-budget work fails immediately. A cluster or dedicated host must declare a different execution
+profile rather than changing the scientific model.
+
+## Classical benchmarks
+
+The repository also reconstructs the project’s four classical pricing variants and contains a
+separate, stricter cash-dividend LSM extension with independent fitting and valuation paths,
+deterministic continuous-yield comparators, and date-panel inference. These are benchmark and
+follow-on analyses; they are not the project paper’s primary contribution.
+
+Current aggregate results for that extension are retained in
+[`results`](results/README.md). They do not replace the five-model neural result table.
 
 ## Repository map
 
-- `src/discrete_dividend_study`: typed adapters, transformations, specifications, orchestration,
-  artifacts, inference, and table renderers.
+- `src/discrete_dividend_study`: typed data adapters, feature construction, neural models,
+  orchestration, artifacts, metrics, and table renderers.
 - `config`: the exact sibling-engine revision.
-- `results`: verified aggregate-only paper outputs.
-- `docs/adr`: financial, numerical, data, and inference decisions.
-- `docs/workflows.md`: detailed licensed-data and experiment command reference.
-- `benchmarks`: synthetic performance harnesses that require no provider data.
+- `docs/workflows.md`: complete licensed-data and experiment commands.
+- `docs/adr`: financial, numerical, data, and execution contracts.
+- `benchmarks`: provider-free performance harnesses.
+- `results`: aggregate-only follow-on classical benchmark output.
 - `tools/dev.py`: locked, state-aware local development entry point.
 
 ## Scientific contract
 
-- Exercise, dividend, maturity, curve, day-count, and source-precision semantics are explicit.
-- Unsupported financial or numerical domains fail; there are no silent fallbacks or imputations.
-- Cash-LSM policies use separate fitting and valuation populations.
-- Pricing Monte Carlo uncertainty and empirical sampling uncertainty are reported separately.
-- The primary population, metrics, block bootstrap, random mapping, sensitivities, and Holm family
-  were frozen before inspecting the selected-identity result.
-- The known late ETR coverage gap is handled by mandatory named cohorts, never by invented rows.
+- Exercise, dividend, maturity, curve, day-count, source-precision, event-order, and padding
+  semantics are explicit.
+- Unsupported financial, numerical, schema, coverage, or runtime domains fail; there are no silent
+  fallbacks, imputations, clipping rules, or backend substitutions.
+- Training, validation, and test phases are disjoint and content-hashed.
+- Model identity is framework-neutral; execution and hardware identity are recorded separately.
+- Licensed data remain local while aggregate tables retain cryptographic provenance.
+- Legacy numbers are qualitative reconstruction targets, not an exact-digit acceptance test.
 
-The publication estimator is specified by [ADR 0048](docs/adr/0048-frozen-cash-lsm-replication-plan.md),
-immutable finalization by [ADR 0049](docs/adr/0049-immutable-publication-result-orchestration.md),
-and empirical inference by [ADR 0050](docs/adr/0050-predeclared-empirical-inference.md).
-
-## Future experiments
-
-The neural and TabPFN paths remain separate, bounded experiment families. Their typed preparation,
-training, checkpoint, and benchmark infrastructure is retained, but they are not part of the
-classical publication result and require a new declared compute phase before any claim is made.
+Later TabPFN experiments remain an isolated experiment family. They do not alter the submitted
+five-model comparison or appear in its result artifact.

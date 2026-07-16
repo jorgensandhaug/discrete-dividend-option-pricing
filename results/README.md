@@ -1,4 +1,7 @@
-# Primary publication results
+# Classical benchmark extension results
+
+These results belong to the stricter follow-on classical benchmark. They are not the primary
+five-model neural contribution of the project paper.
 
 These aggregate-only tables were rendered from verified inference artifact
 `0fe2e85baefd1befc22476c92b7595659aeac4528e9899a191b0abb09c57b2f3`. The artifact itself is not

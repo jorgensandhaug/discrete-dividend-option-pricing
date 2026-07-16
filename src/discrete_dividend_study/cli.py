@@ -64,8 +64,14 @@ from .neural_run import resolve_study_source_identity
 from .neural_spec import PROJECT_NEURAL_STUDY_SPEC
 from .neural_study import (
     NeuralRollingStudyRequest,
+    load_neural_rolling_study,
     project_neural_seed_plan,
     run_project_neural_rolling_study,
+)
+from .neural_tables import (
+    build_neural_publication_table,
+    neural_publication_latex,
+    neural_publication_markdown,
 )
 from .nss_rates import NSS_PARAMETER_DTYPES
 from .option_quotes import LONG_FORM_OPTION_QUOTE_DTYPES
@@ -308,6 +314,7 @@ def _run_data_command(arguments: argparse.Namespace) -> int | None:
         "materialize-project-features": _materialize_project_features,
         "materialize-project-experiment-features": (_materialize_project_experiment_features),
         "render-classical-table": _render_classical_table,
+        "render-neural-table": _render_neural_table,
         "render-publication-inference-table": _render_publication_inference_table,
     }
     handler = handlers.get(arguments.command)
@@ -331,6 +338,22 @@ def _render_publication_inference_table(arguments: argparse.Namespace) -> int:
     except KeyError as error:  # pragma: no cover - argparse owns the closed product
         raise StudyCliError(reason="unsupported inference table renderer") from error
     sys.stdout.write(renderer(tables))
+    return 0
+
+
+def _render_neural_table(arguments: argparse.Namespace) -> int:
+    """Render only a complete artifact for the submitted five-model neural study."""
+    artifact = load_neural_rolling_study(
+        _required_path(arguments.artifact, field="artifact", kind="file")
+    )
+    table = build_neural_publication_table(artifact)
+    if arguments.format == "latex":
+        output = neural_publication_latex(table)
+    elif arguments.format == "markdown":
+        output = neural_publication_markdown(table)
+    else:  # pragma: no cover - argparse owns the closed format domain
+        raise StudyCliError(reason="neural table format is unsupported")
+    sys.stdout.write(output)
     return 0
 
 
@@ -1317,23 +1340,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=tuple(policy.value for policy in EventBufferPolicy),
         required=True,
     )
-    table = commands.add_parser(
-        "render-classical-table",
-        help="render a verified aggregate-only classical artifact as a publication table",
-    )
-    table.add_argument("--artifact", type=Path, required=True)
-    table.add_argument("--format", choices=("latex", "markdown"), required=True)
-    inference_table = commands.add_parser(
-        "render-publication-inference-table",
-        help="render verified primary empirical inference as an aggregate-only paper table",
-    )
-    inference_table.add_argument("--artifact", type=Path, required=True)
-    inference_table.add_argument(
-        "--table",
-        choices=("primary-models", "primary-contrasts"),
-        required=True,
-    )
-    inference_table.add_argument("--format", choices=("latex", "markdown"), required=True)
+    _add_table_commands(commands)
     return parser
 
 
@@ -1344,6 +1351,34 @@ def _add_local_resource_lock_argument(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="absolute shared local lock path; defaults to the current user's temporary directory",
     )
+
+
+def _add_table_commands(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    classical = commands.add_parser(
+        "render-classical-table",
+        help="render a verified aggregate-only classical artifact as a publication table",
+    )
+    classical.add_argument("--artifact", type=Path, required=True)
+    classical.add_argument("--format", choices=("latex", "markdown"), required=True)
+    neural = commands.add_parser(
+        "render-neural-table",
+        help="render the complete submitted neural study as an aggregate-only paper table",
+    )
+    neural.add_argument("--artifact", type=Path, required=True)
+    neural.add_argument("--format", choices=("latex", "markdown"), required=True)
+    inference = commands.add_parser(
+        "render-publication-inference-table",
+        help="render verified primary empirical inference as an aggregate-only paper table",
+    )
+    inference.add_argument("--artifact", type=Path, required=True)
+    inference.add_argument(
+        "--table",
+        choices=("primary-models", "primary-contrasts"),
+        required=True,
+    )
+    inference.add_argument("--format", choices=("latex", "markdown"), required=True)
 
 
 def _add_option_data_commands(

@@ -12,8 +12,9 @@ Raw and derived licensed row-level data are never committed. Production workflow
 content-addressed Parquet artifacts locally from explicit provider adapters; notebooks consume
 those artifacts and do not define the pipeline.
 
-The verified aggregate-only primary estimates and paired inference are retained in
-[results](../results/README.md); the licensed row-level and prediction artifacts are not committed.
+The verified aggregate-only follow-on classical estimates and paired inference are retained in
+[results](../results/README.md); the primary project-paper experiment is the five-model neural
+comparison. Licensed row-level and prediction artifacts are not committed.
 
 ## Development
 
@@ -518,7 +519,7 @@ uv run --locked discrete-dividend-study render-classical-table \
 
 `markdown` is the other supported explicit format.
 
-The complete private-data neural run remains a separate explicit command:
+The primary project-paper neural study has one explicit private-data command:
 
 ```shell
 uv run --locked discrete-dividend-study run-neural-study \
@@ -535,3 +536,14 @@ There is no automatic profile, seed, thread count, artifact-kind inference, sour
 dirty-checkout allowance, or resume wildcard. Parquet and receipt are rehashed after preparation;
 either changing before execution is fatal. The portable profile must be requested explicitly as
 `portable-cpu`. [ADR 0035](adr/0035-verified-study-feature-boundary.md) records this boundary.
+
+Only the complete submitted model identity and all 117 windows can become a paper table:
+
+```shell
+uv run --locked discrete-dividend-study render-neural-table \
+  --artifact /absolute/path/immutable-run-artifacts/studies/<sha256>.study.json \
+  --format markdown
+```
+
+The renderer rejects another model specification, a changed rolling schedule, unequal model
+cohorts, or a partial result. `latex` is the other supported aggregate-only format.
