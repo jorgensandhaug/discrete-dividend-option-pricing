@@ -229,11 +229,11 @@ class PublicationStationaryBootstrapSpec:
                 observed=self.quantile,
                 requirement="PublicationBootstrapQuantile.LINEAR_TYPE_7",
             )
-        if type(self.finite_sample_p_value_correction) is not bool:
+        if self.finite_sample_p_value_correction is not True:
             raise PublicationInferenceSpecValueError(
                 field="finite_sample_p_value_correction",
                 observed=self.finite_sample_p_value_correction,
-                requirement="a plain bool",
+                requirement="True for the implemented finite-sample-corrected test",
             )
 
 

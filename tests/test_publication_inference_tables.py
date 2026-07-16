@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import polars as pl
 from finoptions import CpuExecutor
 
@@ -101,3 +103,23 @@ def test_renderers_are_deterministic_provenance_bound_fragments() -> None:
     assert "Holm p" in renderings[2]
     assert renderings[1].endswith("\\bottomrule\n\\end{tabular}\n")
     assert renderings[3].endswith("\\bottomrule\n\\end{tabular}\n")
+
+
+def test_renderers_derive_the_confidence_label_from_the_verified_specification() -> None:
+    """A nondefault valid confidence level cannot be rendered under a hard-coded 95% label."""
+    frame, predictions = _inputs()
+    base = _test_spec()
+    spec = replace(
+        base,
+        bootstrap=replace(base.bootstrap, confidence_level=0.90),
+        family_wise_error_rate=0.10,
+    )
+    result = run_publication_empirical_inference(
+        frame,
+        predictions,
+        CpuExecutor(threads=1),
+        spec,
+    )
+    tables = PublicationInferenceTables(artifact_sha256="b" * 64, result=result)
+    assert "[90% CI]" in publication_primary_model_markdown(tables)
+    assert "[90\\% CI]" in publication_primary_contrast_latex(tables)

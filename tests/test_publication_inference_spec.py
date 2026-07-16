@@ -108,3 +108,8 @@ def test_inference_hash_changes_and_invalid_shortcuts_fail() -> None:
                 stratified_sensitivity_domain_start=_BOOTSTRAP_DOMAIN_START,
             ),
         )
+    with pytest.raises(
+        PublicationInferenceSpecValueError,
+        match="finite_sample_p_value_correction",
+    ):
+        replace(spec.bootstrap, finite_sample_p_value_correction=False)

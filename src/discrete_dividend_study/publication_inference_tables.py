@@ -356,9 +356,10 @@ def publication_calendar_year_contrast_frame(tables: PublicationInferenceTables)
 def publication_primary_model_markdown(tables: PublicationInferenceTables) -> str:
     """Render the four-model primary result as deterministic Markdown."""
     frame = publication_primary_model_frame(tables)
+    confidence = _confidence_label(tables)
     lines = [
         f"<!-- source_artifact_sha256={tables.artifact_sha256} -->",
-        "| Variant | N | Date panels | MAPE (%) [95% CI] | RMSE [95% CI] |",
+        f"| Variant | N | Date panels | MAPE (%) [{confidence} CI] | RMSE [{confidence} CI] |",
         "|---|---:|---:|---:|---:|",
     ]
     lines.extend(
@@ -389,11 +390,12 @@ def publication_primary_model_markdown(tables: PublicationInferenceTables) -> st
 def publication_primary_model_latex(tables: PublicationInferenceTables) -> str:
     """Render the four-model primary result as a deterministic booktabs fragment."""
     frame = publication_primary_model_frame(tables)
+    confidence = _latex_escape(_confidence_label(tables))
     lines = [
         f"% source_artifact_sha256={tables.artifact_sha256}",
         r"\begin{tabular}{lrrrr}",
         r"\toprule",
-        r"Variant & N & Date panels & MAPE (\%) [95\% CI] & RMSE [95\% CI] \\",
+        f"Variant & N & Date panels & MAPE (\\%) [{confidence} CI] & RMSE [{confidence} CI] \\\\",
         r"\midrule",
     ]
     lines.extend(
@@ -424,9 +426,10 @@ def publication_primary_model_latex(tables: PublicationInferenceTables) -> str:
 def publication_primary_contrast_markdown(tables: PublicationInferenceTables) -> str:
     """Render twelve primary paired contrasts with Holm-adjusted decisions."""
     frame = publication_primary_contrast_frame(tables)
+    confidence = _confidence_label(tables)
     lines = [
         f"<!-- source_artifact_sha256={tables.artifact_sha256} -->",
-        "| Left - right | Metric | Estimate [95% CI] | p | Holm p | Reject |",
+        f"| Left - right | Metric | Estimate [{confidence} CI] | p | Holm p | Reject |",
         "|---|---|---:|---:|---:|:---:|",
     ]
     lines.extend(
@@ -454,11 +457,12 @@ def publication_primary_contrast_markdown(tables: PublicationInferenceTables) ->
 def publication_primary_contrast_latex(tables: PublicationInferenceTables) -> str:
     """Render twelve primary paired contrasts as a deterministic booktabs fragment."""
     frame = publication_primary_contrast_frame(tables)
+    confidence = _latex_escape(_confidence_label(tables))
     lines = [
         f"% source_artifact_sha256={tables.artifact_sha256}",
         r"\begin{tabular}{llrrrr}",
         r"\toprule",
-        r"Left $-$ right & Metric & Estimate [95\% CI] & $p$ & Holm $p$ & Reject \\",
+        f"Left $-$ right & Metric & Estimate [{confidence} CI] & $p$ & Holm $p$ & Reject \\\\",
         r"\midrule",
     ]
     lines.extend(
@@ -558,6 +562,11 @@ def _validate_tables(value: object) -> None:
 
 def _variant_label(variant: PublicationVariant) -> str:
     return _VARIANT_LABELS[variant]
+
+
+def _confidence_label(tables: PublicationInferenceTables) -> str:
+    percent = tables.result.spec.bootstrap.confidence_level * _PERCENT_SCALE
+    return f"{percent:.12g}%"
 
 
 def _estimate_interval(estimate: float, lower: float, upper: float) -> str:

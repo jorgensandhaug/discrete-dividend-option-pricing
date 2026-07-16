@@ -1,6 +1,6 @@
 # ADR 0048: Frozen cash-LSM estimator and replication plan
 
-- Status: accepted; complete production artifact pending
+- Status: accepted; complete production artifact verified
 - Date: 2026-07-15
 - Engine revision: `cd14031a8b1cd03b8258c73c739155a4161f88bc`
 
@@ -73,6 +73,19 @@ completed with zero missing- or insufficient-support nodes. Minimum fitted suppo
 paths exact and 70 general in the first probe, then 2,755 exact and 711 general in the second; all
 observed condition numbers were far below the fixed `1e8` limit. These timings size the production
 run but do not select a model or result.
+
+## Production receipt
+
+The frozen 12-replication plan completed on the 678,122-row submitted-test union with 94,906
+exact-calendar groups and 1,760 general groups. All 12 prerequisite cash artifacts and their
+request receipts were independently loaded through the validating artifact boundary. The complete
+four-variant result has content digest
+`0490c1344d7607040d27767bc35f0a18baad80fa2f633c91a0c10b349620b687`; its request digest is
+`3ad2a65d6e6f366721a0ae121e0e83248e05f2da21cc512336a3efde45edd57c`.
+
+The direct loader recomputed and verified tensor and metric digests, the content-addressed filename,
+the immutable target vector, all twelve ordered prerequisite identities, and all four declared
+variants. No model ranking was inspected while recording this receipt.
 
 ## Consequences
 

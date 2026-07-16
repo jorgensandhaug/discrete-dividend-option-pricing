@@ -1,6 +1,6 @@
 # ADR 0049: Immutable publication-result orchestration
 
-- Status: accepted; first production artifact pending
+- Status: accepted; first production artifact verified
 - Date: 2026-07-15
 - Engine revision: `cd14031a8b1cd03b8258c73c739155a4161f88bc`
 
@@ -55,6 +55,16 @@ The final content-addressed artifact contains:
 The loader independently recomputes metrics from stored price vectors and recomputes every Monte
 Carlo metric summary from the stored per-replication metrics. A successful subset can exist as
 verified cash artifacts, but only the complete final artifact is a publication-study result.
+
+## First production artifact
+
+The first complete request finished with 12 verified cash prerequisites and the four declared
+variants over 678,122 observations. Its content digest is
+`0490c1344d7607040d27767bc35f0a18baad80fa2f633c91a0c10b349620b687`, and its request digest is
+`3ad2a65d6e6f366721a0ae121e0e83248e05f2da21cc512336a3efde45edd57c`.
+An independent post-run load recomputed the artifact content hash and internal tensor/metric
+bindings; loading the request receipt resolved to the same content digest without rerunning either
+cash simulation or deterministic pricing. Result ranking remained uninspected at this checkpoint.
 
 ## Consequences
 
