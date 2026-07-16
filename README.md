@@ -427,8 +427,10 @@ The empirical comparison is independently predeclared in
 [ADR 0050](docs/adr/0050-predeclared-empirical-inference.md). It resamples complete ordered
 quote-date panels with a circular stationary bootstrap, controls the 12 primary pair/metric tests
 with Holm's procedure, and reports mandatory five-ticker and common-horizon sensitivities for the
-known late ETR data gap. This layer consumes the completed pricing artifact; it never changes or
-reruns a pricing method.
+known late ETR data gap. A separately identified calendar-year-stratified bootstrap at the primary
+block length holds the observed year composition fixed as a temporal-stability diagnostic; it does
+not enter the primary Holm family. This layer consumes the completed pricing artifact; it never
+changes or reruns a pricing method.
 
 `PROJECT_NEURAL_STUDY_SPEC` is the framework-neutral identity of the five project neural variants.
 `prepare_project_neural_batch` validates a materialized phase and creates only the model's declared

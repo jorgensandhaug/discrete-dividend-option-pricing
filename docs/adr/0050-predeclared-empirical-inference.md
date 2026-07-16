@@ -4,6 +4,8 @@
 - Date: 2026-07-16
 - Result-producing paper revision: `6507dbb62f78fd3227d8318c93f21548cbf11a27`
 - Engine revision: `cd14031a8b1cd03b8258c73c739155a4161f88bc`
+- Pre-result inference revision: `94608f6`
+- Stratified-bootstrap engine revision: `d7f8a6b7ac70bedfb41d7ee4fc5a5c7bb1622c71`
 
 ## Context
 
@@ -65,6 +67,16 @@ a rejected Lemire word consumes the next `u64` until acceptance. The last block 
 every bootstrap draw contains exactly as many panel positions as the observed cohort. These mapping
 details are part of the hashed specification; thread scheduling cannot alter a replication stream.
 
+One additional temporal-composition sensitivity uses the primary mean block length 20 and the
+same circular stationary mechanism independently inside each observed ISO calendar year. Calendar
+years are contiguous strata in strictly increasing order; every replication preserves each
+year's exact number of date-panel positions, and a block can wrap inside its year but never cross a
+year boundary. The three cohort streams use domains `2,100,000 + cohort_index`. This diagnostic
+conditions on the observed year composition, while the ordinary bootstrap remains the primary
+design. It cannot receive a Holm adjustment or replace any ordinary block-length output. Aggregate
+year-by-year model and contrast metrics are also mandatory so a pooled comparison cannot conceal a
+time-local reversal.
+
 Two-sided confidence level is 0.95. Intervals use the centered basic-bootstrap construction with
 Hyndman--Fan type-7 linear sample quantiles. Two-sided p-values use the centered bootstrap
 distribution and the finite-sample `(extreme + 1) / (B + 1)` correction. Holm step-down adjustment
@@ -78,6 +90,8 @@ not create post-hoc primary claims.
   panels; the latter repeats the stochastic pricing estimator conditional on fixed data.
 - Same-date cross-sectional dependence and short-range serial dependence are retained without
   claiming that six ticker clusters support reliable cluster asymptotics.
+- Ordinary and calendar-year-stratified outputs make sensitivity to long-run temporal composition
+  visible without changing the predeclared primary design.
 - The incomplete ETR horizon is visible through two mandatory, separately identified sensitivity
   populations rather than imputation.
 - A different block length, bootstrap generator, quantile convention, confidence level, cohort,
