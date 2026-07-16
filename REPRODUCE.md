@@ -8,8 +8,9 @@ just check
 just test
 ```
 
-The lock resolves `finoptions-engine` from its public `v0.1.0` release. The Apple profile uses a
-measured combination of PyTorch CPU and MLX GPU. The portable profile uses one-thread PyTorch CPU.
+The lock resolves `finoptions-engine` from its public `v0.1.0` release. The Apple profile uses the
+measured compiled MLX GPU policy for all five models. The portable profile uses one-thread PyTorch
+CPU.
 
 ## 2. Prepare licensed inputs
 
