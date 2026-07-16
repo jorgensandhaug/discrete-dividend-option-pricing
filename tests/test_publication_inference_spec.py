@@ -11,6 +11,7 @@ from discrete_dividend_study.project_pipeline import PROJECT_AS_SUBMITTED_TICKER
 from discrete_dividend_study.publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
     PublicationBootstrapBlockLengthSampler,
+    PublicationBootstrapDesign,
     PublicationBootstrapInterval,
     PublicationBootstrapOriginSampler,
     PublicationBootstrapQuantile,
@@ -18,6 +19,7 @@ from discrete_dividend_study.publication_inference_spec import (
     PublicationEmpiricalMetric,
     PublicationInferenceSpecValueError,
     PublicationMultiplicityProcedure,
+    publication_bootstrap_configurations,
     publication_empirical_inference_sha256,
 )
 from discrete_dividend_study.publication_spec import PublicationVariant
@@ -26,6 +28,7 @@ _SHA256_HEX_LENGTH = 64
 _CONTRASTS = 6
 _BOOTSTRAP_REPLICATIONS = 19_999
 _BOOTSTRAP_DOMAIN_START = 2_000_000
+_STRATIFIED_DOMAIN_START = 2_100_000
 _PRIMARY_BLOCK_LENGTH = 20.0
 _CONFIDENCE_LEVEL = 0.95
 _FAMILY_WISE_ERROR_RATE = 0.05
@@ -57,6 +60,22 @@ def test_empirical_inference_identity_is_complete_and_frozen_before_results() ->
     )
     assert spec.bootstrap.mean_block_length == _PRIMARY_BLOCK_LENGTH
     assert spec.bootstrap.sensitivity_mean_block_lengths == (5.0, 10.0, 20.0, 40.0, 60.0)
+    assert spec.bootstrap.stratified_sensitivity_design is (
+        PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY
+    )
+    assert spec.bootstrap.stratified_sensitivity_domain_start == _STRATIFIED_DOMAIN_START
+    assert spec.bootstrap.stratified_sensitivity_mean_block_length == _PRIMARY_BLOCK_LENGTH
+    assert publication_bootstrap_configurations(spec) == (
+        (PublicationBootstrapDesign.CIRCULAR_STATIONARY, 5.0),
+        (PublicationBootstrapDesign.CIRCULAR_STATIONARY, 10.0),
+        (PublicationBootstrapDesign.CIRCULAR_STATIONARY, 20.0),
+        (PublicationBootstrapDesign.CIRCULAR_STATIONARY, 40.0),
+        (PublicationBootstrapDesign.CIRCULAR_STATIONARY, 60.0),
+        (
+            PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY,
+            20.0,
+        ),
+    )
     assert spec.bootstrap.confidence_level == _CONFIDENCE_LEVEL
     assert spec.bootstrap.interval is PublicationBootstrapInterval.BASIC
     assert spec.bootstrap.quantile is PublicationBootstrapQuantile.LINEAR_TYPE_7
@@ -81,3 +100,11 @@ def test_inference_hash_changes_and_invalid_shortcuts_fail() -> None:
         replace(spec, contrasts=spec.contrasts[:-1])
     with pytest.raises(PublicationInferenceSpecValueError, match="one minus"):
         replace(spec, family_wise_error_rate=0.01)
+    with pytest.raises(PublicationInferenceSpecValueError, match="disjoint ordinary"):
+        replace(
+            spec,
+            bootstrap=replace(
+                spec.bootstrap,
+                stratified_sensitivity_domain_start=_BOOTSTRAP_DOMAIN_START,
+            ),
+        )

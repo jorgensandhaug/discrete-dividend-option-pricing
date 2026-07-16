@@ -14,10 +14,12 @@ from finoptions import AndersenLakeBatchResult, CpuExecutor, RandomStream, Stati
 from .project_metrics import ProjectPricingMetrics, evaluate_project_pricing_f64
 from .publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
+    PublicationBootstrapDesign,
     PublicationCohortSpec,
     PublicationEmpiricalInferenceSpec,
     PublicationEmpiricalMetric,
     PublicationVariantContrast,
+    publication_bootstrap_configurations,
 )
 from .publication_result_artifact import LoadedPublicationStudyResultArtifact
 from .publication_spec import PublicationVariant
@@ -25,6 +27,7 @@ from .publication_spec import PublicationVariant
 Float64Vector = npt.NDArray[np.float64]
 Float64Matrix = npt.NDArray[np.float64]
 Int64Vector = npt.NDArray[np.int64]
+UInt64Vector = npt.NDArray[np.uint64]
 BoolVector = npt.NDArray[np.bool_]
 
 _FLOAT64: Final = np.dtype(np.float64)
@@ -179,12 +182,15 @@ class PublicationCohortPanelStatistics:
 class PublicationBootstrapConfigurationResult:
     """One cohort/block configuration's paired additive bootstrap sums."""
 
+    design: PublicationBootstrapDesign
     mean_block_length: float
     domain: int
     additive_sums: Float64Matrix
 
     def __post_init__(self) -> None:
         """Require one finite immutable native bootstrap matrix."""
+        if type(self.design) is not PublicationBootstrapDesign:
+            raise PublicationInferenceError(reason="bootstrap design is invalid")
         if (
             type(self.mean_block_length) is not float
             or not math.isfinite(self.mean_block_length)
@@ -206,6 +212,7 @@ class PublicationMetricInterval:
     """Basic bootstrap interval for one model metric."""
 
     cohort: str
+    bootstrap_design: PublicationBootstrapDesign
     mean_block_length: float
     variant: PublicationVariant
     metric: PublicationEmpiricalMetric
@@ -217,6 +224,8 @@ class PublicationMetricInterval:
         """Require a finite ordered interval and typed identities."""
         if type(self.cohort) is not str or not self.cohort:
             raise PublicationInferenceError(reason="metric interval cohort must be nonempty")
+        if type(self.bootstrap_design) is not PublicationBootstrapDesign:
+            raise PublicationInferenceError(reason="metric interval bootstrap design is invalid")
         if type(self.variant) is not PublicationVariant:
             raise PublicationInferenceError(reason="metric interval variant is invalid")
         if type(self.metric) is not PublicationEmpiricalMetric:
@@ -229,6 +238,7 @@ class PublicationContrastInference:
     """Paired basic interval and centered two-sided bootstrap test."""
 
     cohort: str
+    bootstrap_design: PublicationBootstrapDesign
     mean_block_length: float
     contrast: PublicationVariantContrast
     metric: PublicationEmpiricalMetric
@@ -243,6 +253,8 @@ class PublicationContrastInference:
         """Require finite inference and all-or-none primary multiplicity state."""
         if type(self.cohort) is not str or not self.cohort:
             raise PublicationInferenceError(reason="contrast cohort must be nonempty")
+        if type(self.bootstrap_design) is not PublicationBootstrapDesign:
+            raise PublicationInferenceError(reason="contrast bootstrap design is invalid")
         if type(self.contrast) is not PublicationVariantContrast:
             raise PublicationInferenceError(reason="contrast identity is invalid")
         if type(self.metric) is not PublicationEmpiricalMetric:
@@ -296,6 +308,7 @@ class PublicationEmpiricalInferenceResult:
             result
             for result in self.contrasts
             if result.cohort == self.spec.cohorts[0].name
+            and result.bootstrap_design is PublicationBootstrapDesign.CIRCULAR_STATIONARY
             and result.mean_block_length == self.spec.bootstrap.mean_block_length
             and result.metric in self.spec.primary_metrics
         )
@@ -339,11 +352,32 @@ def run_publication_empirical_inference(
             if np.any(sums[:, 0] <= 0.0):
                 raise PublicationInferenceError(reason="bootstrap row counts must be positive")
             configuration = PublicationBootstrapConfigurationResult(
+                design=PublicationBootstrapDesign.CIRCULAR_STATIONARY,
                 mean_block_length=mean_block_length,
                 domain=domain,
                 additive_sums=sums,
             )
             configurations.append(configuration)
+        stratified_mean = spec.bootstrap.stratified_sensitivity_mean_block_length
+        stratified_domain = spec.bootstrap.stratified_sensitivity_domain_start + cohort_index
+        stratified_sums = StationaryBootstrap(
+            replications=spec.bootstrap.replications,
+            mean_block_length=stratified_mean,
+            random_stream=RandomStream(seed=spec.bootstrap.seed, domain=stratified_domain),
+            replication_path_start=spec.bootstrap.replication_path_start,
+        ).sum_stratified_panels(
+            panels.additive_statistics,
+            _calendar_year_stratum_offsets(panels.panel_years),
+            executor=executor,
+        )
+        configurations.append(
+            PublicationBootstrapConfigurationResult(
+                design=spec.bootstrap.stratified_sensitivity_design,
+                mean_block_length=stratified_mean,
+                domain=stratified_domain,
+                additive_sums=stratified_sums,
+            )
+        )
         cohort_results.append(
             PublicationCohortInferenceResult(panels=panels, bootstrap=tuple(configurations))
         )
@@ -437,6 +471,23 @@ def publication_additive_statistic_names() -> tuple[str, ...]:
     )
 
 
+def _calendar_year_stratum_offsets(panel_years: Int64Vector) -> UInt64Vector:
+    starts = np.flatnonzero(
+        np.concatenate(
+            (
+                np.array([True], dtype=np.bool_),
+                panel_years[1:] != panel_years[:-1],
+            )
+        )
+    )
+    offsets = np.ascontiguousarray(
+        np.concatenate((starts, np.array([panel_years.size], dtype=np.int64))),
+        dtype=np.uint64,
+    )
+    offsets.flags.writeable = False
+    return offsets
+
+
 def summarize_publication_empirical_inference(
     cohorts: tuple[PublicationCohortInferenceResult, ...],
     spec: PublicationEmpiricalInferenceSpec = PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
@@ -449,12 +500,20 @@ def summarize_publication_empirical_inference(
         or tuple(result.panels.cohort for result in cohorts) != spec.cohorts
     ):
         raise PublicationInferenceError(reason="cohorts are incomplete or reordered")
-    block_lengths = spec.bootstrap.sensitivity_mean_block_lengths
+    configurations = publication_bootstrap_configurations(spec)
     intervals: list[PublicationMetricInterval] = []
     contrasts: list[PublicationContrastInference] = []
     for cohort in cohorts:
-        if tuple(item.mean_block_length for item in cohort.bootstrap) != block_lengths:
+        if (
+            tuple((item.design, item.mean_block_length) for item in cohort.bootstrap)
+            != configurations
+        ):
             raise PublicationInferenceError(reason="bootstrap block results are incomplete")
+        if any(
+            item.additive_sums.shape != (spec.bootstrap.replications, _STATISTICS)
+            for item in cohort.bootstrap
+        ):
+            raise PublicationInferenceError(reason="bootstrap replication matrices are incomplete")
         for configuration in cohort.bootstrap:
             block_intervals, block_contrasts = _summarize_configuration(
                 cohort.panels,
@@ -521,6 +580,7 @@ def _summarize_configuration(
             intervals.append(
                 PublicationMetricInterval(
                     cohort=panels.cohort.name,
+                    bootstrap_design=configuration.design,
                     mean_block_length=configuration.mean_block_length,
                     variant=variant,
                     metric=metric,
@@ -549,6 +609,7 @@ def _summarize_configuration(
             contrasts.append(
                 PublicationContrastInference(
                     cohort=panels.cohort.name,
+                    bootstrap_design=configuration.design,
                     mean_block_length=configuration.mean_block_length,
                     contrast=contrast,
                     metric=metric,
@@ -625,6 +686,7 @@ def _apply_primary_holm(
     primary_keys = tuple(
         (
             spec.cohorts[0].name,
+            PublicationBootstrapDesign.CIRCULAR_STATIONARY,
             spec.bootstrap.mean_block_length,
             contrast,
             metric,
@@ -633,7 +695,13 @@ def _apply_primary_holm(
         for metric in spec.primary_metrics
     )
     locations = {
-        (result.cohort, result.mean_block_length, result.contrast, result.metric): index
+        (
+            result.cohort,
+            result.bootstrap_design,
+            result.mean_block_length,
+            result.contrast,
+            result.metric,
+        ): index
         for index, result in enumerate(results)
     }
     try:

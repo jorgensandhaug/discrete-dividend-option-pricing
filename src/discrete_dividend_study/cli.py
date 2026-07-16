@@ -1099,6 +1099,7 @@ def _run_publication_empirical_inference(
             }
             for cohort in loaded.artifact.manifest.cohorts
         ),
+        "bootstrap_designs": loaded.artifact.manifest.bootstrap_designs,
         "mean_block_lengths": loaded.artifact.manifest.mean_block_lengths,
         "publication_result_sha256": loaded.artifact.manifest.publication_result_sha256,
         "request_sha256": loaded.artifact.manifest.request_sha256,

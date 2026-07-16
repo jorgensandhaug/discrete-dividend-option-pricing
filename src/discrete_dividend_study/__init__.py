@@ -620,6 +620,7 @@ from .publication_inference_artifact import (
 )
 from .publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
+    PublicationBootstrapDesign,
     PublicationBootstrapInterval,
     PublicationBootstrapQuantile,
     PublicationBootstrapRandomGenerator,
@@ -631,6 +632,7 @@ from .publication_inference_spec import (
     PublicationMultiplicityProcedure,
     PublicationStationaryBootstrapSpec,
     PublicationVariantContrast,
+    publication_bootstrap_configurations,
     publication_empirical_inference_sha256,
 )
 from .publication_inference_tables import (
@@ -1140,6 +1142,7 @@ __all__ = [
     "ProjectPricingMetrics",
     "PublicationArtifactError",
     "PublicationBootstrapConfigurationResult",
+    "PublicationBootstrapDesign",
     "PublicationBootstrapInterval",
     "PublicationBootstrapQuantile",
     "PublicationBootstrapRandomGenerator",
@@ -1350,6 +1353,7 @@ __all__ = [
     "project_neural_input_columns",
     "project_neural_seed_plan",
     "publication_additive_statistic_names",
+    "publication_bootstrap_configurations",
     "publication_calendar_year_contrast_frame",
     "publication_calendar_year_model_frame",
     "publication_cash_request_sha256",

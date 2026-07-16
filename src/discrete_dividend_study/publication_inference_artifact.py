@@ -33,7 +33,9 @@ from .publication_inference import (
 )
 from .publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
+    PublicationBootstrapDesign,
     PublicationEmpiricalInferenceSpec,
+    publication_bootstrap_configurations,
     publication_empirical_inference_sha256,
 )
 from .publication_result_artifact import LoadedPublicationStudyResultArtifact
@@ -54,8 +56,8 @@ if TYPE_CHECKING:
 Float64Matrix = npt.NDArray[np.float64]
 Int64Vector = npt.NDArray[np.int64]
 
-_FORMAT: Final = "discrete-dividend-publication-empirical-inference-v2"
-_FORMAT_VERSION: Final = 2
+_FORMAT: Final = "discrete-dividend-publication-empirical-inference-v3"
+_FORMAT_VERSION: Final = 3
 _METADATA_KEY: Final = "publication_empirical_inference"
 _ENVELOPE_KEYS: Final = frozenset({"format", "manifest", "summary"})
 _REQUEST_DIRECTORY: Final = "publication-inference-requests"
@@ -125,6 +127,7 @@ class PublicationInferenceManifest:
     observations: int
     cohorts: tuple[PublicationInferenceCohortManifest, ...]
     bootstrap_replications: int
+    bootstrap_designs: tuple[str, ...]
     mean_block_lengths: tuple[float, ...]
     bootstrap_domains: tuple[int, ...]
     executor_threads: int
@@ -265,7 +268,12 @@ def publication_inference_request_sha256(  # noqa: PLR0913 - identities stay exp
             partitions_sha256=partitions_sha256,
             observations=publication_result.artifact.manifest.observations,
             bootstrap_replications=spec.bootstrap.replications,
-            mean_block_lengths=spec.bootstrap.sensitivity_mean_block_lengths,
+            bootstrap_designs=tuple(
+                design.value for design, _ in publication_bootstrap_configurations(spec)
+            ),
+            mean_block_lengths=tuple(
+                mean for _, mean in publication_bootstrap_configurations(spec)
+            ),
             executor_threads=executor.threads,
             executor_math_backend=executor.math_backend.value,
             paper_package_version=software[0],
@@ -340,6 +348,7 @@ def _write_inference_artifact(  # noqa: PLR0913 - identities stay explicit
     tensors = _result_tensors(result)
     summary = _summary_json(result)
     software = _software_identity()
+    configuration_identity = publication_bootstrap_configurations(result.spec)
     base = _request_payload(
         source=source,
         publication_result_source=publication_result.artifact.manifest.source,
@@ -351,7 +360,8 @@ def _write_inference_artifact(  # noqa: PLR0913 - identities stay explicit
         partitions_sha256=partitions_sha256,
         observations=publication_result.artifact.manifest.observations,
         bootstrap_replications=result.spec.bootstrap.replications,
-        mean_block_lengths=result.spec.bootstrap.sensitivity_mean_block_lengths,
+        bootstrap_designs=tuple(design.value for design, _ in configuration_identity),
+        mean_block_lengths=tuple(mean for _, mean in configuration_identity),
         executor_threads=executor.threads,
         executor_math_backend=executor.math_backend.value,
         paper_package_version=software[0],
@@ -379,7 +389,8 @@ def _write_inference_artifact(  # noqa: PLR0913 - identities stay explicit
             for cohort in result.cohorts
         ),
         bootstrap_replications=result.spec.bootstrap.replications,
-        mean_block_lengths=result.spec.bootstrap.sensitivity_mean_block_lengths,
+        bootstrap_designs=tuple(design.value for design, _ in configuration_identity),
+        mean_block_lengths=tuple(mean for _, mean in configuration_identity),
         bootstrap_domains=tuple(
             configuration.domain for cohort in result.cohorts for configuration in cohort.bootstrap
         ),
@@ -437,6 +448,7 @@ def _summary_json(result: PublicationEmpiricalInferenceResult) -> str:
         "model_intervals": [
             {
                 "cohort": item.cohort,
+                "bootstrap_design": item.bootstrap_design.value,
                 "mean_block_length": item.mean_block_length,
                 "variant": item.variant.value,
                 "metric": item.metric.value,
@@ -449,6 +461,7 @@ def _summary_json(result: PublicationEmpiricalInferenceResult) -> str:
         "contrasts": [
             {
                 "cohort": item.cohort,
+                "bootstrap_design": item.bootstrap_design.value,
                 "mean_block_length": item.mean_block_length,
                 "left": item.contrast.left.value,
                 "right": item.contrast.right.value,
@@ -508,6 +521,7 @@ def _decode_result(
         )
         configurations = tuple(
             PublicationBootstrapConfigurationResult(
+                design=PublicationBootstrapDesign(design),
                 mean_block_length=mean,
                 domain=next(domains),
                 additive_sums=_loaded_matrix(
@@ -519,7 +533,9 @@ def _decode_result(
                     ),
                 ),
             )
-            for block_index, mean in enumerate(manifest.mean_block_lengths)
+            for block_index, (design, mean) in enumerate(
+                zip(manifest.bootstrap_designs, manifest.mean_block_lengths, strict=True)
+            )
         )
         cohort_results.append(
             PublicationCohortInferenceResult(panels=prepared, bootstrap=configurations)
@@ -624,7 +640,7 @@ def _validate_request(  # noqa: C901, PLR0913 - precedence remains auditable
     _verify_publication_result_unchanged(publication_result)
 
 
-def _validate_manifest(  # noqa: C901 - manifest fields remain locally auditable
+def _validate_manifest(  # noqa: C901, PLR0912 - manifest fields remain locally auditable
     manifest: PublicationInferenceManifest,
 ) -> None:
     if manifest.format_version != _FORMAT_VERSION:
@@ -654,6 +670,18 @@ def _validate_manifest(  # noqa: C901 - manifest fields remain locally auditable
         raise PublicationInferenceArtifactError(
             reason="manifest bootstrap replications must be positive"
         )
+    if (
+        type(manifest.bootstrap_designs) is not tuple
+        or not manifest.bootstrap_designs
+        or len(manifest.bootstrap_designs) != len(manifest.mean_block_lengths)
+    ):
+        raise PublicationInferenceArtifactError(reason="manifest bootstrap designs are invalid")
+    try:
+        tuple(PublicationBootstrapDesign(value) for value in manifest.bootstrap_designs)
+    except ValueError as error:
+        raise PublicationInferenceArtifactError(
+            reason="manifest bootstrap design value is invalid"
+        ) from error
     if (
         type(manifest.mean_block_lengths) is not tuple
         or not manifest.mean_block_lengths
@@ -698,18 +726,26 @@ def _validate_loaded_manifest(
         raise PublicationInferenceArtifactError(reason="loaded inference specification differs")
     if manifest.bootstrap_replications != spec.bootstrap.replications:
         raise PublicationInferenceArtifactError(reason="loaded replication count differs")
-    if manifest.mean_block_lengths != spec.bootstrap.sensitivity_mean_block_lengths:
-        raise PublicationInferenceArtifactError(reason="loaded block lengths differ")
+    configuration_identity = publication_bootstrap_configurations(spec)
+    if manifest.bootstrap_designs != tuple(
+        design.value for design, _ in configuration_identity
+    ) or manifest.mean_block_lengths != tuple(mean for _, mean in configuration_identity):
+        raise PublicationInferenceArtifactError(reason="loaded bootstrap configurations differ")
     if tuple(item.name for item in manifest.cohorts) != tuple(
         cohort.name for cohort in spec.cohorts
     ):
         raise PublicationInferenceArtifactError(reason="loaded cohorts differ")
+    ordinary_blocks = len(spec.bootstrap.sensitivity_mean_block_lengths)
     expected_domains = tuple(
-        spec.bootstrap.domain_start
-        + cohort_index * len(spec.bootstrap.sensitivity_mean_block_lengths)
-        + block_index
+        domain
         for cohort_index in range(len(spec.cohorts))
-        for block_index in range(len(spec.bootstrap.sensitivity_mean_block_lengths))
+        for domain in (
+            *(
+                spec.bootstrap.domain_start + cohort_index * ordinary_blocks + block_index
+                for block_index in range(ordinary_blocks)
+            ),
+            spec.bootstrap.stratified_sensitivity_domain_start + cohort_index,
+        )
     )
     if manifest.bootstrap_domains != expected_domains:
         raise PublicationInferenceArtifactError(reason="loaded bootstrap domain mapping differs")
@@ -727,6 +763,7 @@ def _request_payload(  # noqa: PLR0913 - immutable identity remains explicit
     partitions_sha256: str,
     observations: int,
     bootstrap_replications: int,
+    bootstrap_designs: tuple[str, ...],
     mean_block_lengths: tuple[float, ...],
     executor_threads: int,
     executor_math_backend: str,
@@ -747,6 +784,7 @@ def _request_payload(  # noqa: PLR0913 - immutable identity remains explicit
         "partitions_sha256": partitions_sha256,
         "observations": observations,
         "bootstrap_replications": bootstrap_replications,
+        "bootstrap_designs": list(bootstrap_designs),
         "mean_block_lengths": list(mean_block_lengths),
         "executor_threads": executor_threads,
         "executor_math_backend": executor_math_backend,
@@ -768,6 +806,7 @@ def _manifest_request_payload(manifest: PublicationInferenceManifest) -> dict[st
         partitions_sha256=manifest.partitions_sha256,
         observations=manifest.observations,
         bootstrap_replications=manifest.bootstrap_replications,
+        bootstrap_designs=manifest.bootstrap_designs,
         mean_block_lengths=manifest.mean_block_lengths,
         executor_threads=manifest.executor_threads,
         executor_math_backend=manifest.executor_math_backend,
@@ -818,6 +857,7 @@ def _decode_manifest(value: str) -> PublicationInferenceManifest:
             PublicationInferenceCohortManifest(**item)
             for item in cast("list[dict[str, Any]]", values["cohorts"])
         )
+        values["bootstrap_designs"] = tuple(cast("list[str]", values["bootstrap_designs"]))
         values["mean_block_lengths"] = tuple(cast("list[float]", values["mean_block_lengths"]))
         values["bootstrap_domains"] = tuple(cast("list[int]", values["bootstrap_domains"]))
         return PublicationInferenceManifest(**values)
@@ -1034,7 +1074,8 @@ def _require_result_exact(
             raise PublicationInferenceArtifactError(reason="persisted panel state differs")
         for left_bootstrap, right_bootstrap in zip(left.bootstrap, right.bootstrap, strict=True):
             if (
-                left_bootstrap.mean_block_length != right_bootstrap.mean_block_length
+                left_bootstrap.design is not right_bootstrap.design
+                or left_bootstrap.mean_block_length != right_bootstrap.mean_block_length
                 or left_bootstrap.domain != right_bootstrap.domain
                 or not np.array_equal(left_bootstrap.additive_sums, right_bootstrap.additive_sums)
             ):

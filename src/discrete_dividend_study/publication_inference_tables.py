@@ -17,7 +17,7 @@ from .publication_inference import (
     publication_additive_statistic_names,
 )
 from .publication_inference_artifact import LoadedPublicationInferenceArtifact
-from .publication_inference_spec import PublicationEmpiricalMetric
+from .publication_inference_spec import PublicationBootstrapDesign, PublicationEmpiricalMetric
 from .publication_spec import PublicationVariant
 
 _SHA256_LENGTH: Final = 64
@@ -200,6 +200,7 @@ def publication_sensitivity_contrast_frame(tables: PublicationInferenceTables) -
     return pl.DataFrame(
         {
             "cohort": [item.cohort for item in results],
+            "bootstrap_design": [item.bootstrap_design.value for item in results],
             "mean_block_length": [item.mean_block_length for item in results],
             "left_variant": [item.contrast.left.value for item in results],
             "right_variant": [item.contrast.right.value for item in results],
@@ -213,6 +214,7 @@ def publication_sensitivity_contrast_frame(tables: PublicationInferenceTables) -
         },
         schema={
             "cohort": pl.String,
+            "bootstrap_design": pl.String,
             "mean_block_length": pl.Float64,
             "left_variant": pl.String,
             "right_variant": pl.String,
@@ -450,6 +452,7 @@ def _primary_model_intervals(
         item
         for item in result.model_intervals
         if item.cohort == spec.cohorts[0].name
+        and item.bootstrap_design is PublicationBootstrapDesign.CIRCULAR_STATIONARY
         and item.mean_block_length == spec.bootstrap.mean_block_length
         and item.metric in spec.primary_metrics
     )
@@ -467,6 +470,7 @@ def _primary_contrasts(
         item
         for item in result.contrasts
         if item.cohort == spec.cohorts[0].name
+        and item.bootstrap_design is PublicationBootstrapDesign.CIRCULAR_STATIONARY
         and item.mean_block_length == spec.bootstrap.mean_block_length
         and item.metric in spec.primary_metrics
     )

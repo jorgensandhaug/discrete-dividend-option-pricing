@@ -155,7 +155,18 @@ def test_inference_artifact_round_trip_recomputes_summaries_and_exactly_resumes(
     assert first.artifact.path.name == f"{first.artifact.sha256}.safetensors"
     assert first.artifact.manifest.publication_result_sha256 == final.artifact.sha256
     assert first.artifact.manifest.partitions_sha256 == partition_identity
-    assert first.artifact.manifest.bootstrap_domains == (2_000_000, 2_000_001, 2_000_002)
+    assert first.artifact.manifest.bootstrap_domains == (
+        2_000_000,
+        2_100_000,
+        2_000_001,
+        2_100_001,
+        2_000_002,
+        2_100_002,
+    )
+    assert first.artifact.manifest.bootstrap_designs == (
+        "circular_stationary",
+        "calendar_year_stratified_circular_stationary",
+    )
     assert tuple(item.panels.observations for item in first.result.cohorts) == (4, 3, 2)
     loaded = load_publication_inference_artifact(
         first.artifact.path,

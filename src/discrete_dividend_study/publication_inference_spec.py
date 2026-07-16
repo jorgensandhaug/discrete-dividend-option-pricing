@@ -14,7 +14,7 @@ from typing import Final
 from .project_pipeline import PROJECT_AS_SUBMITTED_TICKERS
 from .publication_spec import PublicationVariant
 
-_HASH_FORMAT: Final = "project-publication-empirical-inference-v1"
+_HASH_FORMAT: Final = "project-publication-empirical-inference-v2"
 _MAX_U32: Final = (2**32) - 1
 _MAX_U64: Final = (2**64) - 1
 _MIN_BOOTSTRAP_REPLICATIONS: Final = 999
@@ -80,6 +80,13 @@ class PublicationBootstrapQuantile(StrEnum):
     """Exact sample-quantile interpolation convention for interval endpoints."""
 
     LINEAR_TYPE_7 = "linear_hyndman_fan_type_7"
+
+
+class PublicationBootstrapDesign(StrEnum):
+    """Declared treatment of fixed temporal strata in one panel bootstrap."""
+
+    CIRCULAR_STATIONARY = "circular_stationary"
+    CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY = "calendar_year_stratified_circular_stationary"
 
 
 class PublicationMultiplicityProcedure(StrEnum):
@@ -165,6 +172,9 @@ class PublicationStationaryBootstrapSpec:
     block_length_sampler: PublicationBootstrapBlockLengthSampler
     mean_block_length: float
     sensitivity_mean_block_lengths: tuple[float, ...]
+    stratified_sensitivity_design: PublicationBootstrapDesign
+    stratified_sensitivity_domain_start: int
+    stratified_sensitivity_mean_block_length: float
     confidence_level: float
     interval: PublicationBootstrapInterval
     quantile: PublicationBootstrapQuantile
@@ -186,6 +196,17 @@ class PublicationStationaryBootstrapSpec:
             )
         _validate_bootstrap_random_mapping(self)
         _validate_block_lengths(self)
+        if (
+            self.stratified_sensitivity_design
+            is not PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY
+        ):
+            raise PublicationInferenceSpecValueError(
+                field="stratified_sensitivity_design",
+                observed=self.stratified_sensitivity_design,
+                requirement=(
+                    "PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY"
+                ),
+            )
         if (
             type(self.confidence_level) is not float
             or not math.isfinite(self.confidence_level)
@@ -222,6 +243,15 @@ def _validate_bootstrap_random_mapping(spec: PublicationStationaryBootstrapSpec)
         raise PublicationInferenceSpecValueError(
             field="domain_start",
             observed=spec.domain_start,
+            requirement="a plain unsigned 32-bit integer",
+        )
+    if (
+        type(spec.stratified_sensitivity_domain_start) is not int
+        or not 0 <= spec.stratified_sensitivity_domain_start <= _MAX_U32
+    ):
+        raise PublicationInferenceSpecValueError(
+            field="stratified_sensitivity_domain_start",
+            observed=spec.stratified_sensitivity_domain_start,
             requirement="a plain unsigned 32-bit integer",
         )
     if (
@@ -269,6 +299,12 @@ def _validate_block_lengths(spec: PublicationStationaryBootstrapSpec) -> None:
             field="mean_block_length",
             observed=spec.mean_block_length,
             requirement=f"a finite plain float of at least {_MIN_BLOCK_LENGTH}",
+        )
+    if spec.stratified_sensitivity_mean_block_length != spec.mean_block_length:
+        raise PublicationInferenceSpecValueError(
+            field="stratified_sensitivity_mean_block_length",
+            observed=spec.stratified_sensitivity_mean_block_length,
+            requirement="the primary mean_block_length",
         )
     values = spec.sensitivity_mean_block_lengths
     if (
@@ -329,6 +365,32 @@ class PublicationEmpiricalInferenceSpec:
                 field="bootstrap domain range",
                 observed=(self.bootstrap.domain_start, domain_count),
                 requirement="a complete nonwrapping unsigned 32-bit cohort/block domain range",
+            )
+        stratified_end = self.bootstrap.stratified_sensitivity_domain_start + len(self.cohorts) - 1
+        if stratified_end > _MAX_U32:
+            raise PublicationInferenceSpecValueError(
+                field="stratified bootstrap domain range",
+                observed=(self.bootstrap.stratified_sensitivity_domain_start, len(self.cohorts)),
+                requirement="a complete nonwrapping unsigned 32-bit cohort domain range",
+            )
+        ordinary_range = range(
+            self.bootstrap.domain_start,
+            self.bootstrap.domain_start + domain_count,
+        )
+        if any(
+            domain in ordinary_range
+            for domain in range(
+                self.bootstrap.stratified_sensitivity_domain_start,
+                stratified_end + 1,
+            )
+        ):
+            raise PublicationInferenceSpecValueError(
+                field="bootstrap domain ranges",
+                observed=(
+                    self.bootstrap.domain_start,
+                    self.bootstrap.stratified_sensitivity_domain_start,
+                ),
+                requirement="disjoint ordinary and stratified unsigned 32-bit ranges",
             )
         if self.multiplicity is not PublicationMultiplicityProcedure.HOLM:
             raise PublicationInferenceSpecValueError(
@@ -412,7 +474,7 @@ def _all_pairwise_contrasts() -> tuple[PublicationVariantContrast, ...]:
 
 
 PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC: Final = PublicationEmpiricalInferenceSpec(
-    name="project-publication-empirical-inference-v1",
+    name="project-publication-empirical-inference-v2",
     cohorts=(
         PublicationCohortSpec(
             name="available_case_six_ticker_full_horizon",
@@ -453,6 +515,11 @@ PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC: Final = PublicationEmpiricalInfere
         ),
         mean_block_length=_PRIMARY_BLOCK_LENGTH,
         sensitivity_mean_block_lengths=(5.0, 10.0, _PRIMARY_BLOCK_LENGTH, 40.0, 60.0),
+        stratified_sensitivity_design=(
+            PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY
+        ),
+        stratified_sensitivity_domain_start=2_100_000,
+        stratified_sensitivity_mean_block_length=_PRIMARY_BLOCK_LENGTH,
         confidence_level=0.95,
         interval=PublicationBootstrapInterval.BASIC,
         quantile=PublicationBootstrapQuantile.LINEAR_TYPE_7,
@@ -462,6 +529,28 @@ PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC: Final = PublicationEmpiricalInfere
     family_wise_error_rate=0.05,
 )
 """Frozen before inspecting any selected-identity publication result."""
+
+
+def publication_bootstrap_configurations(
+    spec: PublicationEmpiricalInferenceSpec,
+) -> tuple[tuple[PublicationBootstrapDesign, float], ...]:
+    """Return ordinary block sensitivities followed by one calendar-stratified sensitivity."""
+    if type(spec) is not PublicationEmpiricalInferenceSpec:
+        raise PublicationInferenceSpecValueError(
+            field="spec",
+            observed=spec,
+            requirement="PublicationEmpiricalInferenceSpec",
+        )
+    return (
+        *(
+            (PublicationBootstrapDesign.CIRCULAR_STATIONARY, mean)
+            for mean in spec.bootstrap.sensitivity_mean_block_lengths
+        ),
+        (
+            spec.bootstrap.stratified_sensitivity_design,
+            spec.bootstrap.stratified_sensitivity_mean_block_length,
+        ),
+    )
 
 
 def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSpec) -> str:
@@ -528,6 +617,23 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
             "sensitivity_mean_block_lengths": [
                 float(value).hex() for value in spec.bootstrap.sensitivity_mean_block_lengths
             ],
+            "stratified_sensitivity_design": (spec.bootstrap.stratified_sensitivity_design.value),
+            "stratified_sensitivity_strata": "observed_iso_calendar_year",
+            "stratified_sensitivity_offsets": (
+                "strictly_increasing_complete_contiguous_panel_partition"
+            ),
+            "stratified_sensitivity_domain_start": (
+                spec.bootstrap.stratified_sensitivity_domain_start
+            ),
+            "stratified_sensitivity_domain_mapping": ("stratified_domain_start_plus_cohort_index"),
+            "stratified_sensitivity_mean_block_length": float(
+                spec.bootstrap.stratified_sensitivity_mean_block_length
+            ).hex(),
+            "stratified_sensitivity_weighting": "preserve_each_calendar_year_panel_count",
+            "stratified_sensitivity_stratum_order": "strictly_increasing_iso_calendar_year",
+            "stratified_sensitivity_random_draw_order": (
+                "one_replication_path_then_strata_in_declared_order"
+            ),
             "confidence_level": float(spec.bootstrap.confidence_level).hex(),
             "interval": spec.bootstrap.interval.value,
             "quantile": spec.bootstrap.quantile.value,
@@ -550,6 +656,7 @@ def publication_empirical_inference_sha256(spec: PublicationEmpiricalInferenceSp
 __all__ = [
     "PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC",
     "PublicationBootstrapBlockLengthSampler",
+    "PublicationBootstrapDesign",
     "PublicationBootstrapInterval",
     "PublicationBootstrapOriginSampler",
     "PublicationBootstrapQuantile",
@@ -562,5 +669,6 @@ __all__ = [
     "PublicationMultiplicityProcedure",
     "PublicationStationaryBootstrapSpec",
     "PublicationVariantContrast",
+    "publication_bootstrap_configurations",
     "publication_empirical_inference_sha256",
 ]

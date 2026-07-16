@@ -24,7 +24,7 @@ from discrete_dividend_study.publication_spec import PublicationVariant
 from tests.test_publication_inference import _inputs, _test_spec
 
 _PRIMARY_CONTRASTS = 12
-_SENSITIVITY_CONTRASTS = 108
+_SENSITIVITY_CONTRASTS = 216
 _CALENDAR_YEAR_COHORTS = 5
 _METRICS = 6
 

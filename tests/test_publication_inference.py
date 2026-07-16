@@ -19,6 +19,7 @@ from discrete_dividend_study.publication_inference import (
 )
 from discrete_dividend_study.publication_inference_spec import (
     PROJECT_PUBLICATION_EMPIRICAL_INFERENCE_SPEC,
+    PublicationBootstrapDesign,
     PublicationEmpiricalInferenceSpec,
     PublicationEmpiricalMetric,
 )
@@ -26,6 +27,7 @@ from discrete_dividend_study.publication_spec import PublicationVariant
 
 _ADDITIVE_STATISTICS = 25
 _PRIMARY_TESTS = 12
+_TEST_BOOTSTRAP_CONFIGURATIONS = 2
 
 
 def _inputs() -> tuple[pl.DataFrame, PublicationPredictionSet]:
@@ -112,12 +114,26 @@ def test_paired_bootstrap_is_thread_invariant_and_holm_is_primary_only() -> None
         spec,
     )
     for left, right in zip(serial.cohorts, parallel.cohorts, strict=True):
-        assert np.array_equal(left.bootstrap[0].additive_sums, right.bootstrap[0].additive_sums)
+        assert len(left.bootstrap) == len(right.bootstrap) == _TEST_BOOTSTRAP_CONFIGURATIONS
+        for left_configuration, right_configuration in zip(
+            left.bootstrap,
+            right.bootstrap,
+            strict=True,
+        ):
+            assert np.array_equal(
+                left_configuration.additive_sums,
+                right_configuration.additive_sums,
+            )
+        assert left.bootstrap[1].design is (
+            PublicationBootstrapDesign.CALENDAR_YEAR_STRATIFIED_CIRCULAR_STATIONARY
+        )
+    assert set(serial.cohorts[0].bootstrap[1].additive_sums[:, 0]).issubset({12.0, 14.0, 16.0})
     assert np.unique(serial.cohorts[0].bootstrap[0].additive_sums[:, 0]).size > 1
     primary = [
         result
         for result in serial.contrasts
         if result.cohort == spec.cohorts[0].name
+        and result.bootstrap_design is PublicationBootstrapDesign.CIRCULAR_STATIONARY
         and result.metric in spec.primary_metrics
         and result.mean_block_length == spec.bootstrap.mean_block_length
     ]
@@ -131,6 +147,7 @@ def test_paired_bootstrap_is_thread_invariant_and_holm_is_primary_only() -> None
         result
         for result in serial.model_intervals
         if result.cohort == spec.cohorts[0].name
+        and result.bootstrap_design is PublicationBootstrapDesign.CIRCULAR_STATIONARY
         and result.variant is PublicationVariant.CASH_JUMP_LIQUIDATOR
         and result.metric is PublicationEmpiricalMetric.MAPE_PERCENT
     )
