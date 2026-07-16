@@ -34,9 +34,12 @@ resumable, but a failed phase stops the queue; it is never replaced by a differe
 count, batch size or model.
 
 `LocalResourceBudget` owns a path-free manifest and the exact child thread environment. Launchers
-must acquire an exclusive heavy-process lease separately and record the budget manifest in their
-operational receipt. Cluster and dedicated-machine schedules require distinct named budgets. They
-must not reuse the interactive identifier with higher concurrency.
+must hold `acquire_local_heavy_process_lease` across the complete heavy child lifetime and record
+the budget manifest in their operational receipt. Lease acquisition is nonblocking: overlap fails
+immediately instead of waiting, retrying, or choosing another execution profile. The lease requires
+an absolute regular non-symlink file on an existing local directory. Cluster and dedicated-machine
+schedules require distinct named budgets and admission controls; they must not reuse the interactive
+identifier with higher concurrency.
 
 ## Consequences
 
@@ -44,6 +47,7 @@ must not reuse the interactive identifier with higher concurrency.
 - Only one copy of the prepared population and one framework/device context is live per phase.
 - Resource policy is inspectable and testable instead of being encoded in tmux sessions or agent
   behavior.
+- A second local heavy phase is rejected before framework or data initialization.
 - The local schedule may take longer than an aggressively sharded run; cluster throughput remains a
   separate, explicitly declared optimization.
 - The budget does not claim to enforce a portable RSS percentage. Memory is measured per workload,

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from discrete_dividend_study.local_resources import (
     PROJECT_INTERACTIVE_RESOURCE_BUDGET,
     LocalResourceBudget,
     LocalResourceBudgetError,
+    acquire_local_heavy_process_lease,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _PROJECT_DATA_THREADS = 2
 _PROJECT_NICE_INCREMENT = 10
@@ -39,6 +45,49 @@ def test_environment_resolution_is_explicit_and_nonmutating() -> None:
     assert base["OMP_NUM_THREADS"] == "64"
     assert resolved["OMP_NUM_THREADS"] == "1"
     assert resolved["PATH"] == "/bin"
+
+
+def test_heavy_process_lease_rejects_overlap_and_releases(tmp_path: Path) -> None:
+    """A second heavy phase fails immediately and the lease remains reusable after exit."""
+    lock = tmp_path / "heavy-process.lock"
+    with (
+        acquire_local_heavy_process_lease(lock, PROJECT_INTERACTIVE_RESOURCE_BUDGET),
+        pytest.raises(LocalResourceBudgetError, match="another heavy local process"),
+        acquire_local_heavy_process_lease(lock, PROJECT_INTERACTIVE_RESOURCE_BUDGET),
+    ):
+        pass
+    with acquire_local_heavy_process_lease(lock, PROJECT_INTERACTIVE_RESOURCE_BUDGET):
+        assert lock.is_file()
+
+
+def test_heavy_process_lease_rejects_symlink(tmp_path: Path) -> None:
+    """The operational lock cannot be redirected through a filesystem alias."""
+    target = tmp_path / "target.lock"
+    target.touch()
+    alias = tmp_path / "alias.lock"
+    alias.symlink_to(target)
+    with (
+        pytest.raises(LocalResourceBudgetError, match="must not be a symlink"),
+        acquire_local_heavy_process_lease(alias, PROJECT_INTERACTIVE_RESOURCE_BUDGET),
+    ):
+        pass
+
+
+def test_heavy_process_lease_requires_exclusive_budget(tmp_path: Path) -> None:
+    """The single-file lease cannot misrepresent a multi-process budget."""
+    parallel = LocalResourceBudget(
+        name="parallel",
+        max_heavy_processes=2,
+        data_threads=2,
+        hidden_cpu_threads=1,
+        nice_increment=10,
+        automatic_restart=False,
+    )
+    with (
+        pytest.raises(LocalResourceBudgetError, match="max_heavy_processes == 1"),
+        acquire_local_heavy_process_lease(tmp_path / "heavy.lock", parallel),
+    ):
+        pass
 
 
 @pytest.mark.parametrize(

@@ -136,6 +136,7 @@ from .local_resources import (
     PROJECT_INTERACTIVE_RESOURCE_BUDGET,
     LocalResourceBudget,
     LocalResourceBudgetError,
+    acquire_local_heavy_process_lease,
 )
 from .market_calendar import (
     MarketCalendarError,
@@ -1242,6 +1243,7 @@ __all__ = [
     "VerifiedPinnedParquet",
     "VerifiedStudyFeatureArtifact",
     "__version__",
+    "acquire_local_heavy_process_lease",
     "adapt_long_form_option_quotes",
     "adapt_orats_curve",
     "adapt_raw_orats_curve",

@@ -190,11 +190,16 @@ def test_lstm_consumes_real_events_farthest_to_nearest() -> None:
 
     assert isinstance(model.dividend_input, DirectDividendLstmInput)
     order = model.dividend_input.sequence_order
-    torch_ordered = order_torch_lstm_events(
-        torch_batch.event_times[:, :, None],
-        torch_batch.event_lengths,
-        order,
-    )[:, :, 0].detach().cpu().numpy()
+    torch_ordered = (
+        order_torch_lstm_events(
+            torch_batch.event_times[:, :, None],
+            torch_batch.event_lengths,
+            order,
+        )[:, :, 0]
+        .detach()
+        .cpu()
+        .numpy()
+    )
     mlx_ordered_array = order_mlx_lstm_events(
         mlx_batch.event_times[:, :, None],
         mlx_batch.event_lengths,
@@ -235,10 +240,15 @@ def test_binned_model_consumes_months_farthest_to_nearest() -> None:
     assert mlx_batch.binned_amounts is not None
     bin_input = model.dividend_input
     assert isinstance(bin_input, BinnedDividendInput)
-    torch_ordered = order_torch_dividend_bins(
-        torch_batch.binned_amounts,
-        bin_input.order,
-    ).detach().cpu().numpy()
+    torch_ordered = (
+        order_torch_dividend_bins(
+            torch_batch.binned_amounts,
+            bin_input.order,
+        )
+        .detach()
+        .cpu()
+        .numpy()
+    )
     mlx_ordered_array = order_mlx_dividend_bins(
         mlx_batch.binned_amounts,
         bin_input.order,

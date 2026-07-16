@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import fcntl
+import os
+import stat
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Final
+from pathlib import Path
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _MIN_THREAD_COUNT: Final = 1
 _MAX_THREAD_COUNT: Final = 64
 _MIN_NICE_INCREMENT: Final = 0
 _MAX_NICE_INCREMENT: Final = 19
+_OPEN_FLAGS: Final = os.O_CLOEXEC | os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR
 
 
 @dataclass(slots=True)
@@ -98,6 +107,61 @@ class LocalResourceBudget:
         }
 
 
+@contextmanager
+def acquire_local_heavy_process_lease(
+    path: Path,
+    budget: LocalResourceBudget,
+) -> Iterator[None]:
+    """Hold the exclusive local-heavy-process lease for one complete phase.
+
+    Acquisition is nonblocking: overlap is an error, never a reason to wait or select a different
+    execution profile. The lock file is local operational state and is intentionally absent from
+    the relocatable budget manifest.
+    """
+    _validate_lease_request(path, budget)
+    try:
+        descriptor = os.open(path, _OPEN_FLAGS, 0o600)
+    except OSError as error:
+        raise LocalResourceBudgetError(
+            reason=f"heavy-process lease cannot be opened: {error.strerror or error!s}",
+        ) from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise LocalResourceBudgetError(
+                reason="heavy-process lease must be a regular file",
+            )
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise LocalResourceBudgetError(
+                reason="another heavy local process owns the lease",
+            ) from error
+        except OSError as error:
+            raise LocalResourceBudgetError(
+                reason=f"heavy-process lease cannot be acquired: {error.strerror or error!s}",
+            ) from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _validate_lease_request(path: object, budget: object) -> None:
+    if not isinstance(path, Path) or not path.is_absolute():
+        raise LocalResourceBudgetError(reason="lease path must be an absolute pathlib.Path")
+    if type(budget) is not LocalResourceBudget:
+        raise LocalResourceBudgetError(reason="lease budget must be LocalResourceBudget")
+    if budget.max_heavy_processes != 1:
+        raise LocalResourceBudgetError(
+            reason="the exclusive local lease requires max_heavy_processes == 1",
+        )
+    if not path.parent.is_dir() or path.parent.is_symlink():
+        raise LocalResourceBudgetError(
+            reason="lease parent must be an existing non-symlink directory",
+        )
+    if path.is_symlink():
+        raise LocalResourceBudgetError(reason="lease path must not be a symlink")
+
+
 PROJECT_INTERACTIVE_RESOURCE_BUDGET: Final = LocalResourceBudget(
     name="project_interactive_one_phase_v1",
     max_heavy_processes=1,
@@ -112,4 +176,5 @@ __all__ = [
     "PROJECT_INTERACTIVE_RESOURCE_BUDGET",
     "LocalResourceBudget",
     "LocalResourceBudgetError",
+    "acquire_local_heavy_process_lease",
 ]
