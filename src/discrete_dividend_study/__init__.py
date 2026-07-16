@@ -648,6 +648,7 @@ from .publication_inference_tables import (
     publication_primary_model_latex,
     publication_primary_model_markdown,
     publication_sensitivity_contrast_frame,
+    publication_sensitivity_model_frame,
 )
 from .publication_pricing import (
     PublicationCashReplicationResult,
@@ -1372,6 +1373,7 @@ __all__ = [
     "publication_primary_model_markdown",
     "publication_replication_plan_sha256",
     "publication_sensitivity_contrast_frame",
+    "publication_sensitivity_model_frame",
     "publication_study_result_request_sha256",
     "publication_study_sha256",
     "read_orats_archive_inventory",

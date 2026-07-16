@@ -229,6 +229,45 @@ def publication_sensitivity_contrast_frame(tables: PublicationInferenceTables) -
     )
 
 
+def publication_sensitivity_model_frame(tables: PublicationInferenceTables) -> pl.DataFrame:
+    """Return every cohort, bootstrap design, block length, model, and metric interval."""
+    _validate_tables(tables)
+    results = tables.result.model_intervals
+    cohort_sizes = {
+        cohort.panels.cohort.name: (
+            cohort.panels.observations,
+            cohort.panels.quote_date_panels,
+        )
+        for cohort in tables.result.cohorts
+    }
+    return pl.DataFrame(
+        {
+            "cohort": [item.cohort for item in results],
+            "bootstrap_design": [item.bootstrap_design.value for item in results],
+            "mean_block_length": [item.mean_block_length for item in results],
+            "variant": [item.variant.value for item in results],
+            "metric": [item.metric.value for item in results],
+            "observations": [cohort_sizes[item.cohort][0] for item in results],
+            "quote_date_panels": [cohort_sizes[item.cohort][1] for item in results],
+            "estimate": [item.estimate for item in results],
+            "interval_lower": [item.interval_lower for item in results],
+            "interval_upper": [item.interval_upper for item in results],
+        },
+        schema={
+            "cohort": pl.String,
+            "bootstrap_design": pl.String,
+            "mean_block_length": pl.Float64,
+            "variant": pl.String,
+            "metric": pl.String,
+            "observations": pl.UInt64,
+            "quote_date_panels": pl.UInt64,
+            "estimate": pl.Float64,
+            "interval_lower": pl.Float64,
+            "interval_upper": pl.Float64,
+        },
+    )
+
+
 def publication_calendar_year_model_frame(tables: PublicationInferenceTables) -> pl.DataFrame:
     """Return predeclared aggregate model diagnostics for every observed calendar year."""
     _validate_tables(tables)
@@ -546,4 +585,5 @@ __all__ = [
     "publication_primary_model_latex",
     "publication_primary_model_markdown",
     "publication_sensitivity_contrast_frame",
+    "publication_sensitivity_model_frame",
 ]

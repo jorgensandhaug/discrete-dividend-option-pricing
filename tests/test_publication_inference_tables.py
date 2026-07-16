@@ -19,12 +19,15 @@ from discrete_dividend_study.publication_inference_tables import (
     publication_primary_model_latex,
     publication_primary_model_markdown,
     publication_sensitivity_contrast_frame,
+    publication_sensitivity_model_frame,
 )
 from discrete_dividend_study.publication_spec import PublicationVariant
 from tests.test_publication_inference import _inputs, _test_spec
 
 _PRIMARY_CONTRASTS = 12
 _SENSITIVITY_CONTRASTS = 216
+_SENSITIVITY_MODELS = 144
+_COHORTS = 3
 _CALENDAR_YEAR_COHORTS = 5
 _METRICS = 6
 
@@ -46,6 +49,7 @@ def test_primary_frames_are_complete_typed_and_aggregate_only() -> None:
     models = publication_primary_model_frame(tables)
     contrasts = publication_primary_contrast_frame(tables)
     sensitivity = publication_sensitivity_contrast_frame(tables)
+    sensitivity_models = publication_sensitivity_model_frame(tables)
     calendar_models = publication_calendar_year_model_frame(tables)
     calendar_contrasts = publication_calendar_year_contrast_frame(tables)
     assert models.height == len(PublicationVariant)
@@ -64,6 +68,11 @@ def test_primary_frames_are_complete_typed_and_aggregate_only() -> None:
     assert contrasts.height == _PRIMARY_CONTRASTS
     assert contrasts.get_column("holm_adjusted_p_value").null_count() == 0
     assert sensitivity.height == _SENSITIVITY_CONTRASTS
+    assert sensitivity_models.height == _SENSITIVITY_MODELS
+    assert (
+        sensitivity_models.select("cohort", "observations", "quote_date_panels").unique().height
+        == _COHORTS
+    )
     assert sensitivity.get_column("holm_adjusted_p_value").null_count() == (
         _SENSITIVITY_CONTRASTS - _PRIMARY_CONTRASTS
     )
