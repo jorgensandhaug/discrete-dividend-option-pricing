@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "discrete-dividend-option-pricing"
-version = "0.1.1"
+version = "0.1.2"
 description = "Reproducible research workflows for discrete-dividend option pricing"
 readme = "README.md"
 requires-python = ">=3.12"
