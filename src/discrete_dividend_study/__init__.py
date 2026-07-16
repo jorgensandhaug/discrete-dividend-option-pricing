@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version as distribution_version
 from typing import Final
 
 from finoptions import BuildInfo, build_info
@@ -775,7 +776,7 @@ from .underlying_history import (
     prepare_underlying_history,
 )
 
-__version__: Final = "0.1.0"
+__version__: Final = distribution_version("discrete-dividend-option-pricing")
 
 
 def engine_build_info() -> BuildInfo:

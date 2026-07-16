@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version
+
 import polars as pl
 import pytest
 
+import discrete_dividend_study
 from discrete_dividend_study import (
     ConflictingColumnsError,
     DuplicateColumnsError,
@@ -20,6 +23,11 @@ def test_pinned_engine_package_is_loaded() -> None:
     info = engine_build_info()
     assert info.package_version == "0.1.0"
     assert info.rustc_version.startswith("rustc 1.97.0")
+
+
+def test_project_package_version_comes_from_distribution_metadata() -> None:
+    """The public module cannot drift from the installed distribution version."""
+    assert discrete_dividend_study.__version__ == version("discrete-dividend-option-pricing")
 
 
 def test_schema_validation_preserves_lazy_plan() -> None:
