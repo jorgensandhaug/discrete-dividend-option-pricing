@@ -23,6 +23,9 @@ Python workflow obvious to a financial researcher.
 - Event sequence consumers use chronological values with explicit masks or lengths; padding is
   never allowed to alter recurrent state or attention weights.
 - Do not make this repository public, publish packages, or redistribute data.
+- On an interactive workstation, run at most one heavy pricing or training process. Use the typed
+  local resource budget, never start automatic restart daemons, and obtain explicit approval before
+  selecting a higher-concurrency budget.
 
 ## Supported workflow
 

@@ -35,6 +35,11 @@ The state-aware launcher synchronizes the locked environment and rebuilds the na
 when its inputs change. Ruff and ty define the Python quality boundary; Clippy and the Rust test
 suite are owned by the engine repository.
 
+Heavy local phases use the typed `project_interactive_one_phase_v1` resource budget: one process at
+a time, bounded data and hidden CPU thread pools, low OS priority, and no automatic restart. A
+cluster or dedicated host must declare a different budget rather than silently increasing local
+parallelism. See [ADR 0051](docs/adr/0051-explicit-local-resource-budget.md).
+
 ## Reproduce the publication study
 
 First materialize a verified `project-experiment` feature artifact from licensed inputs. The
