@@ -42,6 +42,8 @@ from finoptions import (
     price_lsm_call,
 )
 
+from .engine_identity import EngineIdentityError, resolve_project_engine_revision
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -1290,13 +1292,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     paper_root = Path(__file__).resolve().parents[2]
-    engine_root = paper_root.parent / "finoptions-engine"
     paper_revision = _clean_git_revision(paper_root)
-    engine_revision = _clean_git_revision(engine_root)
-    pinned_engine = (paper_root / "config" / "engine-revision.txt").read_text().strip()
-    if engine_revision != pinned_engine:
-        message = "checked-out engine revision differs from config/engine-revision.txt"
-        raise NumericalPilotError(message)
+    try:
+        engine_revision = resolve_project_engine_revision(paper_root)
+    except EngineIdentityError as error:
+        raise NumericalPilotError(str(error)) from error
     specs = {
         "v1": project_publication_numerical_pilot_v1,
         "v2": project_publication_numerical_pilot_v2,

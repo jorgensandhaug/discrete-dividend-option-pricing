@@ -136,12 +136,12 @@ def test_classical_command_emits_one_verified_complete_artifact(
     paper_revision = "a" * 40
     engine_revision = "b" * 40
 
-    def revision(repository: Path) -> str:
-        return engine_revision if repository.name == "finoptions-engine" else paper_revision
-
-    monkeypatch.setattr("discrete_dividend_study.cli._clean_git_revision", revision)
     monkeypatch.setattr(
-        "discrete_dividend_study.cli._pinned_engine_revision",
+        "discrete_dividend_study.cli._clean_git_revision",
+        lambda _root: paper_revision,
+    )
+    monkeypatch.setattr(
+        "discrete_dividend_study.cli.resolve_project_engine_revision",
         lambda _root: engine_revision,
     )
     monkeypatch.setattr(
@@ -234,12 +234,12 @@ def test_classical_command_prices_explicit_natural_strike_groups(
     paper_revision = "c" * 40
     engine_revision = "d" * 40
 
-    def revision(repository: Path) -> str:
-        return engine_revision if repository.name == "finoptions-engine" else paper_revision
-
-    monkeypatch.setattr("discrete_dividend_study.cli._clean_git_revision", revision)
     monkeypatch.setattr(
-        "discrete_dividend_study.cli._pinned_engine_revision",
+        "discrete_dividend_study.cli._clean_git_revision",
+        lambda _root: paper_revision,
+    )
+    monkeypatch.setattr(
+        "discrete_dividend_study.cli.resolve_project_engine_revision",
         lambda _root: engine_revision,
     )
     monkeypatch.setattr(

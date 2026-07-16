@@ -48,12 +48,12 @@ def test_publication_cash_command_runs_and_exactly_resumes_the_frozen_plan(
     declared = study()
     plan = _plan()
 
-    def revision(repository: Path) -> str:
-        return engine_revision if repository.name == "finoptions-engine" else paper_revision
-
-    monkeypatch.setattr("discrete_dividend_study.cli._clean_git_revision", revision)
     monkeypatch.setattr(
-        "discrete_dividend_study.cli._pinned_engine_revision",
+        "discrete_dividend_study.cli._clean_git_revision",
+        lambda _root: paper_revision,
+    )
+    monkeypatch.setattr(
+        "discrete_dividend_study.cli.resolve_project_engine_revision",
         lambda _root: engine_revision,
     )
     monkeypatch.setattr(

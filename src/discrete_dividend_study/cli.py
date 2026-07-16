@@ -38,6 +38,7 @@ from .classical_spec import (
     ClassicalExecutionSpec,
     ClassicalPopulationAddressing,
 )
+from .engine_identity import EngineIdentityError, resolve_project_engine_revision
 from .event_buffers import EventBufferPolicy
 from .federal_reserve_curve import (
     FederalReserveCurveProjectionSpec,
@@ -176,7 +177,6 @@ if TYPE_CHECKING:
     from .publication_groups import PreparedPublicationPartitions
     from .rolling_windows import RollingTestWindowCount, RollingWindow
 
-_ENGINE_REPOSITORY_NAME: Final = "finoptions-engine"
 _PROFILE_APPLE: Final = "apple-silicon"
 _PROFILE_PORTABLE: Final = "portable-cpu"
 _SHA1_HEX_LENGTH: Final = 40
@@ -265,14 +265,11 @@ def _run_heavy_study_command(arguments: argparse.Namespace) -> int:
         raise StudyCliError(reason=str(error)) from error
     artifact_root = _required_path(arguments.artifacts, field="artifacts", kind="directory")
     paper_root = Path(__file__).resolve().parents[2]
-    engine_root = paper_root.parent / _ENGINE_REPOSITORY_NAME
     paper_revision = _clean_git_revision(paper_root)
-    engine_revision = _clean_git_revision(engine_root)
-    pinned_engine_revision = _pinned_engine_revision(paper_root)
-    if engine_revision != pinned_engine_revision:
-        raise StudyCliError(
-            reason="checked-out engine revision differs from config/engine-revision.txt",
-        )
+    try:
+        engine_revision = resolve_project_engine_revision(paper_root)
+    except EngineIdentityError as error:
+        raise StudyCliError(reason=str(error)) from error
     context = _StudyCliContext(
         feature_artifact=feature_artifact,
         artifact_root=artifact_root,
@@ -1678,19 +1675,6 @@ def _git_output(git: str, repository: Path, arguments: tuple[str, ...]) -> str:
         detail = completed.stderr.strip() or "git command failed without diagnostics"
         raise StudyCliError(reason=f"cannot inspect repository {repository.name!r}: {detail}")
     return completed.stdout.strip()
-
-
-def _pinned_engine_revision(paper_root: Path) -> str:
-    path = paper_root / "config" / "engine-revision.txt"
-    try:
-        revision = path.read_text(encoding="ascii").strip()
-    except OSError as error:
-        raise StudyCliError(reason=f"cannot read pinned engine revision: {error}") from error
-    if len(revision) != _SHA1_HEX_LENGTH or any(
-        character not in "0123456789abcdef" for character in revision
-    ):
-        raise StudyCliError(reason="pinned engine revision is not a full lowercase Git commit")
-    return revision
 
 
 __all__ = ["StudyCliError", "main"]
