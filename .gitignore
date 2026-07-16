@@ -1,0 +1,24 @@
+/.venv/
+/.cache/
+/.pytest_cache/
+/.ruff_cache/
+**/__pycache__/
+*.py[cod]
+.DS_Store
+
+# Licensed/local data and all generated artifacts stay outside Git.
+/data/
+/artifacts/
+/runs/
+/models/
+/reports/generated/
+/dist/
+
+# Notebook execution state is never a production artifact.
+/.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Never commit credentials or machine-local configuration.
+.env
+.env.*
+!.env.example

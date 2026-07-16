@@ -1,0 +1,49 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Reproduction package gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: 0.11.28
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install exact Python
+        run: uv python install 3.14.6
+
+      - name: Synchronize exact environment
+        run: uv sync --all-groups --extra torch --extra mlx --locked
+
+      - name: Format, lint, and type check
+        run: |
+          uv run --no-sync ruff format --check .
+          uv run --no-sync ruff check .
+          uv run --no-sync ty check --error-on-warning src tests tools benchmarks
+
+      - name: Integration tests
+        run: uv run --no-sync pytest -q
+
+      - name: Build source distribution and wheel
+        run: uv build
