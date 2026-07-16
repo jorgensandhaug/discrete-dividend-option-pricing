@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite the project using the metadata below."
 title: "American Stock Option Pricing Using Discrete Dividend Forecasts: A Neural Network and Least Squares Monte Carlo Approach"
 type: software
-version: 0.1.0
+version: 0.1.1
 date-released: 2026-07-16
 authors:
   - family-names: Kjerstad

@@ -7,6 +7,7 @@ from typing import Final
 import mlx.core as mx  # ty: ignore[unresolved-import] - MLX does not ship core stubs
 import mlx.nn as mlx_nn
 import numpy as np
+import numpy.typing as npt
 import pytest
 from finoptions import BinnedCashDividends, PaddedCashDividends
 from mlx.utils import tree_flatten
@@ -71,6 +72,7 @@ CAPACITY: Final = 5
 SEED: Final = 20261207
 FORWARD_TOLERANCE: Final = 2e-6
 GRADIENT_TOLERANCE: Final = 2e-4
+MAX_LOSS_ULPS: Final = 2
 
 _MLX_CPU = NeuralExecutionSpec(
     backend=NeuralBackend.MLX,
@@ -310,19 +312,39 @@ def test_fixed_partial_batch_mask_matches_exact_logical_row_objective(
     mlx_loss = float(mlx_loss_array.item())
 
     valid_rows = final_indices.indices[final_indices.valid]
-    valid_prediction = torch_prediction_numpy(torch_model, torch_fixed.values)[
+    valid_torch_prediction = torch_prediction_numpy(torch_model, torch_fixed.values)[
+        : final_indices.valid_rows
+    ]
+    valid_mlx_prediction = mlx_prediction_numpy(mlx_model, mlx_fixed.values)[
         : final_indices.valid_rows
     ]
     valid_target = prepared.target[valid_rows, None]
-    expected = float(
-        np.mean(
-            np.abs(valid_target - valid_prediction)
-            / ((np.abs(valid_target) + np.abs(valid_prediction)) / 2.0),
-        )
-        * PROJECT_STUDY.training.objective_percentage_scale,
+    expected_torch = _logical_smape(valid_target, valid_torch_prediction)
+    expected_mlx = _logical_smape(valid_target, valid_mlx_prediction)
+    np.testing.assert_array_max_ulp(
+        np.float32(torch_loss),
+        expected_torch,
+        maxulp=MAX_LOSS_ULPS,
     )
-    assert torch_loss == pytest.approx(expected, abs=1e-5)
-    assert mlx_loss == pytest.approx(expected, abs=1e-5)
+    np.testing.assert_array_max_ulp(
+        np.float32(mlx_loss),
+        expected_mlx,
+        maxulp=MAX_LOSS_ULPS,
+    )
+
+
+def _logical_smape(
+    target: npt.NDArray[np.float32],
+    prediction: npt.NDArray[np.float32],
+) -> np.float32:
+    """Recompute the declared logical-row objective in float32."""
+    relative_error = np.abs(target - prediction) / (
+        (np.abs(target) + np.abs(prediction)) / np.float32(2.0)
+    )
+    return np.float32(
+        np.mean(relative_error, dtype=np.float32)
+        * np.float32(PROJECT_STUDY.training.objective_percentage_scale),
+    )
 
 
 def test_backend_build_request_never_substitutes_a_framework() -> None:
