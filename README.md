@@ -12,6 +12,9 @@ Raw and derived licensed row-level data are never committed. Production workflow
 content-addressed Parquet artifacts locally from explicit provider adapters; notebooks consume
 those artifacts and do not define the pipeline.
 
+The verified aggregate-only primary estimates and paired inference are retained in
+[results](results/README.md); the licensed row-level and prediction artifacts are not committed.
+
 ## Development
 
 Check out `finoptions-engine` beside this repository, then run:

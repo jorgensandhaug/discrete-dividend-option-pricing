@@ -1,11 +1,13 @@
 # ADR 0050: Predeclared date-panel empirical inference
 
-- Status: accepted before inspecting the selected-identity publication result
+- Status: accepted; first production inference verified
 - Date: 2026-07-16
 - Result-producing paper revision: `6507dbb62f78fd3227d8318c93f21548cbf11a27`
 - Engine revision: `cd14031a8b1cd03b8258c73c739155a4161f88bc`
 - Pre-result inference revision: `94608f6`
 - Stratified-bootstrap engine revision: `d7f8a6b7ac70bedfb41d7ee4fc5a5c7bb1622c71`
+- Inference-producing paper revision: `aa630920357cb36a9f40b38d064b4c90f08eafd5`
+- Inference execution engine revision: `bd9d2466df42735aa5d7fdef8ec57a84a9e08496`
 
 ## Context
 
@@ -98,6 +100,30 @@ not create post-hoc primary claims.
   metric, contrast family, or multiplicity rule is a new hashed inference specification.
 - Implementation may be optimized in Rust, but it must reproduce this exact resampling and
   estimand identity or use a new specification.
+
+## First production inference
+
+The predeclared design completed in 2.3 seconds and produced content digest
+`0fe2e85baefd1befc22476c92b7595659aeac4528e9899a191b0abb09c57b2f3`, request digest
+`7957611d8fa111192689065d0442dcdadd26ab9f7e8e31d79f815d1742f3af48`, 432 model intervals,
+648 paired contrasts, and exactly 12 primary Holm adjustments. A separate direct load recomputed
+the content, tensor, summary, cohort, configuration, and multiplicity bindings; the immutable
+request receipt resolved to the same artifact.
+
+On the primary 678,122-observation cohort, the cash-jump and escrowed-cash models are not
+distinguishable from each other after the predeclared correction. Both have lower MAPE than both
+continuous-yield variants. Cash jump also has lower RMSE than both yield variants; the escrowed
+cash RMSE differences have the same direction but do not reject in the primary family. Forecast
+yield has lower MAPE than historical yield, while their RMSE contrast does not reject after Holm
+adjustment.
+
+The mandatory sensitivity results preserve the central cash-versus-yield conclusion. Across all
+18 cohort/design/block configurations, both cash variants beat both yield variants in MAPE with
+intervals wholly below zero, and cash jump beats both yield variants in RMSE with intervals wholly
+below zero. Escrowed cash has a lower RMSE point estimate than both yield variants in all 18
+configurations, with intervals below zero in 10 of 18 forecast-yield and 11 of 18 historical-yield
+comparisons. The relative ordering of the two cash conventions changes across RMSE cohorts and
+calendar years, so no claim selects one as universally superior.
 
 ## References
 
