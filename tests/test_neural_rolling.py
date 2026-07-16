@@ -15,7 +15,11 @@ from discrete_dividend_study.neural_rolling import (
     NeuralRollingPreparationError,
     prepare_project_neural_rolling_source,
 )
-from discrete_dividend_study.neural_spec import PROJECT_NEURAL_STUDY_SPEC, NeuralVariant
+from discrete_dividend_study.neural_spec import (
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
+    PROJECT_NEURAL_STUDY_SPEC,
+    NeuralVariant,
+)
 from discrete_dividend_study.rolling_windows import RollingWindow, RollingWindowContentError
 
 if TYPE_CHECKING:
@@ -108,6 +112,21 @@ def test_full_schedule_collects_once_and_exposes_zero_copy_phase_views() -> None
             assert np.shares_memory(phase.training.scalar_features, full_batch.scalar_features)
             assert np.shares_memory(phase.validation.target, full_batch.target)
             assert np.shares_memory(phase.test.target, full_batch.target)
+
+
+def test_submitted_embedding_study_has_an_explicit_compatible_input_boundary() -> None:
+    """The recovered embedding identity is accepted without admitting arbitrary model specs."""
+    prepared = prepare_project_neural_rolling_source(
+        _rolling_frame().lazy(),
+        WINDOWS,
+        PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
+        CpuExecutor(threads=1),
+    )
+    submitted = PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC.model(NeuralVariant.EMBEDDING)
+    corrected = PROJECT_NEURAL_STUDY_SPEC.model(NeuralVariant.EMBEDDING)
+    assert submitted != corrected
+    assert prepared.models == PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC.models
+    assert prepared.window(0, submitted).training.model == submitted
 
 
 def test_null_dates_and_empty_partitions_fail_before_any_model_run() -> None:

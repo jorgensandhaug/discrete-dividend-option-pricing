@@ -26,6 +26,7 @@ from .event_buffers import (
     extract_ragged_cash_dividends,
 )
 from .neural_spec import (
+    PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC,
     PROJECT_NEURAL_STUDY_SPEC,
     BinnedDividendInput,
     DirectDividendLstmInput,
@@ -541,11 +542,11 @@ def slice_prepared_neural_batch(
 
 def project_neural_input_columns(model: NeuralModelSpec) -> tuple[str, ...]:
     """Return the minimal ordered materialized column set for one project model."""
-    if type(model) is not NeuralModelSpec or model not in PROJECT_NEURAL_STUDY_SPEC.models:
+    if not _is_owned_project_model(model):
         raise ModelInputTypeError(
             field="model",
             observed=type(model).__name__,
-            expected="a model owned by PROJECT_NEURAL_STUDY_SPEC",
+            expected="a model owned by a frozen project neural study",
         )
     needs_events = type(model.dividend_input) is not DividendYieldInput
     return _required_columns(
@@ -576,12 +577,20 @@ def _validate_request_types(
                 observed=type(value).__name__,
                 expected=expected,
             )
-    if type(model) is not NeuralModelSpec or model not in PROJECT_NEURAL_STUDY_SPEC.models:
+    if not _is_owned_project_model(model):
         raise ModelInputTypeError(
             field="model",
             observed=type(model).__name__,
-            expected="a model owned by PROJECT_NEURAL_STUDY_SPEC",
+            expected="a model owned by a frozen project neural study",
         )
+
+
+def _is_owned_project_model(model: object) -> bool:
+    """Accept only models frozen by the corrected or recovered submitted project study."""
+    return type(model) is NeuralModelSpec and (
+        model in PROJECT_NEURAL_STUDY_SPEC.models
+        or model in PROJECT_AS_SUBMITTED_NEURAL_STUDY_SPEC.models
+    )
 
 
 def _required_columns(
