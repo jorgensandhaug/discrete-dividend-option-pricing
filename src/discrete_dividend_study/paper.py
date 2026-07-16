@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Final
 
-from .neural_spec import PROJECT_STUDY as _PROJECT_STUDY
-from .neural_spec import NeuralModelSpec, NeuralStudySpec, NeuralVariant
+from discrete_dividend_study.models.neural.specification import PROJECT_STUDY as _PROJECT_STUDY
+from discrete_dividend_study.models.neural.specification import (
+    NeuralModelSpec,
+    NeuralStudySpec,
+    NeuralVariant,
+)
 
 PROJECT_STUDY: Final[NeuralStudySpec] = _PROJECT_STUDY
 """Complete architecture, optimizer, loss, and five-model study identity."""

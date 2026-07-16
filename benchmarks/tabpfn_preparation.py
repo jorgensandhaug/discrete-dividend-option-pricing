@@ -11,12 +11,12 @@ from typing import Final
 
 from benchmarks._support import max_rss_bytes
 from benchmarks.neural_training import synthetic_neural_batch
-from discrete_dividend_study.neural_spec import NeuralVariant
-from discrete_dividend_study.tabpfn_inputs import (
+from discrete_dividend_study.experiments.tabpfn import (
     PROJECT_TABPFN_BINNED_INPUT_SPEC,
     prepare_project_tabpfn_binned_batch,
     prepared_tabpfn_batch_sha256,
 )
+from discrete_dividend_study.models.neural.specification import NeuralVariant
 
 _POSITIVE_ROWS_ERROR: Final = "rows must be positive"
 

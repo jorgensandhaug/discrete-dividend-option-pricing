@@ -1,0 +1,633 @@
+"""End-to-end tests for the closed project feature artifact."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import zipfile
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
+
+import polars as pl
+import pytest
+
+from discrete_dividend_study.artifacts.experiment_features import (
+    PROJECT_EXPERIMENT_LONG_FORM_TICKERS,
+    PROJECT_EXPERIMENT_OPTION_PLAN,
+    ProjectExperimentArtifactContentError,
+    ProjectExperimentArtifactManifest,
+    ProjectExperimentFeatureSources,
+    ProjectExperimentOptionPlan,
+    load_verified_project_experiment_artifact,
+    materialize_project_experiment_artifact,
+    project_experiment_mixed_pipeline_sha256,
+)
+from discrete_dividend_study.artifacts.project_features import (
+    PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE,
+    PROJECT_FEATURE_OPTION_START_DATE,
+    ProjectFeatureArtifactContentError,
+    ProjectFeatureArtifactManifest,
+    ProjectFeatureArtifactSpecError,
+    ProjectFeatureSources,
+    ProjectFeatureWriteSpec,
+    load_verified_project_feature_artifact,
+    materialize_project_feature_artifact,
+)
+from discrete_dividend_study.cli import main
+from discrete_dividend_study.core.parquet import (
+    PinnedParquetContentError,
+    VerifiedPinnedParquet,
+    verify_pinned_parquet,
+)
+from discrete_dividend_study.data.dividends.historical_projection import (
+    HISTORICAL_DIVIDEND_SOURCE_DTYPES,
+    HistoricalDividendProjectionSpec,
+    MaterializedHistoricalDividendProjection,
+    materialize_historical_dividend_projection,
+)
+from discrete_dividend_study.data.options.quotes import LONG_FORM_OPTION_QUOTE_DTYPES
+from discrete_dividend_study.data.pipeline import (
+    PROJECT_AS_SUBMITTED_FEATURE_DTYPES,
+    PROJECT_AS_SUBMITTED_TICKERS,
+    PROJECT_EXPERIMENT_FEATURE_DTYPES,
+    build_project_as_submitted_features,
+)
+from discrete_dividend_study.data.providers.orats.archive import (
+    OratsArchiveEntry,
+    OratsArchiveInventory,
+    OratsArchiveReceipt,
+    VerifiedOratsArchive,
+    archive_entries_sha256,
+    orats_archive_name,
+    orats_remote_directory,
+    write_orats_archive_inventory,
+)
+from discrete_dividend_study.data.providers.orats.dividend_archive import (
+    ORATS_DIVIDEND_ARCHIVE_BASE_URL,
+    OratsDividendArchiveEntry,
+    OratsDividendArchiveInventory,
+    OratsDividendArchiveReceipt,
+    VerifiedOratsDividendArchive,
+    orats_dividend_archive_entries_sha256,
+    orats_dividend_archive_name,
+    orats_dividend_archive_url,
+    write_orats_dividend_archive_inventory,
+)
+from discrete_dividend_study.data.providers.orats.dividend_projection import (
+    OratsDividendProjectionSpec,
+    materialize_orats_dividend_projection,
+)
+from discrete_dividend_study.data.providers.orats.dividend_set import (
+    VerifiedOratsDividendProjectionSet,
+    write_orats_dividend_projection_set_manifest,
+)
+from discrete_dividend_study.data.providers.orats.option_compaction import (
+    OratsOptionCompactionSpec,
+    VerifiedOratsOptionCompaction,
+    materialize_orats_option_compaction,
+)
+from discrete_dividend_study.data.providers.orats.option_projection import (
+    OratsOptionProjectionSpec,
+    materialize_orats_option_projection,
+)
+from discrete_dividend_study.data.providers.orats.option_set import (
+    write_orats_option_projection_set_manifest,
+)
+from discrete_dividend_study.data.rates import NSS_PARAMETER_DTYPES
+from discrete_dividend_study.data.underlyings import UNDERLYING_HISTORY_DTYPES
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+INVENTORY_FIRST_DATE = date(2010, 12, 31)
+QUOTE_DATE = date(2024, 9, 27)
+EXPIRY_DATE = date(2024, 11, 1)
+FORECAST_EX_DATE = date(2024, 10, 15)
+HISTORICAL_EX_DATE = date(2024, 9, 1)
+HISTORY_ROWS = 430
+OPTION_HEADER = (
+    "ticker,trade_date,expirDate,strike,cAskPx,cBidPx,pAskPx,pBidPx,stkPx,"
+    "cVolu,pVolu,cOi,pOi,cValue,pValue,cMidIv,pMidIv,yte,iRate\n"
+)
+
+
+def _option_compaction(
+    tmp_path: Path,
+    *,
+    start_date: date = PROJECT_FEATURE_OPTION_START_DATE,
+    end_date_exclusive: date = PROJECT_FEATURE_OPTION_END_DATE_EXCLUSIVE,
+) -> VerifiedOratsOptionCompaction:
+    raw = tmp_path / "option-raw"
+    raw.mkdir()
+    entries: list[OratsArchiveEntry] = []
+    sources: list[VerifiedOratsArchive] = []
+    for trade_date in (INVENTORY_FIRST_DATE, QUOTE_DATE):
+        archive_path = raw / orats_archive_name(trade_date)
+        expiry_date = EXPIRY_DATE if trade_date == QUOTE_DATE else date(2011, 1, 31)
+        rows = "".join(
+            f"{ticker},{trade_date:%m/%d/%Y},{expiry_date:%m/%d/%Y},"
+            "80,21,20.5,1,0.9,100,10,5,100,50,20.8,0.95,0.2,0.21,0.0849,0.04\n"
+            for ticker in PROJECT_AS_SUBMITTED_TICKERS
+        )
+        with zipfile.ZipFile(
+            archive_path,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            archive.writestr(
+                f"ORATS_SMV_Strikes_{trade_date:%Y%m%d}.csv",
+                OPTION_HEADER + rows,
+            )
+        payload = archive_path.read_bytes()
+        entry = OratsArchiveEntry(
+            trade_date=trade_date,
+            remote_path=f"{orats_remote_directory(trade_date.year)}/{archive_path.name}",
+            size_bytes=len(payload),
+            modified_at_utc=datetime(2026, 7, 14, 12, 0, tzinfo=UTC),
+        )
+        entries.append(entry)
+        sources.append(
+            VerifiedOratsArchive(
+                path=archive_path,
+                receipt=OratsArchiveReceipt(
+                    entry=entry,
+                    local_name=archive_path.name,
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                ),
+            ),
+        )
+    frozen_entries = tuple(entries)
+    inventory = OratsArchiveInventory(
+        host="de1.hostedftp.com",
+        start_date=INVENTORY_FIRST_DATE,
+        end_date=QUOTE_DATE,
+        observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
+        entries=frozen_entries,
+        entries_sha256=archive_entries_sha256(frozen_entries),
+    )
+    inventory_path = tmp_path / "option-inventory.json"
+    write_orats_archive_inventory(inventory_path, inventory)
+    daily_root = tmp_path / "option-daily"
+    projection_spec = OratsOptionProjectionSpec(tickers=PROJECT_AS_SUBMITTED_TICKERS)
+    projections = tuple(
+        materialize_orats_option_projection(source, projection_spec, daily_root, tmp_path)
+        for source in sources
+    )
+    daily_set = write_orats_option_projection_set_manifest(
+        tmp_path / "option-daily-set.json",
+        inventory_path,
+        inventory,
+        daily_root,
+        projections,
+    )
+    return materialize_orats_option_compaction(
+        daily_set,
+        OratsOptionCompactionSpec(start_date, end_date_exclusive),
+        tmp_path / "option-annual",
+        tmp_path / "option-annual-set.json",
+    )
+
+
+def _forecast_dividends(tmp_path: Path) -> VerifiedOratsDividendProjectionSet:
+    raw = tmp_path / "forecast-raw"
+    raw.mkdir()
+    archive_path = raw / orats_dividend_archive_name(QUOTE_DATE.year)
+    year_directory = f"{QUOTE_DATE.year}ORATSStockDivForecasts"
+    rows = "".join(
+        f"{ticker} {FORECAST_EX_DATE.isoformat()} 0.5 4\n"
+        for ticker in PROJECT_AS_SUBMITTED_TICKERS
+    )
+    with zipfile.ZipFile(archive_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"{year_directory}/{QUOTE_DATE:%Y%m%d}ORATSStockDivForecasts.txt",
+            rows,
+        )
+    payload = archive_path.read_bytes()
+    entry = OratsDividendArchiveEntry(
+        year=QUOTE_DATE.year,
+        url=orats_dividend_archive_url(QUOTE_DATE.year),
+        size_bytes=len(payload),
+        modified_at_utc=datetime(2025, 1, 2, 3, 21, tzinfo=UTC),
+        etag='"0123456789abcdef0123456789abcdef-2"',
+    )
+    source = VerifiedOratsDividendArchive(
+        path=archive_path,
+        receipt=OratsDividendArchiveReceipt(
+            entry=entry,
+            local_name=archive_path.name,
+            sha256=hashlib.sha256(payload).hexdigest(),
+        ),
+    )
+    inventory = OratsDividendArchiveInventory(
+        base_url=ORATS_DIVIDEND_ARCHIVE_BASE_URL,
+        start_year=QUOTE_DATE.year,
+        end_year=QUOTE_DATE.year,
+        observed_at_utc=datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
+        entries=(entry,),
+        entries_sha256=orats_dividend_archive_entries_sha256((entry,)),
+    )
+    inventory_path = tmp_path / "forecast-inventory.json"
+    write_orats_dividend_archive_inventory(inventory_path, inventory)
+    output_root = tmp_path / "forecast-projected"
+    projection = materialize_orats_dividend_projection(
+        source,
+        OratsDividendProjectionSpec(tickers=PROJECT_AS_SUBMITTED_TICKERS),
+        output_root,
+        tmp_path,
+    )
+    return write_orats_dividend_projection_set_manifest(
+        tmp_path / "forecast-set.json",
+        inventory_path,
+        inventory,
+        output_root,
+        (projection,),
+    )
+
+
+def _historical_dividends(tmp_path: Path) -> MaterializedHistoricalDividendProjection:
+    source = tmp_path / "historical-source.parquet"
+    pl.DataFrame(
+        {
+            "ticker": list(PROJECT_AS_SUBMITTED_TICKERS),
+            "ex_date": [HISTORICAL_EX_DATE] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "amount": [0.4] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "freq": [4] * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "pay_date": [HISTORICAL_EX_DATE + timedelta(days=14)]
+            * len(PROJECT_AS_SUBMITTED_TICKERS),
+        },
+        schema=HISTORICAL_DIVIDEND_SOURCE_DTYPES,
+    ).write_parquet(source)
+    return materialize_historical_dividend_projection(
+        source,
+        expected_source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+        expected_source_rows=len(PROJECT_AS_SUBMITTED_TICKERS),
+        spec=HistoricalDividendProjectionSpec(
+            tickers=PROJECT_AS_SUBMITTED_TICKERS,
+            maximum_ex_date=QUOTE_DATE,
+        ),
+        output_root=tmp_path / "historical-projected",
+    )
+
+
+def _underlying_history(tmp_path: Path) -> VerifiedPinnedParquet:
+    path = tmp_path / "underlying.parquet"
+    origin = QUOTE_DATE - timedelta(days=HISTORY_ROWS - 1)
+    dates = [origin + timedelta(days=index) for index in range(HISTORY_ROWS)]
+    values = [90.0 + index * 0.01 for index in range(HISTORY_ROWS)]
+    frame = pl.DataFrame(
+        {
+            "ticker": [
+                ticker for ticker in PROJECT_AS_SUBMITTED_TICKERS for _ in range(HISTORY_ROWS)
+            ],
+            "date": dates * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "split_adjusted_close": values * len(PROJECT_AS_SUBMITTED_TICKERS),
+            "dividend_and_split_adjusted_close": values * len(PROJECT_AS_SUBMITTED_TICKERS),
+        },
+        schema=UNDERLYING_HISTORY_DTYPES,
+    )
+    frame.write_parquet(path)
+    return verify_pinned_parquet(
+        path,
+        expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        expected_rows=frame.height,
+        expected_schema=UNDERLYING_HISTORY_DTYPES,
+    )
+
+
+def _nss_parameters(tmp_path: Path) -> VerifiedPinnedParquet:
+    path = tmp_path / "nss.parquet"
+    frame = pl.DataFrame(
+        {
+            "date": [QUOTE_DATE],
+            "beta0": [0.03],
+            "beta1": [-0.01],
+            "beta2": [0.02],
+            "beta3": [0.005],
+            "tau1": [1.5],
+            "tau2": [3.0],
+            "shortest_maturity": [0.25],
+            "shortest_rate": [0.019],
+        },
+        schema=NSS_PARAMETER_DTYPES,
+    )
+    frame.write_parquet(path)
+    return verify_pinned_parquet(
+        path,
+        expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        expected_rows=frame.height,
+        expected_schema=NSS_PARAMETER_DTYPES,
+    )
+
+
+def _sources(tmp_path: Path) -> ProjectFeatureSources:
+    return ProjectFeatureSources(
+        options=_option_compaction(tmp_path),
+        forecast_dividends=_forecast_dividends(tmp_path),
+        historical_dividends=_historical_dividends(tmp_path),
+        underlying_history=_underlying_history(tmp_path),
+        nss_parameters=_nss_parameters(tmp_path),
+    )
+
+
+def _long_form_options(
+    tmp_path: Path,
+    options: VerifiedOratsOptionCompaction,
+) -> VerifiedPinnedParquet:
+    """Project five paper tickers into the strict source-precision long form."""
+    selected = options.scan().filter(pl.col("ticker").is_in(PROJECT_EXPERIMENT_LONG_FORM_TICKERS))
+    contract = ("ticker", "quote_date", "expiry_date", "strike", "underlying_price")
+    calls = selected.select(
+        *contract,
+        pl.col("call_bid").alias("bid"),
+        pl.col("call_ask").alias("ask"),
+        pl.col("call_volume").alias("volume"),
+        pl.lit("call").alias("option_type"),
+    )
+    puts = selected.select(
+        *contract,
+        pl.col("put_bid").alias("bid"),
+        pl.col("put_ask").alias("ask"),
+        pl.col("put_volume").alias("volume"),
+        pl.lit("put").alias("option_type"),
+    )
+    path = tmp_path / "long-form-options.parquet"
+    frame = (
+        pl.concat((calls, puts))
+        .select(
+            *(pl.col(name).cast(dtype) for name, dtype in LONG_FORM_OPTION_QUOTE_DTYPES.items())
+        )
+        .sort("ticker", "quote_date", "expiry_date", "strike", "option_type")
+        .collect()
+    )
+    frame.write_parquet(path)
+    return verify_pinned_parquet(
+        path,
+        expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        expected_rows=frame.height,
+        expected_schema=LONG_FORM_OPTION_QUOTE_DTYPES,
+    )
+
+
+def _experiment_sources(tmp_path: Path) -> ProjectExperimentFeatureSources:
+    sources = _sources(tmp_path)
+    return ProjectExperimentFeatureSources(
+        long_form_options=_long_form_options(tmp_path, sources.options),
+        compacted_options=sources.options,
+        forecast_dividends=sources.forecast_dividends,
+        historical_dividends=sources.historical_dividends,
+        underlying_history=sources.underlying_history,
+        nss_parameters=sources.nss_parameters,
+    )
+
+
+def test_feature_artifact_binds_all_sources_and_is_exactly_reusable(tmp_path: Path) -> None:
+    """Five verified sources become one detached, typed, content-addressed Parquet."""
+    sources = _sources(tmp_path)
+    output_root = tmp_path / "features"
+    first = materialize_project_feature_artifact(sources, output_root)
+    second = materialize_project_feature_artifact(sources, output_root)
+
+    assert first == second
+    assert first.path.parent.name == first.manifest.request_sha256
+    assert first.scan().collect().shape == (
+        len(PROJECT_AS_SUBMITTED_TICKERS),
+        len(PROJECT_AS_SUBMITTED_FEATURE_DTYPES),
+    )
+    assert ProjectFeatureArtifactManifest.from_dict(first.manifest.as_dict()) == first.manifest
+    assert json.loads(first.receipt_path.read_bytes()) == first.manifest.as_dict()
+    assert set(first.path.parent.iterdir()) == {first.path, first.receipt_path}
+    direct = build_project_as_submitted_features(
+        sources.options.scan(),
+        sources.underlying_history.scan(),
+        sources.forecast_dividends.scan(),
+        pl.scan_parquet(sources.historical_dividends.path, rechunk=False),
+        sources.nss_parameters.scan(),
+    ).collect()
+    assert first.scan().collect().equals(direct)
+
+    upstream_paths = (
+        *sources.options.paths,
+        sources.options.manifest_path,
+        *sources.forecast_dividends.paths,
+        sources.forecast_dividends.manifest_path,
+        sources.forecast_dividends.inventory_path,
+        sources.historical_dividends.path,
+        sources.historical_dividends.path.with_name(
+            f"{sources.historical_dividends.path.name}.receipt.json",
+        ),
+        sources.underlying_history.path,
+        sources.nss_parameters.path,
+    )
+    for path in upstream_paths:
+        path.unlink()
+    assert load_verified_project_feature_artifact(first.path) == first
+
+    first.path.write_bytes(b"x" * first.path.stat().st_size)
+    with pytest.raises(ProjectFeatureArtifactContentError, match="receipt SHA-256"):
+        load_verified_project_feature_artifact(first.path)
+
+
+def test_mixed_source_experiment_artifact_is_detached_exact_and_reusable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Float64 long form and Float32 compaction become one verified minimal artifact."""
+    sources = _experiment_sources(tmp_path)
+    output_root = tmp_path / "experiment-features"
+    first = materialize_project_experiment_artifact(sources, output_root)
+    second = materialize_project_experiment_artifact(sources, output_root)
+
+    assert first == second
+    assert first.path.parent.name == first.manifest.request_sha256
+    assert first.scan().collect().shape == (
+        len(PROJECT_AS_SUBMITTED_TICKERS),
+        len(PROJECT_EXPERIMENT_FEATURE_DTYPES),
+    )
+    assert first.scan().collect_schema() == pl.Schema(PROJECT_EXPERIMENT_FEATURE_DTYPES)
+    assert tuple(item.ticker for item in first.manifest.coverage) == PROJECT_AS_SUBMITTED_TICKERS
+    assert all(
+        item.rows == item.descriptive_rows == item.post_2015_rows == 1
+        for item in first.manifest.coverage
+    )
+    assert ProjectExperimentArtifactManifest.from_dict(first.manifest.as_dict()) == first.manifest
+    assert json.loads(first.receipt_path.read_bytes()) == first.manifest.as_dict()
+    assert (
+        ProjectExperimentOptionPlan.from_dict(PROJECT_EXPERIMENT_OPTION_PLAN.as_dict())
+        == PROJECT_EXPERIMENT_OPTION_PLAN
+    )
+    assert (
+        project_experiment_mixed_pipeline_sha256(PROJECT_EXPERIMENT_OPTION_PLAN)
+        == first.manifest.pipeline_sha256
+    )
+    arguments = (
+        "materialize-project-experiment-features",
+        "--long-form-options",
+        str(sources.long_form_options.path),
+        "--long-form-sha256",
+        sources.long_form_options.identity.sha256,
+        "--long-form-rows",
+        str(sources.long_form_options.identity.rows),
+        "--option-compaction-manifest",
+        str(sources.compacted_options.manifest_path),
+        "--option-compaction-root",
+        str(sources.compacted_options.output_root),
+        "--forecast-manifest",
+        str(sources.forecast_dividends.manifest_path),
+        "--forecast-inventory",
+        str(sources.forecast_dividends.inventory_path),
+        "--forecast-root",
+        str(sources.forecast_dividends.output_root),
+        "--historical-dividends",
+        str(sources.historical_dividends.path),
+        "--underlying-history",
+        str(sources.underlying_history.path),
+        "--underlying-sha256",
+        sources.underlying_history.identity.sha256,
+        "--underlying-rows",
+        str(sources.underlying_history.identity.rows),
+        "--nss-parameters",
+        str(sources.nss_parameters.path),
+        "--nss-sha256",
+        sources.nss_parameters.identity.sha256,
+        "--nss-rows",
+        str(sources.nss_parameters.identity.rows),
+        "--output-root",
+        str(output_root),
+    )
+    assert main(arguments) == 0
+    cli_summary = json.loads(capsys.readouterr().out)
+    assert cli_summary["output_sha256"] == first.manifest.output_sha256
+    assert cli_summary["rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+    assert cli_summary["descriptive_rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+    assert cli_summary["post_2015_rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+
+    upstream_paths = (
+        sources.long_form_options.path,
+        *sources.compacted_options.paths,
+        sources.compacted_options.manifest_path,
+        *sources.forecast_dividends.paths,
+        sources.forecast_dividends.manifest_path,
+        sources.forecast_dividends.inventory_path,
+        sources.historical_dividends.path,
+        sources.historical_dividends.path.with_name(
+            f"{sources.historical_dividends.path.name}.receipt.json"
+        ),
+        sources.underlying_history.path,
+        sources.nss_parameters.path,
+    )
+    for path in upstream_paths:
+        path.unlink()
+    assert load_verified_project_experiment_artifact(first.path) == first
+
+    first.scan().with_columns(
+        pl.lit([], dtype=pl.List(pl.Date)).alias("forecasted_discrete_ex_dates")
+    ).collect().write_parquet(first.path)
+    corrupted_manifest = replace(
+        first.manifest,
+        output_bytes=first.path.stat().st_size,
+        output_sha256=hashlib.sha256(first.path.read_bytes()).hexdigest(),
+    )
+    first.receipt_path.write_text(
+        json.dumps(
+            corrupted_manifest.as_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    with pytest.raises(ProjectExperimentArtifactContentError, match="invalid rows"):
+        load_verified_project_experiment_artifact(first.path)
+
+    first.path.write_bytes(b"x" * first.path.stat().st_size)
+    with pytest.raises(ProjectExperimentArtifactContentError, match="receipt SHA-256"):
+        load_verified_project_experiment_artifact(first.path)
+
+
+def test_feature_materialization_rejects_runtime_and_source_drift(tmp_path: Path) -> None:
+    """A changed support source or byte-producing runtime fails without fallback."""
+    sources = _sources(tmp_path)
+    with pytest.raises(ProjectFeatureArtifactSpecError, match="active runtime"):
+        materialize_project_feature_artifact(
+            sources,
+            tmp_path / "wrong-runtime",
+            writer=ProjectFeatureWriteSpec(polars_version="0.0.0"),
+        )
+    with pytest.raises(ProjectFeatureArtifactSpecError, match="thread-pool size"):
+        materialize_project_feature_artifact(
+            sources,
+            tmp_path / "wrong-thread-pool",
+            writer=ProjectFeatureWriteSpec(
+                polars_thread_pool_size=pl.thread_pool_size() + 1,
+            ),
+        )
+
+    sources.underlying_history.path.write_bytes(
+        b"x" * sources.underlying_history.path.stat().st_size,
+    )
+    with pytest.raises(PinnedParquetContentError, match="SHA-256"):
+        materialize_project_feature_artifact(sources, tmp_path / "changed-source")
+
+
+def test_feature_materialization_rejects_a_benchmark_option_horizon(tmp_path: Path) -> None:
+    """A valid benchmark subset cannot masquerade as the complete paper feature source."""
+    sources = _sources(tmp_path)
+    benchmark_root = tmp_path / "benchmark"
+    benchmark_root.mkdir()
+    benchmark_options = _option_compaction(
+        benchmark_root,
+        start_date=QUOTE_DATE,
+        end_date_exclusive=QUOTE_DATE + timedelta(days=1),
+    )
+    benchmark_sources = ProjectFeatureSources(
+        benchmark_options,
+        sources.forecast_dividends,
+        sources.historical_dividends,
+        sources.underlying_history,
+        sources.nss_parameters,
+    )
+    with pytest.raises(ProjectFeatureArtifactContentError, match="exact project quote horizon"):
+        materialize_project_feature_artifact(benchmark_sources, tmp_path / "benchmark-features")
+
+
+def test_feature_cli_requires_every_explicit_verified_source_identity(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The public command exposes no path discovery, schema coercion, or inferred hash."""
+    sources = _sources(tmp_path)
+    arguments = (
+        "materialize-project-features",
+        "--option-compaction-manifest",
+        str(sources.options.manifest_path),
+        "--option-compaction-root",
+        str(sources.options.output_root),
+        "--forecast-manifest",
+        str(sources.forecast_dividends.manifest_path),
+        "--forecast-inventory",
+        str(sources.forecast_dividends.inventory_path),
+        "--forecast-root",
+        str(sources.forecast_dividends.output_root),
+        "--historical-dividends",
+        str(sources.historical_dividends.path),
+        "--underlying-history",
+        str(sources.underlying_history.path),
+        "--underlying-sha256",
+        sources.underlying_history.identity.sha256,
+        "--underlying-rows",
+        str(sources.underlying_history.identity.rows),
+        "--nss-parameters",
+        str(sources.nss_parameters.path),
+        "--nss-sha256",
+        sources.nss_parameters.identity.sha256,
+        "--nss-rows",
+        str(sources.nss_parameters.identity.rows),
+        "--output-root",
+        str(tmp_path / "features-cli"),
+    )
+    assert main(arguments) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["rows"] == len(PROJECT_AS_SUBMITTED_TICKERS)
+    assert main(arguments) == 0

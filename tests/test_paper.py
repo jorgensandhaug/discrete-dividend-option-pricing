@@ -1,6 +1,8 @@
 """Public paper-surface tests."""
 
-from discrete_dividend_study.neural_spec import PROJECT_STUDY as CANONICAL_PROJECT_STUDY
+from discrete_dividend_study.models.neural.specification import (
+    PROJECT_STUDY as CANONICAL_PROJECT_STUDY,
+)
 from discrete_dividend_study.paper import PROJECT_MODELS, PROJECT_STUDY
 
 _EXPECTED_MODEL_COUNT = 5

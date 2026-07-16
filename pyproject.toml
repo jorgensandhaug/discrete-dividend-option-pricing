@@ -33,7 +33,7 @@ Issues = "https://github.com/jorgensandhaug/discrete-dividend-option-pricing/iss
 
 [project.scripts]
 discrete-dividend-study = "_discrete_dividend_study_launcher:main"
-publication-numerical-pilot = "discrete_dividend_study.numerical_pilot:main"
+publication-numerical-pilot = "discrete_dividend_study.experiments.lsm_validation.pilot:main"
 
 [project.optional-dependencies]
 mlx = [
@@ -83,7 +83,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 "src/discrete_dividend_study/cli.py" = ["S603"] # argv is a closed set of Git read commands.
-"src/discrete_dividend_study/numerical_pilot.py" = ["S603"] # fixed Git inspection argv only.
+"src/discrete_dividend_study/experiments/lsm_validation/pilot.py" = ["S603"] # fixed Git inspection argv only.
 "tools/dev.py" = ["S603"] # commands are fixed argv lists; no shell is used
 
 [tool.ruff.format]

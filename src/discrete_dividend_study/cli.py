@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import shutil
@@ -10,79 +9,54 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
-from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import polars as pl
 from finoptions import CpuExecutor, CpuMathBackend
 
-from .classical_artifact import (
-    load_classical_study_artifact,
-    write_classical_grouped_study_artifact,
-    write_classical_study_artifact,
+from discrete_dividend_study.artifacts.experiment_features import (
+    ProjectExperimentFeatureSources,
+    materialize_project_experiment_artifact,
 )
-from .classical_comparison import (
-    build_classical_publication_comparison,
-    classical_publication_latex,
-    classical_publication_markdown,
+from discrete_dividend_study.artifacts.project_features import (
+    ProjectFeatureSources,
+    materialize_project_feature_artifact,
 )
-from .classical_groups import (
-    build_project_classical_grouped_frame,
-    prepare_project_classical_strike_groups,
+from discrete_dividend_study.artifacts.study_features import (
+    StudyFeatureArtifactError,
+    StudyFeatureArtifactKind,
+    VerifiedStudyFeatureArtifact,
+    load_verified_study_feature_artifact,
+    verify_study_feature_artifact_unchanged,
 )
-from .classical_inputs import prepare_project_classical_inputs
-from .classical_pricing import run_project_classical_grouped_study, run_project_classical_study
-from .classical_spec import (
-    PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
-    ClassicalExecutionSpec,
-    ClassicalPopulationAddressing,
+from discrete_dividend_study.commands.parser import (
+    APPLE_SILICON_PROFILE as _PROFILE_APPLE,
 )
-from .engine_identity import EngineIdentityError, resolve_project_engine_revision
-from .event_buffers import EventBufferPolicy
-from .federal_reserve_curve import (
-    FederalReserveCurveProjectionSpec,
-    materialize_federal_reserve_curve,
+from discrete_dividend_study.commands.parser import (
+    PORTABLE_CPU_PROFILE as _PROFILE_PORTABLE,
 )
-from .historical_dividend_projection import (
+from discrete_dividend_study.commands.parser import build_parser as _parser
+from discrete_dividend_study.core.calendar import load_project_xnys_calendar
+from discrete_dividend_study.core.engine import EngineIdentityError, resolve_project_engine_revision
+from discrete_dividend_study.core.parquet import verify_pinned_parquet
+from discrete_dividend_study.core.resources import (
+    PROJECT_INTERACTIVE_RESOURCE_BUDGET,
+    LocalResourceBudgetError,
+    acquire_local_heavy_process_lease,
+)
+from discrete_dividend_study.data.dividends.historical_projection import (
     HistoricalDividendProjectionSpec,
     historical_dividend_projection_spec_sha256,
     load_verified_historical_dividend_projection,
     materialize_historical_dividend_projection,
 )
-from .local_resources import (
-    PROJECT_INTERACTIVE_RESOURCE_BUDGET,
-    LocalResourceBudgetError,
-    acquire_local_heavy_process_lease,
+from discrete_dividend_study.data.options.quotes import LONG_FORM_OPTION_QUOTE_DTYPES
+from discrete_dividend_study.data.providers.federal_reserve import (
+    FederalReserveCurveProjectionSpec,
+    materialize_federal_reserve_curve,
 )
-from .market_calendar import load_project_xnys_calendar
-from .neural_cohort import (
-    NeuralCohortError,
-    build_project_neural_cohort_manifest,
-    write_neural_cohort_artifact,
-)
-from .neural_execution import (
-    PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
-    PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
-    NeuralExecutionProfile,
-)
-from .neural_run import resolve_study_source_identity
-from .neural_spec import PROJECT_STUDY
-from .neural_study import (
-    NeuralRollingStudyRequest,
-    load_neural_rolling_study,
-    project_neural_seed_plan,
-    run_project_neural_rolling_study,
-)
-from .neural_tables import (
-    build_neural_publication_table,
-    neural_publication_latex,
-    neural_publication_markdown,
-)
-from .nss_rates import NSS_PARAMETER_DTYPES
-from .option_quotes import LONG_FORM_OPTION_QUOTE_DTYPES
-from .orats_archive import (
-    ORATS_DEFAULT_FTPS_HOST,
+from discrete_dividend_study.data.providers.orats.archive import (
     OratsArchiveInventory,
     OratsFtpsClient,
     OratsFtpsCredentials,
@@ -92,7 +66,7 @@ from .orats_archive import (
     read_orats_archive_inventory,
     write_orats_archive_inventory,
 )
-from .orats_dividend_archive import (
+from discrete_dividend_study.data.providers.orats.dividend_archive import (
     OratsDividendArchiveInventory,
     OratsDividendHttpsClient,
     OratsDividendHttpsSpec,
@@ -101,96 +75,131 @@ from .orats_dividend_archive import (
     read_orats_dividend_archive_inventory,
     write_orats_dividend_archive_inventory,
 )
-from .orats_dividend_projection import (
+from discrete_dividend_study.data.providers.orats.dividend_projection import (
     MaterializedOratsDividendProjection,
     OratsDividendProjectionSpec,
     materialize_orats_dividend_projection,
     orats_dividend_projection_spec_sha256,
 )
-from .orats_dividend_set import (
+from discrete_dividend_study.data.providers.orats.dividend_set import (
     load_verified_orats_dividend_projection_set,
     write_orats_dividend_projection_set_manifest,
 )
-from .orats_option_compaction import (
+from discrete_dividend_study.data.providers.orats.option_compaction import (
     OratsOptionCompactionSpec,
     load_verified_orats_option_compaction,
     materialize_orats_option_compaction,
 )
-from .orats_option_projection import (
+from discrete_dividend_study.data.providers.orats.option_projection import (
     MaterializedOratsOptionProjection,
     OratsOptionProjectionSpec,
     load_verified_orats_option_projection,
     materialize_orats_option_projection,
     orats_option_projection_spec_sha256,
 )
-from .orats_option_set import (
+from discrete_dividend_study.data.providers.orats.option_set import (
     load_verified_orats_option_projection_set,
     write_orats_option_projection_set_manifest,
 )
-from .pinned_parquet import verify_pinned_parquet
-from .project_experiment_artifact import (
-    ProjectExperimentFeatureSources,
-    materialize_project_experiment_artifact,
+from discrete_dividend_study.data.rates import NSS_PARAMETER_DTYPES
+from discrete_dividend_study.data.underlyings import UNDERLYING_HISTORY_DTYPES
+from discrete_dividend_study.experiments.lsm_validation.cash_artifacts import (
+    run_or_load_publication_cash_replication,
 )
-from .project_feature_artifact import (
-    ProjectFeatureSources,
-    materialize_project_feature_artifact,
+from discrete_dividend_study.experiments.lsm_validation.exercise import (
+    prepare_publication_exercise_schedules,
 )
-from .publication_artifact import run_or_load_publication_cash_replication
-from .publication_exercise import prepare_publication_exercise_schedules
-from .publication_groups import prepare_publication_partitions, publication_partitions_sha256
-from .publication_inference_artifact import (
+from discrete_dividend_study.experiments.lsm_validation.inference_artifacts import (
     load_publication_inference_artifact,
     run_or_load_publication_empirical_inference,
 )
-from .publication_inference_tables import (
+from discrete_dividend_study.experiments.lsm_validation.partitions import (
+    prepare_publication_partitions,
+    publication_partitions_sha256,
+)
+from discrete_dividend_study.experiments.lsm_validation.result_artifacts import (
+    load_publication_study_result_artifact,
+    run_or_load_publication_study_result,
+)
+from discrete_dividend_study.experiments.lsm_validation.specification import (
+    PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC,
+    PROJECT_PUBLICATION_STUDY_SPEC,
+    PublicationDeterministicExecutionSpec,
+)
+from discrete_dividend_study.experiments.lsm_validation.tables import (
     build_publication_inference_tables,
     publication_primary_contrast_latex,
     publication_primary_contrast_markdown,
     publication_primary_model_latex,
     publication_primary_model_markdown,
 )
-from .publication_result_artifact import (
-    load_publication_study_result_artifact,
-    run_or_load_publication_study_result,
+from discrete_dividend_study.experiments.neural.cohort import (
+    NeuralCohortError,
+    build_project_neural_cohort_manifest,
+    write_neural_cohort_artifact,
 )
-from .publication_spec import (
-    PROJECT_PUBLICATION_REPLICATION_PLAN_SPEC,
-    PROJECT_PUBLICATION_STUDY_SPEC,
-    PublicationDeterministicExecutionSpec,
+from discrete_dividend_study.experiments.neural.run import resolve_study_source_identity
+from discrete_dividend_study.experiments.neural.study import (
+    NeuralRollingStudyRequest,
+    load_neural_rolling_study,
+    project_neural_seed_plan,
+    run_project_neural_rolling_study,
 )
-from .rolling_windows import (
+from discrete_dividend_study.experiments.neural.tables import (
+    build_neural_publication_table,
+    neural_publication_latex,
+    neural_publication_markdown,
+)
+from discrete_dividend_study.experiments.windows import (
     PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
     RollingWindowError,
     generate_rolling_windows,
     select_rolling_test_union,
     validate_rolling_test_coverage,
 )
-from .study_features import (
-    StudyFeatureArtifactError,
-    StudyFeatureArtifactKind,
-    VerifiedStudyFeatureArtifact,
-    load_verified_study_feature_artifact,
-    verify_study_feature_artifact_unchanged,
+from discrete_dividend_study.models.dividend_events import EventBufferPolicy
+from discrete_dividend_study.models.lsm.artifacts import (
+    load_classical_study_artifact,
+    write_classical_grouped_study_artifact,
+    write_classical_study_artifact,
 )
-from .underlying_history import UNDERLYING_HISTORY_DTYPES
+from discrete_dividend_study.models.lsm.comparison import (
+    build_classical_publication_comparison,
+    classical_publication_latex,
+    classical_publication_markdown,
+)
+from discrete_dividend_study.models.lsm.groups import (
+    build_project_classical_grouped_frame,
+    prepare_project_classical_strike_groups,
+)
+from discrete_dividend_study.models.lsm.inputs import prepare_project_classical_inputs
+from discrete_dividend_study.models.lsm.pricing import (
+    run_project_classical_grouped_study,
+    run_project_classical_study,
+)
+from discrete_dividend_study.models.lsm.specification import (
+    PROJECT_CLASSICAL_RECONSTRUCTION_SPEC,
+    ClassicalExecutionSpec,
+    ClassicalPopulationAddressing,
+)
+from discrete_dividend_study.models.neural.execution import (
+    PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
+    PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
+    NeuralExecutionProfile,
+)
+from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
 
 if TYPE_CHECKING:
+    import argparse
     from collections.abc import Callable, Sequence
 
-    from .neural_run import StudySourceIdentity
-    from .publication_groups import PreparedPublicationPartitions
-    from .rolling_windows import RollingTestWindowCount, RollingWindow
+    from discrete_dividend_study.experiments.lsm_validation.partitions import (
+        PreparedPublicationPartitions,
+    )
+    from discrete_dividend_study.experiments.neural.run import StudySourceIdentity
+    from discrete_dividend_study.experiments.windows import RollingTestWindowCount, RollingWindow
 
-_PROFILE_APPLE: Final = "apple-silicon"
-_PROFILE_PORTABLE: Final = "portable-cpu"
 _SHA1_HEX_LENGTH: Final = 40
-_POSITIVE_INTEGER_MESSAGE: Final = "value must be a positive integer"
-_SEED_MESSAGE: Final = "seed must be an unsigned 64-bit integer"
-_DOMAIN_MESSAGE: Final = "domain must be an unsigned 32-bit integer"
-_ISO_DATE_MESSAGE: Final = "date must use exact ISO YYYY-MM-DD syntax"
-_MINIMUM_ARCHIVE_YEAR: Final = 2007
-_MAXIMUM_ARCHIVE_YEAR: Final = 9999
 _HEAVY_STUDY_COMMANDS: Final = frozenset(
     {
         "freeze-neural-cohort",
@@ -1294,323 +1303,6 @@ def _prepare_publication_context(
     )
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="discrete-dividend-study",
-        description="Run immutable discrete-dividend option-pricing studies.",
-    )
-    commands = parser.add_subparsers(dest="command", required=True)
-    _add_option_data_commands(commands)
-    _add_dividend_data_commands(commands)
-    _add_curve_data_command(commands)
-    _add_project_feature_command(commands)
-    heavy_parent = argparse.ArgumentParser(add_help=False)
-    _add_local_resource_lock_argument(heavy_parent)
-    cohort = commands.add_parser(
-        "freeze-neural-cohort",
-        help="verify and freeze the aggregate-only five-model cohort identity",
-        parents=(heavy_parent,),
-    )
-    cohort.add_argument("--features", type=Path, required=True)
-    cohort.add_argument(
-        "--feature-artifact-kind",
-        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
-        required=True,
-    )
-    cohort.add_argument("--artifacts", type=Path, required=True)
-    cohort.add_argument("--data-threads", type=_positive_int, required=True)
-    neural = commands.add_parser(
-        "run-neural-study",
-        help="run or exactly resume the complete five-model rolling neural study",
-        parents=(heavy_parent,),
-    )
-    neural.add_argument("--features", type=Path, required=True)
-    neural.add_argument(
-        "--feature-artifact-kind",
-        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
-        required=True,
-    )
-    neural.add_argument("--artifacts", type=Path, required=True)
-    neural.add_argument(
-        "--profile",
-        choices=(_PROFILE_APPLE, _PROFILE_PORTABLE),
-        required=True,
-    )
-    neural.add_argument("--data-threads", type=_positive_int, required=True)
-    neural.add_argument("--parameter-root-seed", type=_unsigned_seed, required=True)
-    neural.add_argument("--shuffle-root-seed", type=_unsigned_seed, required=True)
-    classical = commands.add_parser(
-        "run-classical-study",
-        help="run the complete paired four-baseline classical reconstruction",
-        parents=(heavy_parent,),
-    )
-    classical.add_argument("--features", type=Path, required=True)
-    classical.add_argument(
-        "--feature-artifact-kind",
-        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
-        required=True,
-    )
-    classical.add_argument("--artifacts", type=Path, required=True)
-    classical.add_argument("--threads", type=_positive_int, required=True)
-    classical.add_argument(
-        "--math-backend",
-        choices=tuple(backend.value for backend in CpuMathBackend),
-        required=True,
-    )
-    classical.add_argument("--training-seed", type=_unsigned_seed, required=True)
-    classical.add_argument("--training-domain-start", type=_unsigned_domain, required=True)
-    classical.add_argument("--evaluation-seed", type=_unsigned_seed, required=True)
-    classical.add_argument("--evaluation-domain-start", type=_unsigned_domain, required=True)
-    classical.add_argument(
-        "--population-addressing",
-        choices=tuple(addressing.value for addressing in ClassicalPopulationAddressing),
-        required=True,
-    )
-    classical.add_argument(
-        "--event-buffer-policy",
-        choices=tuple(policy.value for policy in EventBufferPolicy),
-        required=True,
-    )
-    publication = commands.add_parser(
-        "run-publication-cash-replications",
-        help="run or exactly resume all frozen stochastic publication replications",
-        parents=(heavy_parent,),
-    )
-    publication.add_argument("--features", type=Path, required=True)
-    publication.add_argument(
-        "--feature-artifact-kind",
-        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
-        required=True,
-    )
-    publication.add_argument("--artifacts", type=Path, required=True)
-    publication.add_argument("--threads", type=_positive_int, required=True)
-    publication.add_argument(
-        "--math-backend",
-        choices=tuple(backend.value for backend in CpuMathBackend),
-        required=True,
-    )
-    publication.add_argument(
-        "--event-buffer-policy",
-        choices=tuple(policy.value for policy in EventBufferPolicy),
-        required=True,
-    )
-    inference = commands.add_parser(
-        "run-publication-empirical-inference",
-        help="run or exactly resume frozen paired date-panel publication inference",
-        parents=(heavy_parent,),
-    )
-    inference.add_argument("--features", type=Path, required=True)
-    inference.add_argument(
-        "--feature-artifact-kind",
-        choices=tuple(kind.value for kind in StudyFeatureArtifactKind),
-        required=True,
-    )
-    inference.add_argument("--artifacts", type=Path, required=True)
-    inference.add_argument("--publication-result", type=Path, required=True)
-    inference.add_argument("--threads", type=_positive_int, required=True)
-    inference.add_argument(
-        "--event-buffer-policy",
-        choices=tuple(policy.value for policy in EventBufferPolicy),
-        required=True,
-    )
-    _add_table_commands(commands)
-    return parser
-
-
-def _add_local_resource_lock_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--local-resource-lock",
-        type=Path,
-        default=None,
-        help="absolute shared local lock path; defaults to the current user's temporary directory",
-    )
-
-
-def _add_table_commands(
-    commands: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    classical = commands.add_parser(
-        "render-classical-table",
-        help="render a verified aggregate-only classical artifact as a publication table",
-    )
-    classical.add_argument("--artifact", type=Path, required=True)
-    classical.add_argument("--format", choices=("latex", "markdown"), required=True)
-    neural = commands.add_parser(
-        "render-neural-table",
-        help="render the complete submitted neural study as an aggregate-only paper table",
-    )
-    neural.add_argument("--artifact", type=Path, required=True)
-    neural.add_argument("--format", choices=("latex", "markdown"), required=True)
-    inference = commands.add_parser(
-        "render-publication-inference-table",
-        help="render verified primary empirical inference as an aggregate-only paper table",
-    )
-    inference.add_argument("--artifact", type=Path, required=True)
-    inference.add_argument(
-        "--table",
-        choices=("primary-models", "primary-contrasts"),
-        required=True,
-    )
-    inference.add_argument("--format", choices=("latex", "markdown"), required=True)
-
-
-def _add_option_data_commands(
-    commands: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    inventory = commands.add_parser(
-        "inventory-orats-archives",
-        help="write an immutable MLSD inventory over explicit TLS without downloading archives",
-    )
-    inventory.add_argument("--start-date", type=_iso_date, required=True)
-    inventory.add_argument("--end-date", type=_iso_date, required=True)
-    inventory.add_argument("--manifest", type=Path, required=True)
-    inventory.add_argument("--host", default=ORATS_DEFAULT_FTPS_HOST)
-    download = commands.add_parser(
-        "download-orats-archives",
-        help="resume every archive in a verified inventory under cryptographic receipts",
-    )
-    download.add_argument("--manifest", type=Path, required=True)
-    download.add_argument("--destination", type=Path, required=True)
-    download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    materialize = commands.add_parser(
-        "materialize-orats-options",
-        help="verify and project every inventoried option ZIP into immutable daily Parquet",
-    )
-    materialize.add_argument("--manifest", type=Path, required=True)
-    materialize.add_argument("--raw-directory", type=Path, required=True)
-    materialize.add_argument("--output-root", type=Path, required=True)
-    materialize.add_argument("--projection-manifest", type=Path, required=True)
-    materialize.add_argument("--scratch", type=Path, required=True)
-    materialize.add_argument("--ticker", action="append", required=True)
-    materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    compact = commands.add_parser(
-        "compact-orats-options",
-        help="stream a verified daily projection set into immutable annual Parquet files",
-    )
-    compact.add_argument("--projection-manifest", type=Path, required=True)
-    compact.add_argument("--inventory", type=Path, required=True)
-    compact.add_argument("--projection-root", type=Path, required=True)
-    compact.add_argument("--output-root", type=Path, required=True)
-    compact.add_argument("--compaction-manifest", type=Path, required=True)
-    compact.add_argument("--start-date", type=_iso_date, required=True)
-    compact.add_argument("--end-date-exclusive", type=_iso_date, required=True)
-    compact.add_argument(
-        "--confirm-source-entry-count",
-        type=_positive_int,
-        required=True,
-    )
-
-
-def _add_dividend_data_commands(
-    commands: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    dividend_inventory = commands.add_parser(
-        "inventory-orats-dividend-archives",
-        help="freeze annual ORATS dividend archive identities through strict HTTPS HEAD",
-    )
-    dividend_inventory.add_argument("--start-year", type=_archive_year, required=True)
-    dividend_inventory.add_argument("--end-year", type=_archive_year, required=True)
-    dividend_inventory.add_argument("--manifest", type=Path, required=True)
-    dividend_download = commands.add_parser(
-        "download-orats-dividend-archives",
-        help="resume every inventoried annual ORATS dividend archive with SHA-256 receipts",
-    )
-    dividend_download.add_argument("--manifest", type=Path, required=True)
-    dividend_download.add_argument("--destination", type=Path, required=True)
-    dividend_download.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    dividend_materialize = commands.add_parser(
-        "materialize-orats-dividends",
-        help="verify and project annual ORATS dividend ZIPs into immutable ticker Parquet",
-    )
-    dividend_materialize.add_argument("--manifest", type=Path, required=True)
-    dividend_materialize.add_argument("--raw-directory", type=Path, required=True)
-    dividend_materialize.add_argument("--output-root", type=Path, required=True)
-    dividend_materialize.add_argument("--projection-manifest", type=Path, required=True)
-    dividend_materialize.add_argument("--scratch", type=Path, required=True)
-    dividend_materialize.add_argument("--ticker", action="append", required=True)
-    dividend_materialize.add_argument(
-        "--unidentified-row-policy",
-        choices=("reject", "record-and-exclude"),
-        default="reject",
-    )
-    dividend_materialize.add_argument("--confirm-entry-count", type=_positive_int, required=True)
-    historical_materialize = commands.add_parser(
-        "materialize-historical-dividends",
-        help="pin and project one licensed historical-dividend Parquet into a study artifact",
-    )
-    historical_materialize.add_argument("--source", type=Path, required=True)
-    historical_materialize.add_argument("--expected-source-sha256", required=True)
-    historical_materialize.add_argument(
-        "--expected-source-rows",
-        type=_positive_int,
-        required=True,
-    )
-    historical_materialize.add_argument("--maximum-ex-date", type=_iso_date, required=True)
-    historical_materialize.add_argument("--output-root", type=Path, required=True)
-    historical_materialize.add_argument("--ticker", action="append", required=True)
-
-
-def _add_project_feature_command(
-    commands: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    materialize = commands.add_parser(
-        "materialize-project-features",
-        help="materialize one closed content-addressed project feature Parquet",
-    )
-    materialize.add_argument("--option-compaction-manifest", type=Path, required=True)
-    materialize.add_argument("--option-compaction-root", type=Path, required=True)
-    materialize.add_argument("--forecast-manifest", type=Path, required=True)
-    materialize.add_argument("--forecast-inventory", type=Path, required=True)
-    materialize.add_argument("--forecast-root", type=Path, required=True)
-    materialize.add_argument("--historical-dividends", type=Path, required=True)
-    materialize.add_argument("--underlying-history", type=Path, required=True)
-    materialize.add_argument("--underlying-sha256", required=True)
-    materialize.add_argument("--underlying-rows", type=_positive_int, required=True)
-    materialize.add_argument("--nss-parameters", type=Path, required=True)
-    materialize.add_argument("--nss-sha256", required=True)
-    materialize.add_argument("--nss-rows", type=_positive_int, required=True)
-    materialize.add_argument("--output-root", type=Path, required=True)
-    experiment = commands.add_parser(
-        "materialize-project-experiment-features",
-        help="materialize the precision-safe mixed-source project experiment artifact",
-    )
-    experiment.add_argument("--long-form-options", type=Path, required=True)
-    experiment.add_argument("--long-form-sha256", required=True)
-    experiment.add_argument("--long-form-rows", type=_positive_int, required=True)
-    experiment.add_argument("--option-compaction-manifest", type=Path, required=True)
-    experiment.add_argument("--option-compaction-root", type=Path, required=True)
-    experiment.add_argument("--forecast-manifest", type=Path, required=True)
-    experiment.add_argument("--forecast-inventory", type=Path, required=True)
-    experiment.add_argument("--forecast-root", type=Path, required=True)
-    experiment.add_argument("--historical-dividends", type=Path, required=True)
-    experiment.add_argument("--underlying-history", type=Path, required=True)
-    experiment.add_argument("--underlying-sha256", required=True)
-    experiment.add_argument("--underlying-rows", type=_positive_int, required=True)
-    experiment.add_argument("--nss-parameters", type=Path, required=True)
-    experiment.add_argument("--nss-sha256", required=True)
-    experiment.add_argument("--nss-rows", type=_positive_int, required=True)
-    experiment.add_argument("--output-root", type=Path, required=True)
-
-
-def _add_curve_data_command(
-    commands: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    materialize = commands.add_parser(
-        "materialize-fed-nominal-curve",
-        help="pin one official Federal Reserve nominal Svensson CSV vintage",
-    )
-    materialize.add_argument("--source", type=Path, required=True)
-    materialize.add_argument("--expected-source-sha256", required=True)
-    materialize.add_argument(
-        "--expected-source-size-bytes",
-        type=_positive_int,
-        required=True,
-    )
-    materialize.add_argument("--start-date", type=_iso_date, required=True)
-    materialize.add_argument("--end-date-exclusive", type=_iso_date, required=True)
-    materialize.add_argument("--output-root", type=Path, required=True)
-
-
 def _execution_profile(value: str) -> NeuralExecutionProfile:
     profiles = {
         _PROFILE_APPLE: PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
@@ -1622,54 +1314,6 @@ def _execution_profile(value: str) -> NeuralExecutionProfile:
         raise StudyCliError(
             reason="profile is not an approved explicit execution profile"
         ) from error
-
-
-def _positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(_POSITIVE_INTEGER_MESSAGE) from error
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError(_POSITIVE_INTEGER_MESSAGE)
-    return parsed
-
-
-def _archive_year(value: str) -> int:
-    parsed = _positive_int(value)
-    if not _MINIMUM_ARCHIVE_YEAR <= parsed <= _MAXIMUM_ARCHIVE_YEAR:
-        msg = "archive year must be in [2007, 9999]"
-        raise argparse.ArgumentTypeError(msg)
-    return parsed
-
-
-def _unsigned_seed(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(_SEED_MESSAGE) from error
-    if not 0 <= parsed <= (2**64) - 1:
-        raise argparse.ArgumentTypeError(_SEED_MESSAGE)
-    return parsed
-
-
-def _unsigned_domain(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(_DOMAIN_MESSAGE) from error
-    if not 0 <= parsed <= (2**32) - 1:
-        raise argparse.ArgumentTypeError(_DOMAIN_MESSAGE)
-    return parsed
-
-
-def _iso_date(value: str) -> date:
-    try:
-        parsed = date.fromisoformat(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(_ISO_DATE_MESSAGE) from error
-    if parsed.isoformat() != value:
-        raise argparse.ArgumentTypeError(_ISO_DATE_MESSAGE)
-    return parsed
 
 
 def _required_path(value: object, *, field: str, kind: str) -> Path:

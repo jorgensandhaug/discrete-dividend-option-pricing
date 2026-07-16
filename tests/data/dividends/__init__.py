@@ -1,0 +1,1 @@
+"""Dividend feature tests."""

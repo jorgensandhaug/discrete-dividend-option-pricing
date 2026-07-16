@@ -1,0 +1,1 @@
+"""ORATS adapter tests."""

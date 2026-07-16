@@ -17,16 +17,18 @@ from benchmarks.neural_training import (
     resolve_benchmark_execution,
     synthetic_neural_batch,
 )
-from discrete_dividend_study.mlx_neural import build_mlx_project_model
-from discrete_dividend_study.mlx_training import predict_mlx_project_model
-from discrete_dividend_study.neural_execution import (
+from discrete_dividend_study.models.neural.backends.mlx import build_mlx_project_model
+from discrete_dividend_study.models.neural.backends.mlx_training import predict_mlx_project_model
+from discrete_dividend_study.models.neural.backends.torch import build_torch_project_model
+from discrete_dividend_study.models.neural.backends.torch_training import (
+    predict_torch_project_model,
+)
+from discrete_dividend_study.models.neural.execution import (
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
     NeuralBackend,
 )
-from discrete_dividend_study.neural_parameters import initialize_neural_parameters
-from discrete_dividend_study.neural_spec import PROJECT_STUDY, NeuralVariant
-from discrete_dividend_study.torch_neural import build_torch_project_model
-from discrete_dividend_study.torch_training import predict_torch_project_model
+from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
+from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
 
 _POSITIVE_ARGUMENTS_ERROR: Final = "rows, batch size, and threads must be positive"
 

@@ -19,17 +19,17 @@ import polars as pl
 from finoptions import CpuExecutor
 
 from benchmarks._support import max_rss_bytes
-from discrete_dividend_study.neural_rolling import (
+from discrete_dividend_study.experiments.neural.rolling import (
     PROJECT_NEURAL_ROLLING_PREPARATION_SPEC,
     prepare_project_neural_rolling_source,
 )
-from discrete_dividend_study.neural_spec import PROJECT_STUDY
-from discrete_dividend_study.neural_window import prepare_project_neural_window
-from discrete_dividend_study.rolling_windows import (
+from discrete_dividend_study.experiments.neural.window import prepare_project_neural_window
+from discrete_dividend_study.experiments.windows import (
     RollingWindow,
     RollingWindowSpec,
     generate_rolling_windows,
 )
+from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
 
 _DAY_ZERO: Final = date(2020, 1, 2)
 _WINDOW_DAYS: Final = 30

@@ -17,20 +17,21 @@ import numpy.typing as npt
 from finoptions import BinnedCashDividends, PaddedCashDividends
 
 from benchmarks._support import max_rss_bytes
-from discrete_dividend_study.mlx_training import train_mlx_project_model
-from discrete_dividend_study.model_inputs import PreparedNeuralBatch
-from discrete_dividend_study.neural_execution import (
+from discrete_dividend_study.models.neural.backends.mlx_training import train_mlx_project_model
+from discrete_dividend_study.models.neural.backends.torch_training import train_torch_project_model
+from discrete_dividend_study.models.neural.execution import (
     PROJECT_APPLE_SILICON_EXECUTION_PROFILE,
     CompilationMode,
     NeuralBackend,
     NeuralDevice,
     NeuralExecutionSpec,
 )
-from discrete_dividend_study.neural_parameters import (
+from discrete_dividend_study.models.neural.inputs import PreparedNeuralBatch
+from discrete_dividend_study.models.neural.parameters import (
     NeuralParameter,
     initialize_neural_parameters,
 )
-from discrete_dividend_study.neural_spec import (
+from discrete_dividend_study.models.neural.specification import (
     PROJECT_STUDY,
     BinnedDividendInput,
     DirectDividendLstmInput,
@@ -39,8 +40,7 @@ from discrete_dividend_study.neural_spec import (
     NeuralModelSpec,
     NeuralVariant,
 )
-from discrete_dividend_study.neural_training import NeuralTrainingRequest
-from discrete_dividend_study.torch_training import train_torch_project_model
+from discrete_dividend_study.models.neural.training import NeuralTrainingRequest
 
 Float32Vector = npt.NDArray[np.float32]
 Float32Matrix = npt.NDArray[np.float32]
