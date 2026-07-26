@@ -16,11 +16,12 @@ from discrete_dividend_study.models.neural.backends.torch_training import (
     train_torch_project_model,
 )
 from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
+from discrete_dividend_study.models.neural.specification import NeuralVariant
 from discrete_dividend_study.models.neural.training import (
     NeuralTrainingError,
     NeuralTrainingRequest,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 from tests.models.neural.test_backends import _PYTORCH_CPU_1 as PYTORCH_CPU
 from tests.models.neural.test_backends import _prepared_batch as prepared_batch
 

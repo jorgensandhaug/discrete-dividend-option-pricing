@@ -38,8 +38,8 @@ quote date, occur after the quote date and at or before option expiry, and have 
 cash. The paper models admit at most five events per option horizon. Padding is created by the model
 input boundary and must not be stored as a real event.
 
-All scalar prices and rates must be finite. Prices and strikes are strictly positive; the target is
-nonnegative. Decimal rates, volatility, and yields use `0.05` for five percent. Missing values,
+All scalar prices and rates must be finite. Prices, strikes, and the target are strictly positive.
+Decimal rates, volatility, and yields use `0.05` for five percent. Missing values,
 implicit casts, imputation, clipping, extrapolation, and backend-dependent preprocessing are not
 accepted.
 

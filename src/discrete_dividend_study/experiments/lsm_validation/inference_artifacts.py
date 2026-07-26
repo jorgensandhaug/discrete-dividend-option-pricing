@@ -7,7 +7,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
@@ -22,6 +22,7 @@ from discrete_dividend_study.artifacts.study_features import (
     VerifiedStudyFeatureArtifact,
     verify_study_feature_artifact_unchanged,
 )
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.lsm_validation.inference import (
     PublicationBootstrapConfigurationResult,
     PublicationCohortInferenceResult,
@@ -183,7 +184,7 @@ class LoadedPublicationInferenceArtifact:
             raise PublicationInferenceArtifactError(reason="result has an invalid type")
 
 
-def run_or_load_publication_empirical_inference(  # noqa: PLR0913 - identities stay explicit
+def run_or_load_publication_empirical_inference(  # noqa: PLR0913, PLR0917 - identities stay explicit
     directory: Path,
     source: StudySourceIdentity,
     feature: VerifiedStudyFeatureArtifact,
@@ -337,7 +338,7 @@ def load_publication_inference_artifact(
     return LoadedPublicationInferenceArtifact(artifact=artifact, result=result)
 
 
-def _write_inference_artifact(  # noqa: PLR0913 - identities stay explicit
+def _write_inference_artifact(  # noqa: PLR0913, PLR0917 - identities stay explicit
     directory: Path,
     source: StudySourceIdentity,
     feature: VerifiedStudyFeatureArtifact,
@@ -604,7 +605,7 @@ def _decode_project_metrics(value: object) -> ProjectPricingMetrics:
         ) from error
 
 
-def _validate_request(  # noqa: C901, PLR0913 - precedence remains auditable
+def _validate_request(  # noqa: C901, PLR0913, PLR0917 - precedence remains auditable
     source: object,
     feature: object,
     publication_result: object,
@@ -1017,7 +1018,7 @@ def _validate_load_request(
     return observed
 
 
-def _require_resumed_identity(  # noqa: PLR0913 - identities stay explicit
+def _require_resumed_identity(  # noqa: PLR0913, PLR0917 - identities stay explicit
     loaded: LoadedPublicationInferenceArtifact,
     source: StudySourceIdentity,
     feature: VerifiedStudyFeatureArtifact,
@@ -1203,7 +1204,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise PublicationInferenceArtifactError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise PublicationInferenceArtifactError(reason=f"{field} keys are unexpected")
 

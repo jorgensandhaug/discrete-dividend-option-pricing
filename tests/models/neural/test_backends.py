@@ -60,12 +60,12 @@ from discrete_dividend_study.models.neural.execution import (
 from discrete_dividend_study.models.neural.inputs import PreparedNeuralBatch
 from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     BinnedDividendInput,
     DirectDividendLstmInput,
     ModelPrecision,
     NeuralVariant,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 ROWS: Final = 8
 CAPACITY: Final = 5
@@ -143,7 +143,7 @@ def test_canonical_forward_and_parameter_gradients_agree_across_backends(
 
 def test_empty_event_schedules_have_finite_zero_weight_attention() -> None:
     """An all-masked first row remains finite in both graphs and their gradients."""
-    prepared = _prepared_batch(NeuralVariant.EMBEDDING)
+    prepared = _prepared_batch(NeuralVariant.ATTENTION)
     assert isinstance(prepared.dividends, PaddedCashDividends)
     assert prepared.dividends.lengths[0] == 0
     model = prepared.model
@@ -377,7 +377,7 @@ def _prepared_batch(variant: NeuralVariant) -> PreparedNeuralBatch:
         scalar[:, column] = base[name]
     target = np.linspace(0.5, 20.0, ROWS, dtype=np.float32)
     dividends: PaddedCashDividends | BinnedCashDividends | None
-    if variant in {NeuralVariant.LSTM, NeuralVariant.EMBEDDING}:
+    if variant in {NeuralVariant.LSTM, NeuralVariant.ATTENTION}:
         dividends = _padded_dividends(scalar[:, model.scalar_columns.index("yte")])
     elif variant is NeuralVariant.BINS:
         amounts = np.linspace(0.0, 0.03, ROWS * 12, dtype=np.float32).reshape(ROWS, 12)

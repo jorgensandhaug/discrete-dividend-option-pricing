@@ -8,12 +8,12 @@ from dataclasses import replace
 import pytest
 import torch
 
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
 from discrete_dividend_study.models.neural.training_control import (
     NeuralControlError,
     advance_neural_control,
     initial_neural_control_state,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 BASELINE_LOSS = 10.0
 SMALL_IMPROVEMENT_LOSS = 9.9995

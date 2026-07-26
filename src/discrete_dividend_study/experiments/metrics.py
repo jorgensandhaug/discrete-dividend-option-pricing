@@ -75,8 +75,7 @@ def evaluate_project_pricing(
     """Evaluate the exact submitted formulas with bounded float64 accumulation.
 
     Targets must be strictly positive, as guaranteed by the project cohort. Predictions must be
-    nonnegative. Invalid model output fails instead of reproducing the legacy notebook's implicit
-    clipping operation.
+    nonnegative; invalid model output fails at the metric boundary.
     """
     _validate_pricing_vectors(target, prediction, dtype=_FLOAT32_DTYPE)
     return _evaluate_project_pricing(target, prediction)

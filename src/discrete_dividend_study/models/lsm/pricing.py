@@ -126,7 +126,7 @@ class ClassicalStudyPricingResult:
             )
 
     def variant(self, identity: ClassicalVariant) -> ClassicalVariantPricingResult:
-        """Return one result by typed identity without accepting legacy aliases."""
+        """Return one result by typed identity without accepting aliases."""
         expected = self.study.variant(identity)
         return next(result for result in self.variants if result.variant is expected)
 

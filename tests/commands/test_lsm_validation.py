@@ -90,6 +90,8 @@ def test_publication_cash_command_runs_and_exactly_resumes_the_frozen_plan(
         "project-experiment",
         "--artifacts",
         str(artifacts),
+        "--local-resource-lock",
+        str(tmp_path / "resource.lock"),
         "--threads",
         "2",
         "--math-backend",

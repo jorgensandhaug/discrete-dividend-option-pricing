@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from contextlib import suppress
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -17,6 +17,7 @@ from discrete_dividend_study.artifacts.study_features import (
     VerifiedStudyFeatureArtifact,
     verify_study_feature_artifact_unchanged,
 )
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.metrics import (
     ProjectMetricError,
     ProjectPricingMetrics,
@@ -774,7 +775,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise NeuralStudyRunError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise NeuralStudyRunError(reason=f"{field} keys are missing or unexpected")
 

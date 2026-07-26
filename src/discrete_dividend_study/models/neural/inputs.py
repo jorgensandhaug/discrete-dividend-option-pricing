@@ -27,13 +27,13 @@ from discrete_dividend_study.models.dividend_events import (
     extract_ragged_cash_dividends,
 )
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     BinnedDividendInput,
     DirectDividendLstmInput,
     DividendYieldInput,
     EventAttentionInput,
     NeuralModelSpec,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 Float32Vector = npt.NDArray[np.float32]
 Float32Matrix = npt.NDArray[np.float32]

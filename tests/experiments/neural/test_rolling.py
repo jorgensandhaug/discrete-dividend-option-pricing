@@ -15,9 +15,9 @@ from discrete_dividend_study.experiments.neural.rolling import (
 )
 from discrete_dividend_study.experiments.windows import RollingWindow, RollingWindowContentError
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     NeuralVariant,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 from tests.models.neural.test_inputs import model_frame
 
 WINDOWS = (
@@ -106,17 +106,17 @@ def test_full_schedule_collects_once_and_exposes_zero_copy_phase_views() -> None
             assert np.shares_memory(phase.test.target, full_batch.target)
 
 
-def test_embedding_study_has_an_explicit_input_boundary() -> None:
-    """The paper embedding identity is accepted without admitting arbitrary model specs."""
+def test_attention_study_has_an_explicit_input_boundary() -> None:
+    """The paper attention identity is accepted without admitting arbitrary model specs."""
     prepared = prepare_project_neural_rolling_source(
         _rolling_frame().lazy(),
         WINDOWS,
         PROJECT_STUDY,
         CpuExecutor(threads=1),
     )
-    embedding = PROJECT_STUDY.model(NeuralVariant.EMBEDDING)
+    attention = PROJECT_STUDY.model(NeuralVariant.ATTENTION)
     assert prepared.models == PROJECT_STUDY.models
-    assert prepared.window(0, embedding).training.model == embedding
+    assert prepared.window(0, attention).training.model == attention
 
 
 def test_null_dates_and_empty_partitions_fail_before_any_model_run() -> None:

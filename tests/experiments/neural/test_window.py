@@ -12,7 +12,8 @@ from finoptions import CpuExecutor
 from discrete_dividend_study.experiments.neural.window import prepare_project_neural_window
 from discrete_dividend_study.experiments.windows import RollingWindow
 from discrete_dividend_study.models.neural.inputs import ModelInputContentError, ModelInputTypeError
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
+from discrete_dividend_study.models.neural.specification import NeuralVariant
+from discrete_dividend_study.paper import PROJECT_STUDY
 from tests.models.neural.test_inputs import model_frame
 
 WINDOW = RollingWindow(

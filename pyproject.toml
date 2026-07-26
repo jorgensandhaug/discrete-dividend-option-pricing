@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.11.28,<0.12"]
+requires = ["uv_build>=0.11.32,<0.12"]
 build-backend = "uv_build"
 
 [project]
 name = "discrete-dividend-option-pricing"
-version = "0.1.4"
+version = "0.2.0"
 description = "Reproducible research workflows for discrete-dividend option pricing"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,14 +16,13 @@ authors = [
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
   "Programming Language :: Python :: 3 :: Only",
   "Typing :: Typed",
 ]
 dependencies = [
   "finoptions-engine>=0.1.0,<0.2",
   "numpy>=2.5.1,<3",
-  "polars>=1.42.1,<2",
+  "polars>=1.43.0,<2",
   "safetensors>=0.8.0,<0.9",
 ]
 
@@ -48,8 +47,8 @@ torch = [
 dev = [
   "maturin==1.14.1",
   "pytest==9.1.1",
-  "ruff==0.15.21",
-  "ty==0.0.59",
+  "ruff==0.16.0",
+  "ty==0.0.63",
 ]
 
 [tool.uv.sources]
@@ -63,6 +62,7 @@ explicit = true
 
 [tool.uv.build-backend]
 module-name = ["discrete_dividend_study", "_discrete_dividend_study_launcher"]
+source-include = ["CITATION.cff", "DATA.md", "REPRODUCE.md", "SECURITY.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
@@ -75,6 +75,7 @@ line-length = 100
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+  "CPY001", # the repository-level Apache-2.0 license applies to every source file
   "COM812", # formatter owns trailing commas
   "D203",   # incompatible with D211
   "D213",   # incompatible with D212

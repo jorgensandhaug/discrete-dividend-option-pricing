@@ -32,7 +32,6 @@ from discrete_dividend_study.models.neural.parameters import (
     initialize_neural_parameters,
 )
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     BinnedDividendInput,
     DirectDividendLstmInput,
     EventAttentionInput,
@@ -41,6 +40,7 @@ from discrete_dividend_study.models.neural.specification import (
     NeuralVariant,
 )
 from discrete_dividend_study.models.neural.training import NeuralTrainingRequest
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 Float32Vector = npt.NDArray[np.float32]
 Float32Matrix = npt.NDArray[np.float32]

@@ -73,6 +73,8 @@ class MlxNeuralBatch:
             if self.binned_amounts is not None:
                 raise NeuralBackendContractError(reason="yield batch cannot contain bins")
             _require_no_events(self)
+        else:
+            raise NeuralBackendContractError(reason="unsupported dividend input")
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +174,9 @@ class MlxProjectModel(nn.Module):
                 raise NeuralBackendContractError(reason="binned inputs are absent")
             bins = _order_dividend_bins(batch.binned_amounts, dividend_input.order)
             return mx.concatenate((batch.scalar_features, bins), axis=1)
-        return batch.scalar_features
+        if type(dividend_input) is DividendYieldInput:
+            return batch.scalar_features
+        raise NeuralBackendContractError(reason="unsupported dividend input")
 
     def _encode_lstm(
         self,
@@ -204,7 +208,7 @@ class MlxProjectModel(nn.Module):
         batch: MlxNeuralBatch,
         dividend_input: EventAttentionInput,
     ) -> mx.array:
-        """Return an exactly masked event representation, including zero for no events."""
+        """Return the declared fixed-capacity event representation."""
         events = _event_tensor(batch, dividend_input.event_features)
         if self.attention is None or batch.event_mask is None:
             raise NeuralBackendContractError(reason="attention inputs or module are absent")

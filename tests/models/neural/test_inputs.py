@@ -21,7 +21,8 @@ from discrete_dividend_study.models.neural.inputs import (
     prepared_neural_batch_sha256,
     slice_prepared_neural_batch,
 )
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
+from discrete_dividend_study.models.neural.specification import NeuralVariant
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 PROJECT_ROWS = 3
 FRAGMENT_COUNT = 2
@@ -74,7 +75,7 @@ def executor() -> CpuExecutor:
     ("variant", "result_type"),
     [
         (NeuralVariant.LSTM, PaddedCashDividends),
-        (NeuralVariant.EMBEDDING, PaddedCashDividends),
+        (NeuralVariant.ATTENTION, PaddedCashDividends),
         (NeuralVariant.BINS, BinnedCashDividends),
         (NeuralVariant.FORECAST_YIELD, type(None)),
         (NeuralVariant.HISTORICAL_YIELD, type(None)),

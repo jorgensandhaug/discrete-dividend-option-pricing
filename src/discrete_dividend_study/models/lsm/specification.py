@@ -23,7 +23,7 @@ from finoptions import (
 )
 
 _STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v3"
-_LEGACY_STUDY_HASH_FORMAT: Final = "project-classical-reconstruction-study-v2"
+_STUDY_HASH_FORMAT_V2: Final = "project-classical-reconstruction-study-v2"
 _EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v2"
 _GROUPED_EXECUTION_HASH_FORMAT: Final = "project-classical-execution-v3"
 _MAX_U32: Final = (2**32) - 1
@@ -487,17 +487,17 @@ def classical_study_sha256(study: ClassicalStudySpec) -> str:
     )
 
 
-def _legacy_classical_study_sha256(study: ClassicalStudySpec) -> str:
-    """Reconstruct the pre-support-policy study identity for old private artifacts."""
+def _classical_study_sha256_v2(study: ClassicalStudySpec) -> str:
+    """Reconstruct the version-2 identity for backward-compatible artifacts."""
     if study.estimator.insufficient_exercise_support is not InsufficientExerciseSupportPolicy.FAIL:
         raise ClassicalSpecValueError(
             field="insufficient_exercise_support",
             observed=study.estimator.insufficient_exercise_support,
-            requirement="FAIL for a legacy study identity",
+            requirement="FAIL for a version-2 study identity",
         )
     return _classical_study_sha256(
         study,
-        format_identity=_LEGACY_STUDY_HASH_FORMAT,
+        format_identity=_STUDY_HASH_FORMAT_V2,
         include_insufficient_support=False,
     )
 

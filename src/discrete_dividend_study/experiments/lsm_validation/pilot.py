@@ -956,7 +956,7 @@ def _mesh_sequence(
     return tuple(observations)
 
 
-def _run_lsm_level(  # noqa: PLR0913 - scientific identities remain separate arguments
+def _run_lsm_level(  # noqa: PLR0913, PLR0917 - scientific identities remain separate arguments
     spec: NumericalPilotSpec,
     case: NumericalPilotCase,
     case_index: int,

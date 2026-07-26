@@ -28,7 +28,8 @@ from discrete_dividend_study.models.neural.execution import (
     NeuralBackend,
 )
 from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
+from discrete_dividend_study.models.neural.specification import NeuralVariant
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 _POSITIVE_ARGUMENTS_ERROR: Final = "rows, batch size, and threads must be positive"
 

@@ -9,7 +9,6 @@ import pytest
 from finoptions import CashAmountScale, MaturityBoundary, TimeBinClosure
 
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     AttentionSlotPolicy,
     BinnedDividendInput,
     DirectDividendLstmInput,
@@ -24,6 +23,7 @@ from discrete_dividend_study.models.neural.specification import (
     neural_study_sha256,
     trainable_parameter_count,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 BASE_COLUMNS = (
     "strike",
@@ -53,6 +53,7 @@ EXPECTED_SHARED_CONFIGURATION = (
 EXPECTED_SEQUENCE_CAPACITY = 5
 EXPECTED_BIN_COUNT = 12
 SHA256_HEX_LENGTH = 64
+PROJECT_STUDY_SHA256 = "a58afb53dbf97f3dcabcd4110ea440e62b50482c7dbe2ce02c439cb0b7c2c138"
 
 
 def test_project_study_freezes_shared_architecture_and_training() -> None:
@@ -95,7 +96,7 @@ def test_five_model_identities_have_exact_feature_order_and_representations() ->
             BASE_COLUMNS,
             DividendRepresentation.PADDED_LSTM,
         ),
-        NeuralVariant.EMBEDDING: (
+        NeuralVariant.ATTENTION: (
             "R2_AT_NN_FD_emb8",
             BASE_COLUMNS,
             DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION,
@@ -124,13 +125,13 @@ def test_five_model_identities_have_exact_feature_order_and_representations() ->
         assert model.dividend_representation is representation
 
 
-def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None:
+def test_event_layouts_are_canonical_and_explicit() -> None:
     """Event order, units, capacity, boundary, and bin closure are immutable."""
     lstm = PROJECT_STUDY.model(NeuralVariant.LSTM).dividend_input
-    embedding = PROJECT_STUDY.model(NeuralVariant.EMBEDDING).dividend_input
+    attention = PROJECT_STUDY.model(NeuralVariant.ATTENTION).dividend_input
     assert type(lstm) is DirectDividendLstmInput
-    assert type(embedding) is EventAttentionInput
-    for event_input in (lstm, embedding):
+    assert type(attention) is EventAttentionInput
+    for event_input in (lstm, attention):
         assert event_input.layout.capacity == EXPECTED_SEQUENCE_CAPACITY
         assert event_input.layout.maturity_boundary is MaturityBoundary.AT_OR_BEFORE
         assert event_input.layout.amount_scale is CashAmountScale.DIVIDE_BY_SPOT
@@ -142,7 +143,7 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
         )
     assert lstm.gate_order is LstmGateOrder.INPUT_FORGET_CELL_OUTPUT
     assert lstm.sequence_order is EventSequenceOrder.FARTHEST_TO_NEAREST
-    assert embedding.slot_policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING
+    assert attention.slot_policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING
 
     bin_input = PROJECT_STUDY.model(NeuralVariant.BINS).dividend_input
     assert type(bin_input) is BinnedDividendInput
@@ -155,13 +156,13 @@ def test_event_layouts_are_canonical_explicit_and_length_or_mask_aware() -> None
     assert bin_input.order is DividendBinOrder.FARTHEST_TO_NEAREST
 
 
-def test_paper_embedding_slot_policy_is_frozen() -> None:
+def test_paper_attention_slot_policy_is_frozen() -> None:
     """The fixed-capacity event representation is part of the paper identity."""
-    attention = PROJECT_STUDY.model(NeuralVariant.EMBEDDING).dividend_input
+    attention = PROJECT_STUDY.model(NeuralVariant.ATTENTION).dividend_input
     assert type(attention) is EventAttentionInput
     assert attention.slot_policy is AttentionSlotPolicy.INCLUDE_ZERO_PADDING
     assert (
-        PROJECT_STUDY.model(NeuralVariant.EMBEDDING).dividend_representation
+        PROJECT_STUDY.model(NeuralVariant.ATTENTION).dividend_representation
         is DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION
     )
 
@@ -170,7 +171,7 @@ def test_framework_independent_parameter_counts_are_frozen() -> None:
     """Backend implementations can be checked before any training run starts."""
     expected = {
         NeuralVariant.LSTM: 244_283,
-        NeuralVariant.EMBEDDING: 243_972,
+        NeuralVariant.ATTENTION: 243_972,
         NeuralVariant.BINS: 245_059,
         NeuralVariant.FORECAST_YIELD: 241_957,
         NeuralVariant.HISTORICAL_YIELD: 241_957,
@@ -189,6 +190,7 @@ def test_study_content_identity_is_canonical_and_sensitive() -> None:
         training=replace(PROJECT_STUDY.training, maximum_epochs=101),
     )
     assert first == second
+    assert first == PROJECT_STUDY_SHA256
     assert len(first) == SHA256_HEX_LENGTH
     assert neural_study_sha256(changed) != first
 

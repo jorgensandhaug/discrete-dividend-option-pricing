@@ -299,7 +299,7 @@ def run_publication_yield_pricing(
     )
 
 
-def _price_variant(  # noqa: PLR0913 - method identities stay explicit at dispatch
+def _price_variant(  # noqa: PLR0913, PLR0917 - method identities stay explicit at dispatch
     inputs: PreparedPublicationPartitions,
     execution: PublicationReplicationExecutionSpec,
     study: PublicationStudySpec,
@@ -349,7 +349,7 @@ def _validate_run_request(
     execution.validate_units(inputs.simulation_units)
 
 
-def _validate_replication_header(  # noqa: PLR0913 - immutable header stays explicit
+def _validate_replication_header(  # noqa: PLR0913, PLR0917 - immutable header stays explicit
     study: object,
     execution: object,
     partitions_sha256: object,

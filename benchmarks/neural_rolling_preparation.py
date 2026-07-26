@@ -29,7 +29,7 @@ from discrete_dividend_study.experiments.windows import (
     RollingWindowSpec,
     generate_rolling_windows,
 )
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 _DAY_ZERO: Final = date(2020, 1, 2)
 _WINDOW_DAYS: Final = 30

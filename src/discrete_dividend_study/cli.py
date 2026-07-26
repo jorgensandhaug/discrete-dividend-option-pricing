@@ -187,7 +187,7 @@ from discrete_dividend_study.models.neural.execution import (
     PROJECT_PORTABLE_CPU_EXECUTION_PROFILE,
     NeuralExecutionProfile,
 )
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 if TYPE_CHECKING:
     import argparse

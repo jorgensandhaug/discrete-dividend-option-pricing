@@ -77,6 +77,8 @@ class TorchNeuralBatch:
             if self.binned_amounts is not None:
                 raise NeuralBackendContractError(reason="yield batch cannot contain bins")
             _require_no_events(self)
+        else:
+            raise NeuralBackendContractError(reason="unsupported dividend input")
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,52 +151,74 @@ class TorchProjectModel(nn.Module):
         """Price one already-validated batch with exact mask and length semantics."""
         if type(batch) is not TorchNeuralBatch or batch.model != self.model_spec:
             raise NeuralBackendContractError(reason="batch does not identify this model")
-        trunk = batch.scalar_features
-        dividend_input = self.model_spec.dividend_input
-        if type(dividend_input) is DirectDividendLstmInput:
-            events = _event_tensor(batch, dividend_input.event_features)
-            if self.lstm is None or batch.event_lengths is None:
-                raise NeuralBackendContractError(reason="LSTM inputs or module are absent")
-            events = _order_lstm_events(
-                events,
-                batch.event_lengths,
-                dividend_input.sequence_order,
-            )
-            hidden, _ = self.lstm(events)
-            indices = torch.clamp(batch.event_lengths - 1, min=0).view(-1, 1, 1)
-            indices = indices.expand(-1, 1, dividend_input.hidden_size)
-            encoded = hidden.gather(1, indices).squeeze(1)
-            encoded = torch.where(
-                (batch.event_lengths > 0).view(-1, 1),
-                encoded,
-                torch.zeros_like(encoded),
-            )
-            trunk = torch.cat((trunk, encoded), dim=1)
-        elif type(dividend_input) is EventAttentionInput:
-            events = _event_tensor(batch, dividend_input.event_features)
-            if self.attention is None or batch.event_mask is None:
-                raise NeuralBackendContractError(reason="attention inputs or module are absent")
-            embedded = events
-            for layer in self.embedding:
-                embedded = torch.relu(layer(embedded))
-            logits = self.attention(embedded).squeeze(-1)
-            encoded = _attention_sum(
-                embedded,
-                logits,
-                dividend_input.slot_policy,
-            )
-            trunk = torch.cat((trunk, encoded), dim=1)
-        elif type(dividend_input) is BinnedDividendInput:
-            if batch.binned_amounts is None:
-                raise NeuralBackendContractError(reason="binned inputs are absent")
-            bins = _order_dividend_bins(batch.binned_amounts, dividend_input.order)
-            trunk = torch.cat((trunk, bins), dim=1)
+        trunk = self._trunk_input(batch)
         for layer in self.mlp:
             trunk = torch.nn.functional.leaky_relu(
                 layer(trunk),
                 negative_slope=self.study_spec.mlp.leaky_relu_negative_slope,
             )
         return torch.nn.functional.softplus(self.output(trunk))
+
+    def _trunk_input(self, batch: TorchNeuralBatch) -> torch.Tensor:
+        """Append exactly the dividend representation declared by this model."""
+        dividend_input = self.model_spec.dividend_input
+        if type(dividend_input) is DirectDividendLstmInput:
+            encoded = self._encode_lstm(batch, dividend_input)
+            return torch.cat((batch.scalar_features, encoded), dim=1)
+        if type(dividend_input) is EventAttentionInput:
+            encoded = self._encode_attention(batch, dividend_input)
+            return torch.cat((batch.scalar_features, encoded), dim=1)
+        if type(dividend_input) is BinnedDividendInput:
+            if batch.binned_amounts is None:
+                raise NeuralBackendContractError(reason="binned inputs are absent")
+            bins = _order_dividend_bins(batch.binned_amounts, dividend_input.order)
+            return torch.cat((batch.scalar_features, bins), dim=1)
+        if type(dividend_input) is DividendYieldInput:
+            return batch.scalar_features
+        raise NeuralBackendContractError(reason="unsupported dividend input")
+
+    def _encode_lstm(
+        self,
+        batch: TorchNeuralBatch,
+        dividend_input: DirectDividendLstmInput,
+    ) -> torch.Tensor:
+        """Return the last real recurrent state, or zero for an empty schedule."""
+        events = _event_tensor(batch, dividend_input.event_features)
+        if self.lstm is None or batch.event_lengths is None:
+            raise NeuralBackendContractError(reason="LSTM inputs or module are absent")
+        events = _order_lstm_events(
+            events,
+            batch.event_lengths,
+            dividend_input.sequence_order,
+        )
+        hidden, _ = self.lstm(events)
+        indices = torch.clamp(batch.event_lengths - 1, min=0).view(-1, 1, 1)
+        indices = indices.expand(-1, 1, dividend_input.hidden_size)
+        encoded = hidden.gather(1, indices).squeeze(1)
+        return torch.where(
+            (batch.event_lengths > 0).view(-1, 1),
+            encoded,
+            torch.zeros_like(encoded),
+        )
+
+    def _encode_attention(
+        self,
+        batch: TorchNeuralBatch,
+        dividend_input: EventAttentionInput,
+    ) -> torch.Tensor:
+        """Return the declared fixed-capacity event representation."""
+        events = _event_tensor(batch, dividend_input.event_features)
+        if self.attention is None or batch.event_mask is None:
+            raise NeuralBackendContractError(reason="attention inputs or module are absent")
+        embedded = events
+        for layer in self.embedding:
+            embedded = torch.relu(layer(embedded))
+        logits = self.attention(embedded).squeeze(-1)
+        return _attention_sum(
+            embedded,
+            logits,
+            dividend_input.slot_policy,
+        )
 
 
 def build_torch_project_model(

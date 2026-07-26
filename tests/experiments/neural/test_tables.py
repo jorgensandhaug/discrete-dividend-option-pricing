@@ -37,10 +37,10 @@ from discrete_dividend_study.experiments.windows import (
     generate_rolling_windows,
 )
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     NeuralVariant,
     neural_study_sha256,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 _OBSERVATIONS_PER_WINDOW = 2
 _WINDOWS = len(generate_rolling_windows(PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC))

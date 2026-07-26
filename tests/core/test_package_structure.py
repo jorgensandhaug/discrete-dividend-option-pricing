@@ -8,8 +8,8 @@ import discrete_dividend_study
 _ROOT_MODULES: Final = frozenset({"__init__.py", "cli.py", "paper.py"})
 _PUBLIC_NAMES: Final = frozenset(
     {
-        "DIRECT_ATTENTION",
         "DIRECT_LSTM",
+        "EVENT_ATTENTION",
         "FORECAST_YIELD",
         "HISTORICAL_YIELD",
         "PROJECT_MODELS",
