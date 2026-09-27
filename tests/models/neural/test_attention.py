@@ -42,12 +42,12 @@ from discrete_dividend_study.models.neural.execution import (
 from discrete_dividend_study.models.neural.inputs import PreparedNeuralBatch
 from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     AttentionSlotPolicy,
     ModelPrecision,
     NeuralStudySpec,
     NeuralVariant,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 _ROWS: Final = 8
 _CAPACITY: Final = 5
@@ -75,7 +75,7 @@ _PYTORCH_CPU = NeuralExecutionSpec(
 def test_attention_forward_and_gradients_agree_across_backends() -> None:
     """Independent graphs implement the same fixed-capacity event softmax."""
     study = PROJECT_STUDY
-    prepared = _prepared_embedding_batch(study)
+    prepared = _prepared_attention_batch(study)
     parameters = initialize_neural_parameters(study, prepared.model, _SEED)
     torch_model = build_torch_project_model(
         study=study,
@@ -145,8 +145,8 @@ def test_attention_slots_equal_an_independent_closed_form_formula() -> None:
         np.testing.assert_allclose(observed, expected_fixed, rtol=0.0, atol=3e-7)
 
 
-def _prepared_embedding_batch(study: NeuralStudySpec) -> PreparedNeuralBatch:
-    model = study.model(NeuralVariant.EMBEDDING)
+def _prepared_attention_batch(study: NeuralStudySpec) -> PreparedNeuralBatch:
+    model = study.model(NeuralVariant.ATTENTION)
     scalar = np.empty((_ROWS, len(model.scalar_columns)), dtype=np.float32)
     base = {
         "strike": np.linspace(80.0, 120.0, _ROWS, dtype=np.float32),

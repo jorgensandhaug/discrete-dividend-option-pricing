@@ -23,7 +23,6 @@ from discrete_dividend_study.models.neural.parameters import (
     initialize_neural_parameters,
 )
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     NeuralVariant,
 )
 from discrete_dividend_study.models.neural.training import (
@@ -36,6 +35,7 @@ from discrete_dividend_study.models.neural.training_control import (
     advance_neural_control,
     initial_neural_control_state,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 from tests.models.neural.test_backends import _PYTORCH_CPU_1 as PYTORCH_CPU
 from tests.models.neural.test_backends import _prepared_batch as prepared_batch
 

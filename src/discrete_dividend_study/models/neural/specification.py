@@ -7,14 +7,11 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Final
 
 from finoptions import (
     CashAmountScale,
     DividendBinSpec,
-    MaturityBoundary,
     PaddedSequenceSpec,
-    TimeBinClosure,
 )
 
 
@@ -39,7 +36,7 @@ class NeuralVariant(StrEnum):
     """The five project-study neural model identities."""
 
     LSTM = "nn_lstm"
-    EMBEDDING = "nn_emb"
+    ATTENTION = "nn_emb"
     BINS = "nn_bin"
     FORECAST_YIELD = "nn_fy"
     HISTORICAL_YIELD = "nn_hy"
@@ -469,7 +466,7 @@ class NeuralModelSpec:
         expected = _representation_for_input(self.dividend_input)
         variant_representations = {
             NeuralVariant.LSTM: frozenset({DividendRepresentation.PADDED_LSTM}),
-            NeuralVariant.EMBEDDING: frozenset(
+            NeuralVariant.ATTENTION: frozenset(
                 {DividendRepresentation.FIXED_CAPACITY_EVENT_ATTENTION},
             ),
             NeuralVariant.BINS: frozenset({DividendRepresentation.FIXED_TIME_BINS}),
@@ -722,134 +719,7 @@ def _require_probability(value: object, *, field: str) -> None:
         )
 
 
-_BASE_SCALAR_COLUMNS: Final = (
-    "strike",
-    "underlying_price",
-    "risk_free_rate",
-    "call_moneyness",
-    "historical_volatility_90",
-    "yte",
-)
-_TARGET_COLUMN: Final = "call_mid_price"
-_PROJECT_SEQUENCE_LAYOUT: Final = PaddedSequenceSpec(
-    capacity=5,
-    maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
-    amount_scale=CashAmountScale.DIVIDE_BY_SPOT,
-)
-_PROJECT_BIN_LAYOUT: Final = DividendBinSpec(
-    bins=12,
-    horizon=1.0,
-    closure=TimeBinClosure.LEFT_OPEN_RIGHT_CLOSED,
-    maturity_boundary=MaturityBoundary.AT_OR_BEFORE,
-    amount_scale=CashAmountScale.DIVIDE_BY_SPOT,
-)
-
-PROJECT_STUDY: Final = NeuralStudySpec(
-    precision=ModelPrecision.FLOAT32,
-    parameter_initialization=ParameterInitialization.UNIFORM_PCG64DXSM,
-    mlp=MlpSpec(
-        hidden_width=282,
-        hidden_layers=4,
-        hidden_activation=Activation.LEAKY_RELU,
-        leaky_relu_negative_slope=3.158e-2,
-        dropout_probability=0.0,
-        layer_normalization=False,
-        output_activation=Activation.SOFTPLUS,
-    ),
-    training=TrainingSpec(
-        objective=ObjectiveKind.SMAPE,
-        objective_percentage_scale=100.0,
-        optimizer=OptimizerSpec(
-            kind=OptimizerKind.ADAMW,
-            learning_rate=8.6e-4,
-            beta1=0.9,
-            beta2=0.999,
-            epsilon=1e-8,
-            weight_decay=0.01,
-            bias_correction=True,
-        ),
-        scheduler=PlateauSchedulerSpec(
-            factor=0.5,
-            patience_epochs=10,
-            minimum_learning_rate=5e-5,
-            relative_threshold=1e-4,
-            cooldown_epochs=0,
-            update_epsilon=1e-8,
-        ),
-        batch_size=128,
-        maximum_epochs=100,
-        early_stopping_patience_epochs=50,
-        shuffle_training=True,
-        shuffle_validation=False,
-        strict_validation_improvement=True,
-        normalize_inputs=False,
-        transform_target=False,
-    ),
-    models=(
-        NeuralModelSpec(
-            variant=NeuralVariant.LSTM,
-            submitted_result_name="R2_AT_NN_FD_lstm_direct_yte_1_8",
-            scalar_columns=_BASE_SCALAR_COLUMNS,
-            target_column=_TARGET_COLUMN,
-            dividend_input=DirectDividendLstmInput(
-                layout=_PROJECT_SEQUENCE_LAYOUT,
-                sequence_order=EventSequenceOrder.FARTHEST_TO_NEAREST,
-                include_option_maturity=True,
-                hidden_size=8,
-                layers=1,
-                bias=False,
-                gate_order=LstmGateOrder.INPUT_FORGET_CELL_OUTPUT,
-            ),
-        ),
-        NeuralModelSpec(
-            variant=NeuralVariant.EMBEDDING,
-            submitted_result_name="R2_AT_NN_FD_emb8",
-            scalar_columns=_BASE_SCALAR_COLUMNS,
-            target_column=_TARGET_COLUMN,
-            dividend_input=EventAttentionInput(
-                layout=_PROJECT_SEQUENCE_LAYOUT,
-                include_option_maturity=True,
-                embedding_width=8,
-                embedding_layers=1,
-                embedding_activation=Activation.RELU,
-                slot_policy=AttentionSlotPolicy.INCLUDE_ZERO_PADDING,
-            ),
-        ),
-        NeuralModelSpec(
-            variant=NeuralVariant.BINS,
-            submitted_result_name="R2_AT_NN_FD_12B",
-            scalar_columns=_BASE_SCALAR_COLUMNS,
-            target_column=_TARGET_COLUMN,
-            dividend_input=BinnedDividendInput(
-                layout=_PROJECT_BIN_LAYOUT,
-                order=DividendBinOrder.FARTHEST_TO_NEAREST,
-            ),
-        ),
-        NeuralModelSpec(
-            variant=NeuralVariant.FORECAST_YIELD,
-            submitted_result_name="R2_AT_NN_FY",
-            scalar_columns=(*_BASE_SCALAR_COLUMNS, "forecasted_dividend_yield"),
-            target_column=_TARGET_COLUMN,
-            dividend_input=DividendYieldInput(
-                representation=DividendRepresentation.FORECAST_YIELD,
-                column="forecasted_dividend_yield",
-            ),
-        ),
-        NeuralModelSpec(
-            variant=NeuralVariant.HISTORICAL_YIELD,
-            submitted_result_name="R2_AT_NN_HY",
-            scalar_columns=(*_BASE_SCALAR_COLUMNS, "historical_dividend_yield"),
-            target_column=_TARGET_COLUMN,
-            dividend_input=DividendYieldInput(
-                representation=DividendRepresentation.HISTORICAL_YIELD,
-                column="historical_dividend_yield",
-            ),
-        ),
-    ),
-)
-
 __all__ = [
-    "PROJECT_STUDY",
     "Activation",
     "AttentionSlotPolicy",
     "BinnedDividendInput",

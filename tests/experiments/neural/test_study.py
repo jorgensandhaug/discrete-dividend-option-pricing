@@ -26,7 +26,8 @@ from discrete_dividend_study.experiments.neural.study import (
 )
 from discrete_dividend_study.experiments.windows import RollingWindow
 from discrete_dividend_study.models.neural.execution import PROJECT_PORTABLE_CPU_EXECUTION_PROFILE
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY, NeuralVariant
+from discrete_dividend_study.models.neural.specification import NeuralVariant
+from discrete_dividend_study.paper import PROJECT_STUDY
 from tests.models.neural.test_inputs import model_frame
 
 if TYPE_CHECKING:

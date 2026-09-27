@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Final, cast
 
+from discrete_dividend_study.core.serialization import dataclass_field_names
+
 _FORMAT: Final = "discrete-dividend-neural-run-receipt-v1"
 _SHA256_HEX_LENGTH: Final = 64
 
@@ -191,7 +193,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object]) -> None:
     if type(value) is not dict:
         raise NeuralRunReceiptError(reason="receipt must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise NeuralRunReceiptError(reason="receipt keys are missing or unexpected")
 

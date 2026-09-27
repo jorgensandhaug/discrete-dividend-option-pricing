@@ -88,13 +88,18 @@ data, configuration, seeds, software revisions, and runtime identity match. See
 
 ## Code map
 
-- `paper.py`: the small public surface for the frozen study and five model identities.
-- `neural_spec.py`: typed architecture and training configuration.
-- `torch_neural.py` and `mlx_neural.py`: backend implementations of that configuration.
-- `project_pipeline.py`: point-in-time feature construction and filtering.
-- `neural_cohort.py`: fail-fast schedule, coverage, and prepared-tensor admission.
-- `neural_study.py`: rolling execution and exact resume.
-- `finoptions-engine`: the separately versioned Rust pricing and simulation dependency.
+- [`paper.py`](src/discrete_dividend_study/paper.py): frozen study and model identities.
+- [`models/neural`](src/discrete_dividend_study/models/neural): typed architectures, training,
+  checkpoints, predictions, and backend-neutral parameters.
+- [`models/neural/backends`](src/discrete_dividend_study/models/neural/backends): PyTorch and MLX
+  implementations of the same model specifications.
+- [`data`](src/discrete_dividend_study/data): point-in-time feature construction and licensed-data
+  adapters.
+- [`experiments/neural`](src/discrete_dividend_study/experiments/neural): cohort admission, rolling
+  execution, exact resume, and aggregate tables.
+- [`models/lsm`](src/discrete_dividend_study/models/lsm): classical LSM inputs and pricing.
+- [`finoptions-engine`](https://github.com/jorgensandhaug/finoptions-engine): separately versioned
+  Rust pricing and simulation kernels.
 
 ## License and citation
 

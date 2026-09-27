@@ -15,16 +15,16 @@ from discrete_dividend_study.experiments.windows import (
     generate_rolling_windows,
 )
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     NeuralVariant,
     neural_study_sha256,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 _SHA256_HEX_LENGTH: Final = 64
 _LOWERCASE_HEXADECIMAL: Final = frozenset("0123456789abcdef")
 _MODEL_LABELS: Final = {
     NeuralVariant.LSTM: "Direct cash dividends (LSTM)",
-    NeuralVariant.EMBEDDING: "Direct cash dividends (attention)",
+    NeuralVariant.ATTENTION: "Direct cash dividends (attention)",
     NeuralVariant.BINS: "Direct cash dividends (12 bins)",
     NeuralVariant.FORECAST_YIELD: "Forecast continuous yield",
     NeuralVariant.HISTORICAL_YIELD: "Historical continuous yield",

@@ -8,7 +8,7 @@ import math
 import os
 import tempfile
 from contextlib import suppress
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from datetime import date
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 from finoptions import build_info
 
 from discrete_dividend_study.artifacts.study_features import VerifiedStudyFeatureArtifact
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.metrics import ProjectMetricError, ProjectPricingMetrics
 from discrete_dividend_study.experiments.neural.window import PreparedNeuralWindow
 from discrete_dividend_study.models.neural.checkpoints import (
@@ -1059,7 +1060,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise NeuralRunError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise NeuralRunError(reason=f"{field} keys are missing or unexpected")
 

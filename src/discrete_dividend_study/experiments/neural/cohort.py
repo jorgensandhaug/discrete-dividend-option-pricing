@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from contextlib import suppress
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -20,6 +20,7 @@ from discrete_dividend_study.artifacts.study_features import (
     VerifiedStudyFeatureArtifact,
     verify_study_feature_artifact_unchanged,
 )
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.data.pipeline import PROJECT_AS_SUBMITTED_TICKERS
 from discrete_dividend_study.experiments.neural.rolling import (
     PROJECT_NEURAL_ROLLING_PREPARATION_SPEC,
@@ -32,13 +33,13 @@ from discrete_dividend_study.experiments.windows import (
 )
 from discrete_dividend_study.models.neural.inputs import prepared_neural_batch_sha256
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     BinnedDividendInput,
     DirectDividendLstmInput,
     DividendYieldInput,
     EventAttentionInput,
     neural_study_sha256,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 if TYPE_CHECKING:
     from finoptions import CpuExecutor
@@ -593,7 +594,7 @@ def _exact_dataclass_mapping(
     if type(value) is not dict:
         raise NeuralCohortError(reason=f"{field} must be an object")
     mapping = cast("dict[str, object]", value)
-    if set(mapping) != {item.name for item in fields(model)}:
+    if set(mapping) != dataclass_field_names(model):
         raise NeuralCohortError(reason=f"{field} keys are missing or unexpected")
     return mapping
 

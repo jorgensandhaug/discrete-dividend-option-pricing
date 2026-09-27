@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -17,6 +17,7 @@ from finoptions import CpuMathBackend, LsmBatchResult, build_info
 from safetensors import SafetensorError, safe_open
 from safetensors.numpy import load_file, save_file
 
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.lsm_validation.partitions import (
     PreparedPublicationPartitions,
     publication_partitions_sha256,
@@ -1029,7 +1030,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise PublicationArtifactError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise PublicationArtifactError(reason=f"{field} keys are missing or unexpected")
 

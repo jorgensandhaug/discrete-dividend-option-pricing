@@ -7,7 +7,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -18,6 +18,7 @@ from finoptions import AndersenLakeBatchResult, CpuMathBackend, build_info
 from safetensors import SafetensorError, safe_open
 from safetensors.numpy import load_file, save_file
 
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.lsm_validation.cash_artifacts import (
     LoadedPublicationCashArtifact,
     PublicationCashArtifact,
@@ -528,7 +529,7 @@ def _aggregate_cash_artifacts(
     )
 
 
-def _cash_aggregate(  # noqa: PLR0913 - aggregate inputs remain explicit
+def _cash_aggregate(  # noqa: PLR0913, PLR0917 - aggregate inputs remain explicit
     variant: PublicationVariant,
     target: Float64Vector,
     mean: Float64Vector,
@@ -586,7 +587,7 @@ def _monte_carlo_summary(
     )
 
 
-def _write_publication_study_result(  # noqa: PLR0913 - identities stay explicit
+def _write_publication_study_result(  # noqa: PLR0913, PLR0917 - identities stay explicit
     directory: Path,
     source: StudySourceIdentity,
     inputs: PreparedPublicationPartitions,
@@ -914,7 +915,7 @@ def _decode_monte_carlo_summary(payload: object) -> PublicationMonteCarloSummary
         ) from error
 
 
-def _validate_final_request(  # noqa: PLR0913 - independent identities stay explicit
+def _validate_final_request(  # noqa: PLR0913, PLR0917 - independent identities stay explicit
     source: object,
     inputs: object,
     cash_artifacts: object,
@@ -1495,7 +1496,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise PublicationResultArtifactError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise PublicationResultArtifactError(reason=f"{field} keys are missing or unexpected")
 

@@ -17,7 +17,7 @@ from discrete_dividend_study.experiments.windows import (
     PROJECT_AS_SUBMITTED_ROLLING_WINDOW_SPEC,
     generate_rolling_windows,
 )
-from discrete_dividend_study.models.neural.specification import PROJECT_STUDY
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 if TYPE_CHECKING:
     import pytest

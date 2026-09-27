@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -17,6 +17,7 @@ from finoptions import CpuMathBackend, LsmBatchResult, build_info
 from safetensors import SafetensorError, safe_open
 from safetensors.numpy import load_file, save_file
 
+from discrete_dividend_study.core.serialization import dataclass_field_names
 from discrete_dividend_study.experiments.metrics import (
     ProjectMetricError,
     ProjectPricingMetrics,
@@ -45,7 +46,7 @@ from discrete_dividend_study.models.lsm.specification import (
     ClassicalStudySpec,
     ClassicalVariant,
     ClassicalVariantSpec,
-    _legacy_classical_study_sha256,
+    _classical_study_sha256_v2,
     classical_execution_sha256,
     classical_study_sha256,
 )
@@ -57,7 +58,7 @@ BoolVector = npt.NDArray[np.bool_]
 _FORMAT_V2: Final = "discrete-dividend-classical-study-artifact-v2"
 _FORMAT_V3: Final = "discrete-dividend-classical-study-artifact-v3"
 _FORMAT: Final = "discrete-dividend-classical-study-artifact-v4"
-_LEGACY_FORMAT_VERSION: Final = 2
+_FORMAT_VERSION_V2: Final = 2
 _GROUPED_FORMAT_VERSION: Final = 3
 _FORMAT_VERSION: Final = 4
 _SUPPORTED_FORMATS: Final = frozenset({_FORMAT_V2, _FORMAT_V3, _FORMAT})
@@ -94,7 +95,7 @@ _NATIVE_DTYPES: Final = {
     "early_exercise_paths": np.dtype(np.uint32),
     "expiry_paths": np.dtype(np.uint32),
 }
-_LEGACY_NATIVE_FIELDS: Final = tuple(
+_NATIVE_FIELDS_V2: Final = tuple(
     field for field in _NATIVE_FIELDS if field != "insufficient_exercise_support_nodes"
 )
 
@@ -141,7 +142,7 @@ class ClassicalStudyArtifactManifest:
     def __post_init__(self) -> None:
         """Reject incomplete, inconsistent, or unsupported serialized run identity."""
         if type(self.format_version) is not int or self.format_version not in (
-            _LEGACY_FORMAT_VERSION,
+            _FORMAT_VERSION_V2,
             _GROUPED_FORMAT_VERSION,
             _FORMAT_VERSION,
         ):
@@ -162,7 +163,7 @@ class ClassicalStudyArtifactManifest:
             raise ClassicalArtifactError(
                 reason="simulation_units must be a positive plain int no greater than observations"
             )
-        if self.format_version == _LEGACY_FORMAT_VERSION and (
+        if self.format_version == _FORMAT_VERSION_V2 and (
             self.execution.population_addressing is not ClassicalPopulationAddressing.CONTRACT_ROWS
             or self.simulation_units != self.observations
         ):
@@ -409,7 +410,7 @@ def load_classical_study_artifact(
         expected_study_sha256 = (
             classical_study_sha256(study)
             if artifact_format == _FORMAT
-            else _legacy_classical_study_sha256(study)
+            else _classical_study_sha256_v2(study)
         )
     except ClassicalSpecValueError as error:
         raise ClassicalArtifactError(reason=str(error)) from error
@@ -419,7 +420,7 @@ def load_classical_study_artifact(
         raise ClassicalArtifactError(reason="artifact tensor keys are missing or unexpected")
     if _tensors_sha256(tensors, artifact_format=artifact_format) != manifest.tensors_sha256:
         raise ClassicalArtifactError(reason="result tensors disagree with the manifest hash")
-    _upgrade_legacy_native_diagnostics(
+    _upgrade_v2_native_diagnostics(
         tensors,
         study=study,
         artifact_format=artifact_format,
@@ -642,7 +643,7 @@ def _decode_manifest(
     if type(payload) is not dict:
         raise ClassicalArtifactError(reason="manifest must be an object")
     values = cast("dict[str, Any]", payload)
-    if values.get("format_version") == _LEGACY_FORMAT_VERSION and artifact_format == _FORMAT_V2:
+    if values.get("format_version") == _FORMAT_VERSION_V2 and artifact_format == _FORMAT_V2:
         values["simulation_units"] = values.get("observations")
     elif values.get("format_version") == _GROUPED_FORMAT_VERSION and artifact_format == _FORMAT_V3:
         pass
@@ -752,7 +753,7 @@ def _expected_tensor_keys(
     *,
     artifact_format: str = _FORMAT,
 ) -> set[str]:
-    native_fields = _NATIVE_FIELDS if artifact_format == _FORMAT else _LEGACY_NATIVE_FIELDS
+    native_fields = _NATIVE_FIELDS if artifact_format == _FORMAT else _NATIVE_FIELDS_V2
     return {
         "target",
         *(
@@ -763,7 +764,7 @@ def _expected_tensor_keys(
     }
 
 
-def _upgrade_legacy_native_diagnostics(
+def _upgrade_v2_native_diagnostics(
     tensors: dict[str, np.ndarray],
     *,
     study: ClassicalStudySpec,
@@ -776,7 +777,7 @@ def _upgrade_legacy_native_diagnostics(
         key = _tensor_key(variant.variant, "insufficient_exercise_support_nodes")
         if key in tensors:
             raise ClassicalArtifactError(
-                reason="legacy artifact unexpectedly contains sparse-support diagnostics"
+                reason="version-2 artifact unexpectedly contains sparse-support diagnostics"
             )
         tensors[key] = np.zeros(observations, dtype=np.uint32)
 
@@ -805,7 +806,7 @@ def _tensors_sha256(
 
 def _request_sha256_from_manifest(manifest: ClassicalStudyArtifactManifest) -> str:
     artifact_format = {
-        _LEGACY_FORMAT_VERSION: _FORMAT_V2,
+        _FORMAT_VERSION_V2: _FORMAT_V2,
         _GROUPED_FORMAT_VERSION: _FORMAT_V3,
         _FORMAT_VERSION: _FORMAT,
     }[manifest.format_version]
@@ -966,7 +967,7 @@ def _canonical_json(value: object) -> str:
 def _require_exact_keys(value: object, model: type[object], *, field: str) -> None:
     if type(value) is not dict:
         raise ClassicalArtifactError(reason=f"{field} must be an object")
-    expected = {item.name for item in fields(model)}
+    expected = dataclass_field_names(model)
     if set(cast("dict[object, object]", value)) != expected:
         raise ClassicalArtifactError(reason=f"{field} keys are missing or unexpected")
 

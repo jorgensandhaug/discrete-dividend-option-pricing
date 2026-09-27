@@ -16,15 +16,11 @@ from benchmarks.neural_training import (
     resolve_benchmark_execution,
     synthetic_neural_batch,
 )
-from benchmarks.tabpfn_preparation import main as tabpfn_preparation_main
 from discrete_dividend_study.models.neural.execution import NeuralBackend, NeuralDevice
 from discrete_dividend_study.models.neural.specification import NeuralVariant
 
 SYNTHETIC_ROWS = 7
 RSS_SAMPLE = 123
-TABPFN_FEATURE_COLUMNS = 18
-TABPFN_FLOAT32_BYTES = 4
-TABPFN_ROWS = 1000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -37,7 +33,7 @@ def test_neural_benchmark_recipe_uses_importable_package_module() -> None:
 
 def test_benchmark_execution_choice_is_explicit_and_backend_stable() -> None:
     """Alternative measurements resolve the requested backend rather than the host default."""
-    variant = NeuralVariant.EMBEDDING
+    variant = NeuralVariant.ATTENTION
     cpu = resolve_benchmark_execution(ExecutionChoice.TORCH_CPU, variant, 3)
     gpu = resolve_benchmark_execution(ExecutionChoice.MLX_GPU, variant, 3)
     assert (cpu.backend, cpu.device, cpu.cpu_threads) == (
@@ -99,26 +95,3 @@ def test_peak_rss_units_are_explicit_on_supported_platforms() -> None:
     assert normalize_max_rss_bytes(RSS_SAMPLE, "Linux") == RSS_SAMPLE * 1024
     with pytest.raises(BenchmarkPlatformError, match="undeclared"):
         normalize_max_rss_bytes(RSS_SAMPLE, "Plan9")
-
-
-def test_tabpfn_preparation_benchmark_emits_reproducible_content(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The benchmark times only the one required flat allocation and identifies its bytes."""
-    outputs: list[dict[str, object]] = []
-    for _ in range(2):
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            ["tabpfn-preparation", "--rows", str(TABPFN_ROWS)],
-        )
-        tabpfn_preparation_main()
-        outputs.append(json.loads(capsys.readouterr().out))
-    assert outputs[0]["prepared_sha256"] == outputs[1]["prepared_sha256"]
-    assert outputs[0]["source_prepared_batch_sha256"] == outputs[1]["source_prepared_batch_sha256"]
-    assert outputs[0]["feature_columns"] == TABPFN_FEATURE_COLUMNS
-    assert outputs[0]["feature_payload_bytes"] == (
-        TABPFN_ROWS * TABPFN_FEATURE_COLUMNS * TABPFN_FLOAT32_BYTES
-    )
-    assert outputs[0]["target_is_zero_copy"] is True

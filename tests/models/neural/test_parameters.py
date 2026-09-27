@@ -9,12 +9,12 @@ import pytest
 
 from discrete_dividend_study.models.neural.parameters import initialize_neural_parameters
 from discrete_dividend_study.models.neural.specification import (
-    PROJECT_STUDY,
     NeuralSpecValueError,
     NeuralVariant,
     ParameterInitialization,
     trainable_parameter_count,
 )
+from discrete_dividend_study.paper import PROJECT_STUDY
 
 SEED = 20261207
 SHA256_HEX_LENGTH = 64
@@ -61,13 +61,13 @@ def test_encoder_parameter_names_and_shapes_are_unambiguous() -> None:
     with pytest.raises(KeyError):
         lstm.get("lstm.0.bias_input")
 
-    embedding = initialize_neural_parameters(
+    attention = initialize_neural_parameters(
         PROJECT_STUDY,
-        PROJECT_STUDY.model(NeuralVariant.EMBEDDING),
+        PROJECT_STUDY.model(NeuralVariant.ATTENTION),
         SEED,
     )
-    assert embedding.get("embedding.0.weight").shape == (8, 3)
-    assert embedding.get("attention.weight").shape == (1, 8)
+    assert attention.get("embedding.0.weight").shape == (8, 3)
+    assert attention.get("attention.weight").shape == (1, 8)
 
 
 def test_seed_changes_content_and_invalid_seeds_fail() -> None:

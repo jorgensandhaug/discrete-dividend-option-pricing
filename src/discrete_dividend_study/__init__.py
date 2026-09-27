@@ -4,8 +4,8 @@ from importlib.metadata import version
 from typing import Final
 
 from discrete_dividend_study.paper import (
-    DIRECT_ATTENTION,
     DIRECT_LSTM,
+    EVENT_ATTENTION,
     FORECAST_YIELD,
     HISTORICAL_YIELD,
     PROJECT_MODELS,
@@ -16,8 +16,8 @@ from discrete_dividend_study.paper import (
 __version__: Final = version("discrete-dividend-option-pricing")
 
 __all__ = [
-    "DIRECT_ATTENTION",
     "DIRECT_LSTM",
+    "EVENT_ATTENTION",
     "FORECAST_YIELD",
     "HISTORICAL_YIELD",
     "PROJECT_MODELS",
